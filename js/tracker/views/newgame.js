@@ -1,5 +1,5 @@
 import {
-  assignCap, defaultSelection, lineupFrom, todayIso, toggleSelected, validateLineup,
+  assignCap, defaultSelection, isValidSeason, lineupFrom, seasonFor, todayIso, toggleSelected, validateLineup,
 } from '../../model.js';
 import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
@@ -24,6 +24,19 @@ export function mount(root, ctx) {
   const date = h('input', {
     id: 'game-date', class: 'input', type: 'date', value: todayIso(), 'data-testid': 'date-input',
   });
+  // The season follows the date until it is edited by hand.
+  let seasonTouched = false;
+  const season = h('input', {
+    id: 'game-season', class: 'input', type: 'text', inputmode: 'numeric', autocomplete: 'off',
+    value: seasonFor(todayIso()), 'aria-describedby': 'game-season-error', 'data-testid': 'season-input',
+    oninput: () => { seasonTouched = true; if (selection !== null) renderRows(); },
+  });
+  date.addEventListener('input', () => {
+    if (!seasonTouched && date.value) season.value = seasonFor(date.value);
+    if (selection !== null) renderRows();
+  });
+  const seasonError = h('p', { id: 'game-season-error', class: 'form-error', role: 'alert', 'data-testid': 'season-error', hidden: true },
+    t('seasonInvalid'));
   const list = h('ul', { class: 'sel-list', 'data-testid': 'sel-list' });
   const lineupError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'lineup-error', hidden: true });
   const empty = h('div', { class: 'stack', hidden: true },
@@ -35,6 +48,7 @@ export function mount(root, ctx) {
   const form = h('form', { class: 'new-form', novalidate: true, onsubmit: event => { event.preventDefault(); startGame(); } },
     h('div', { class: 'field' }, h('label', { for: 'opponent' }, t('opponentLabel')), opponent),
     h('div', { class: 'field' }, h('label', { for: 'game-date' }, t('dateLabel')), date),
+    h('div', { class: 'field' }, h('label', { for: 'game-season' }, t('seasonLabel')), season, seasonError),
     h('h3', { class: 'sel-heading' }, t('lineupHeading')),
     empty, list, lineupError, start);
   const blocked = h('div', { class: 'stack', hidden: true },
@@ -95,7 +109,9 @@ export function mount(root, ctx) {
     const noPlayers = errors.some(error => error.reason === 'noPlayers');
     lineupError.hidden = !noPlayers;
     lineupError.textContent = noPlayers ? t('selNoPlayers') : '';
-    start.disabled = starting || errors.length > 0 || !ctx.getState().active;
+    const seasonOk = isValidSeason(season.value.trim());
+    seasonError.hidden = seasonOk;
+    start.disabled = starting || errors.length > 0 || !seasonOk || !ctx.getState().active;
   }
 
   function init(state) {
@@ -113,13 +129,14 @@ export function mount(root, ctx) {
 
   function startGame() {
     const state = ctx.getState();
-    if (starting || !state.active || validateLineup(selection).length > 0) return;
+    if (starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim())) return;
     starting = true;
     renderRows();
     try {
       const created = ctx.repo.createGame({
         opponent: opponent.value.trim() || t('opponentDefault'),
         date: date.value || todayIso(),
+        season: season.value.trim(),
         lineup: lineupFrom(selection),
         roster: state.team?.roster ?? [],
       });

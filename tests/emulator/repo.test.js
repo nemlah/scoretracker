@@ -94,6 +94,65 @@ test('add, replace, remove events round-trip; unknown-scorer goal has no playerI
   assert.deepEqual((await read(db, `games/${id}`)).events, []);
 });
 
+test('createGame takes an explicit season and otherwise follows the date', async () => {
+  const { db, repo } = await activeClient();
+  const explicit = await createGame(repo, { ...gameInput, season: '2025-26' });
+  assert.equal((await read(db, `games/${explicit}`)).season, '2025-26');
+  const derived = await createGame(repo);
+  assert.equal((await read(db, `games/${derived}`)).season, '2026-27');
+});
+
+test('updateGameInfo changes opponent, date and season and nothing else; inactive trackers are refused', async () => {
+  const first = await activeClient();
+  const id = await createGame(first.repo);
+  const event = makeEvent('goal', 1, 'a', 1000, 'goal-1');
+  await first.repo.addEvent(id, event);
+  await first.repo.updateGameInfo(id, { opponent: 'Harbour WPC', date: '2026-07-01', season: '2025-26' });
+  const game = await read(first.db, `games/${id}`);
+  assert.equal(game.opponent, 'Harbour WPC');
+  assert.equal(game.date, '2026-07-01');
+  assert.equal(game.season, '2025-26');
+  assert.equal(game.status, 'live');
+  assert.deepEqual(game.events, [event]);
+  assert.deepEqual(game.lineup, lineup);
+
+  const second = await activeClient();
+  await assert.rejects(first.repo.updateGameInfo(id, { opponent: 'X', date: '2026-07-02', season: '2025-26' }), { code: 'permission-denied' });
+  assert.equal((await read(second.db, `games/${id}`)).opponent, 'Harbour WPC');
+});
+
+test('endGame repoints currentGameId to the newest game when a newer one exists', async () => {
+  const { db, repo } = await activeClient();
+  const older = await createGame(repo, { ...gameInput, date: '2026-11-01' });
+  const newest = await createGame(repo, { ...gameInput, date: '2026-11-10' });
+  await repo.endGame(newest);
+  assert.equal((await read(db, 'team/main')).currentGameId, newest);
+  // Reopening the older game points the team at it; ending it again goes back to the newest.
+  await repo.reopenGame(older);
+  assert.equal((await read(db, 'team/main')).currentGameId, older);
+  await repo.endGame(older);
+  assert.equal((await read(db, `games/${older}`)).status, 'final');
+  assert.equal((await read(db, 'team/main')).currentGameId, newest);
+  // Ending the newest game leaves the pointer alone, and the team's other fields survive.
+  await repo.reopenGame(newest);
+  await repo.endGame(newest);
+  const team = await read(db, 'team/main');
+  assert.equal(team.currentGameId, newest);
+  assert.deepEqual(team.roster.map(player => player.id), ['a', 'b']);
+});
+
+test('endGame still ends the game when the server cannot be asked', async () => {
+  const { db, repo } = await activeClient();
+  const older = await createGame(repo, { ...gameInput, date: '2026-11-01' });
+  await createGame(repo, { ...gameInput, date: '2026-11-10' });
+  await repo.reopenGame(older);
+  await disableNetwork(db);
+  const ending = repo.endGame(older);
+  await enableNetwork(db);
+  await ending;
+  assert.equal((await read(db, `games/${older}`)).status, 'final');
+});
+
 test('endGame marks final and writes stats/{season}', async () => {
   const { db, repo } = await activeClient();
   const id = await createGame(repo);

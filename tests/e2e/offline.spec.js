@@ -213,7 +213,8 @@ test('a slow successful response is stored and becomes the next offline response
   await page.reload();
   await expect(page.locator('#app')).not.toHaveAttribute('data-shell', 'refreshed');
   await expect.poll(() => page.evaluate(async () => {
-    const cached = await (await caches.open('wp-shell-v1')).match('/index.html');
+    const { scope } = await navigator.serviceWorker.getRegistration();
+    const cached = await (await caches.open(`wp-shell-v1::${scope}`)).match('/index.html');
     return (await cached.text()).includes('data-shell="refreshed"');
   }), { timeout: 10000 }).toBe(true);
   await context.unroute(`${ORIGIN}/index.html*`);

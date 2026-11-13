@@ -32,3 +32,12 @@ test('a rejected write still leaves the season marked and drained once', async (
   await Promise.resolve();
   assert.deepEqual(ctx.calls, [['mark', '2026-27'], ['drain']]);
 });
+
+test('several seasons are all marked and drained, then marked again after the write', async () => {
+  const ctx = fakeCtx();
+  const returned = recountAfter(ctx, ['2025-26', '2026-27', '2025-26'], Promise.resolve());
+  assert.deepEqual(ctx.calls, [['mark', '2025-26'], ['mark', '2026-27'], ['drain']]);
+  await returned;
+  await Promise.resolve();
+  assert.deepEqual(ctx.calls.slice(3), [['mark', '2025-26'], ['mark', '2026-27'], ['drain']]);
+});

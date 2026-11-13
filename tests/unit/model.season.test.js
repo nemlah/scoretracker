@@ -84,3 +84,11 @@ test('formatDate and todayIso', () => {
   assert.equal(m.formatDate('2026-11-08'), '08/11/2026');
   assert.equal(m.todayIso(new Date('2026-11-12T22:30:00Z')), '2026-11-13');
 });
+
+test('isValidSeason accepts exactly YYYY-YY', () => {
+  assert.equal(m.isValidSeason('2026-27'), true);
+  assert.equal(m.isValidSeason(m.seasonFor('2026-11-08')), true);
+  for (const bad of ['2026-2', '26-27', '2026-277', ' 2026-27', '2026/27', 'abcd-ef', '', null, undefined]) {
+    assert.equal(m.isValidSeason(bad), false, String(bad));
+  }
+});

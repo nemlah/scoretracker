@@ -1,5 +1,7 @@
 // Offline app shell. Classic script: service workers are not loaded as modules here.
-const CACHE = 'wp-shell-v1';
+// The Cache Storage is shared by every site on the origin (GitHub Pages project sites included),
+// so the name carries this worker's scope and cleanup only ever touches caches of this scope.
+const CACHE = `wp-shell-v1::${self.registration.scope}`;
 
 // SHELL-START
 const SHELL = [
@@ -63,7 +65,9 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     for (const key of await caches.keys()) {
-      if (key !== CACHE) await caches.delete(key);
+      if (key !== CACHE && key.startsWith('wp-shell-') && key.endsWith(`::${self.registration.scope}`)) {
+        await caches.delete(key);
+      }
     }
     await self.clients.claim();
   })());
@@ -129,6 +133,10 @@ async function networkFirst(event) {
   }
 }
 
+// The Google Fonts stylesheet blocks rendering. If it was never stored and the network does not
+// answer in time, the page gets an empty stylesheet (system fonts) instead of a blank screen.
+const FONT_CSS_PREFIX = 'https://fonts.googleapis.com/';
+
 async function cacheFirst(event) {
   const { request } = event;
   let cache = null;
@@ -139,11 +147,22 @@ async function cacheFirst(event) {
   } catch (err) {
     console.warn('Service worker cache unavailable', err);
   }
-  const response = await fetch(request);
-  if (cache && storable(response) && !failed(response)) {
-    event.waitUntil(store(cache, request, response.clone()));
+  let persisted = Promise.resolve();
+  const network = fetch(request).then(response => {
+    if (cache && storable(response) && !failed(response)) persisted = store(cache, request, response.clone());
+    return response;
+  });
+  // A slow answer is still stored for next time; the worker stays alive until then.
+  event.waitUntil(network.then(() => persisted, () => {}));
+  if (!request.url.startsWith(FONT_CSS_PREFIX)) return network;
+  let timer;
+  const timeout = new Promise(resolve => { timer = setTimeout(resolve, NETWORK_TIMEOUT_MS, null); });
+  try {
+    return (await Promise.race([network, timeout]))
+      ?? new Response('', { status: 200, headers: { 'Content-Type': 'text/css' } });
+  } finally {
+    clearTimeout(timer);
   }
-  return response;
 }
 
 self.addEventListener('fetch', event => {

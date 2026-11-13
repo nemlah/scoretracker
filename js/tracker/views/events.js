@@ -1,4 +1,6 @@
 import { prevPeriod, makeEvent, withPlayer } from '../../model.js';
+const ADD_PERIODS = [1, 2, 3, 4, 'SO'];
+const DEFAULT_ADD_PERIOD = '4';
 import { eventLabel, periodLabel, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
 import { h } from '../../ui/dom.js';
@@ -47,6 +49,11 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
   const addUnknown = h('button', {
     type: 'button', class: 'btn', 'data-testid': 'add-unknown-goal', onclick: onAddUnknown,
   }, t('addUnknownGoal'));
+  // A goal added to a game that is no longer live has no "current" period: ask, defaulting to Q4.
+  const addPeriod = h('select', {
+    class: 'input ev-addperiod', 'aria-label': t('addGoalPeriodLabel'), 'data-testid': 'add-goal-period', hidden: true,
+  }, ADD_PERIODS.map(period => h('option', { value: String(period) }, periodLabel(period))));
+  addPeriod.value = DEFAULT_ADD_PERIOD;
   const periodPrev = h('button', {
     type: 'button', class: 'btn', 'data-testid': 'period-prev', onclick: onPeriodPrev,
   }, t('periodPrevNone'));
@@ -60,7 +67,8 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
   const list = h('ul', { class: 'ev-list', 'data-testid': 'ev-list' });
   const empty = h('p', { class: 'help', 'data-testid': 'ev-empty' }, t('eventsEmpty'));
   const el = h('div', { class: 'events' },
-    h('div', { class: 'ev-actions' }, addUnknown, periodPrev, openLineup, endGame.el), empty, list);
+    h('div', { class: 'ev-actions' }, h('span', { class: 'ev-add' }, addUnknown, addPeriod), periodPrev, openLineup, endGame.el),
+    empty, list);
 
   // Writes on a final game change the season stats; those also queue a recount.
   function send(target, start) {
@@ -81,7 +89,8 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
       ctx.tapper.tap('goal', null);
       return;
     }
-    const event = makeEvent('goal', target.period, null);
+    const chosen = addPeriod.value === 'SO' ? 'SO' : Number(addPeriod.value);
+    const event = makeEvent('goal', target.status === 'live' ? target.period : chosen, null);
     ctx.journal.record(target.id, 'add', event);
     send(target, () => ctx.repo.addEvent(target.id, event));
   }
@@ -179,6 +188,8 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     const key = lineupSignature(lineup);
 
     addUnknown.disabled = !writable;
+    addPeriod.hidden = live;
+    addPeriod.disabled = !writable;
     periodPrev.hidden = !live;
     const previous = prevPeriod(current.period);
     periodPrev.textContent = previous === null ? t('periodPrevNone') : t('periodPrev', { label: periodLabel(previous) });

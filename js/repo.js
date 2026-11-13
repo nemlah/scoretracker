@@ -20,7 +20,20 @@ import {
 } from 'firebase/firestore';
 import { aggregateSeason, rosterWithCaps, seasonFor } from './model.js';
 
+// Ending a game looks for a newer game first. With signal bars but no data that look must not
+// hold the end back: past this the game ends without it.
+const END_LOOKUP_MS = 2000;
+
 const gameData = snapshot => ({ ...snapshot.data(), id: snapshot.id });
+
+async function withinMs(promise, ms) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, ms, null); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function requireOnline() {
   if (globalThis.navigator?.onLine === false) {
@@ -46,6 +59,20 @@ export function createRepo(db) {
   function takeOver(uid) {
     // Security rules deliberately restrict this document to these two keys.
     return setDoc(controlRef, { activeUid: uid, claimedAt: serverTimestamp() });
+  }
+
+  // The id of the newest game when it is newer than this one; null otherwise or when unreachable.
+  async function newerGameId(gameId) {
+    try {
+      const [game, newest] = await Promise.all([
+        getDocFromServer(gameRef(gameId)),
+        getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(1))),
+      ]);
+      const top = newest.docs[0];
+      return top && top.id !== gameId && top.data().date > game.data()?.date ? top.id : null;
+    } catch {
+      return null;
+    }
   }
 
   return {
@@ -89,13 +116,13 @@ export function createRepo(db) {
       return setDoc(teamRef, updated({ roster }), { merge: true });
     },
 
-    createGame({ opponent, date, lineup, roster }) {
+    createGame({ opponent, date, season = seasonFor(date), lineup, roster }) {
       const ref = doc(gamesRef);
       const batch = writeBatch(db);
       batch.set(ref, updated({
         opponent,
         date,
-        season: seasonFor(date),
+        season,
         status: 'live',
         period: 1,
         lineup,
@@ -136,8 +163,19 @@ export function createRepo(db) {
       return batch.commit();
     },
 
-    endGame(gameId) {
-      return updateDoc(gameRef(gameId), updated({ status: 'final' }));
+    /** Opponent, date and season are editable after the game has started. */
+    updateGameInfo(gameId, { opponent, date, season }) {
+      return updateDoc(gameRef(gameId), updated({ opponent, date, season }));
+    },
+
+    async endGame(gameId) {
+      const batch = writeBatch(db);
+      batch.update(gameRef(gameId), updated({ status: 'final' }));
+      // Reopening an older game made it current; once it ends again the team should point at the
+      // newest game, which is what the viewer shows.
+      const newer = globalThis.navigator?.onLine === false ? null : await withinMs(newerGameId(gameId), END_LOOKUP_MS);
+      if (newer) batch.set(teamRef, updated({ currentGameId: newer }), { merge: true });
+      await batch.commit();
     },
 
     reopenGame(gameId) {

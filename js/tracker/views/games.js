@@ -1,4 +1,6 @@
-import { deriveScore, formatDate, hasShootout } from '../../model.js';
+import {
+  deriveScore, formatDate, hasShootout, isValidSeason, seasonFor,
+} from '../../model.js';
 import { scoreText, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
 import { h } from '../../ui/dom.js';
@@ -29,6 +31,8 @@ export function mount(root, ctx) {
   let detailGame; // undefined until the first snapshot, null once known to be missing
   let detailMeta = null;
   let reopening = null; // id of a game we asked to reopen and are waiting to see live
+  let infoFor = null; // id of the game the details form was last filled from
+  let seasonTouched = false;
 
   // ---- list ----
   const listStatus = h('p', { class: 'status-line', role: 'status' }, t('gamesLoading'));
@@ -79,10 +83,31 @@ export function mount(root, ctx) {
   const del = createConfirmButton({
     label: t('deleteGame'), testid: 'delete-game', className: 'btn--danger', onConfirm: onDelete,
   });
+  // Opponent, date and season can be corrected after the game has started.
+  const infoOpponent = h('input', {
+    id: 'info-opponent', class: 'input', type: 'text', maxlength: 40, autocomplete: 'off', 'data-testid': 'info-opponent',
+  });
+  const infoDate = h('input', { id: 'info-date', class: 'input', type: 'date', 'data-testid': 'info-date' });
+  const infoSeason = h('input', {
+    id: 'info-season', class: 'input', type: 'text', inputmode: 'numeric', autocomplete: 'off', 'data-testid': 'info-season',
+    oninput: () => { seasonTouched = true; },
+  });
+  // The season follows the date until it is edited by hand.
+  infoDate.addEventListener('input', () => {
+    if (!seasonTouched && infoDate.value) infoSeason.value = seasonFor(infoDate.value);
+  });
+  const infoError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'info-error', hidden: true });
+  const infoSave = h('button', { type: 'submit', class: 'btn', 'data-testid': 'info-save' }, t('infoSave'));
+  const infoForm = h('form', { class: 'info-form stack', novalidate: true, onsubmit: onSaveInfo },
+    h('h3', {}, t('infoHeading')),
+    h('div', { class: 'field' }, h('label', { for: 'info-opponent' }, t('opponentLabel')), infoOpponent),
+    h('div', { class: 'field' }, h('label', { for: 'info-date' }, t('dateLabel')), infoDate),
+    h('div', { class: 'field' }, h('label', { for: 'info-season' }, t('seasonLabel')), infoSeason),
+    infoError, infoSave);
   const panel = createEventsPanel(ctx, root, { onEnded: () => ctx.navigate('/') });
   const detailBody = h('div', { class: 'stack', hidden: true },
     title, meta, score, liveNote,
-    h('div', { class: 'detail-actions' }, reopen, del.el), reopenNote, panel.el);
+    h('div', { class: 'detail-actions' }, reopen, del.el), reopenNote, infoForm, panel.el);
   const detailView = h('section', { class: 'game-detail' }, back, detailStatus, detailBody);
 
   root.append(listView, detailView);
@@ -91,6 +116,7 @@ export function mount(root, ctx) {
     unwatch?.();
     detailGame = undefined;
     detailMeta = null;
+    infoFor = null;
     unwatch = ctx.watchGame(id, (game, snapshotMeta) => {
       if (unmounted || mode !== id) return;
       detailGame = game;
@@ -118,7 +144,17 @@ export function mount(root, ctx) {
     if (game === null || game === undefined) return;
 
     title.textContent = game.opponent;
-    meta.textContent = formatDate(game.date);
+    meta.textContent = `${formatDate(game.date)} · ${game.season}`;
+    // Filled once per game; later snapshots must not overwrite what is being typed.
+    if (infoFor !== game.id) {
+      infoFor = game.id;
+      seasonTouched = false;
+      infoOpponent.value = game.opponent;
+      infoDate.value = game.date;
+      infoSeason.value = game.season;
+      infoError.hidden = true;
+    }
+    for (const field of [infoOpponent, infoDate, infoSeason, infoSave]) field.disabled = !state.active;
     score.textContent = resultText(game);
     const live = game.status === 'live';
     liveNote.hidden = !live;
@@ -129,6 +165,29 @@ export function mount(root, ctx) {
     reopenNote.hidden = live || !other;
     del.el.disabled = !state.active;
     panel.update(game, state);
+  }
+
+  function onSaveInfo(event) {
+    event.preventDefault();
+    const game = detailGame;
+    if (!game || !ctx.getState().active) return;
+    const opponent = infoOpponent.value.trim();
+    const date = infoDate.value;
+    const season = infoSeason.value.trim();
+    const problem = opponent === '' ? t('opponentRequired') : date === '' ? t('dateRequired')
+      : !isValidSeason(season) ? t('seasonInvalid') : null;
+    infoError.hidden = problem === null;
+    infoError.textContent = problem ?? '';
+    if (problem !== null) return;
+    if (opponent === game.opponent && date === game.date && season === game.season) return;
+    try {
+      // Both the old and the new season change when a game moves between them; the same season
+      // still lists the game's opponent and date in its results.
+      recountAfter(ctx, [game.season, season], ctx.repo.updateGameInfo(game.id, { opponent, date, season }))
+        .catch(ctx.onWriteError);
+    } catch (err) {
+      ctx.onWriteError(err);
+    }
   }
 
   function onReopen() {

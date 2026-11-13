@@ -2,6 +2,9 @@ import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
 const CODE_LENGTH = 6;
+// With signal bars but no data the write waits for an answer that never comes. The write stays
+// queued and the editor listener unlocks the page if it lands later; the form stops waiting.
+const UNLOCK_TIMEOUT_MS = 10000;
 const cleanCode = value => value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, CODE_LENGTH);
 
 export function mount(root, ctx) {
@@ -18,7 +21,6 @@ export function mount(root, ctx) {
     autocorrect: 'off',
     spellcheck: 'false',
     enterkeyhint: 'go',
-    maxlength: CODE_LENGTH,
     'aria-describedby': 'tracker-code-help tracker-code-error',
     'data-testid': 'code-input',
     oninput: () => {
@@ -60,12 +62,20 @@ export function mount(root, ctx) {
     busy = true;
     submitError = null;
     sync();
+    let timer;
     try {
-      await ctx.repo.unlock(ctx.getState().uid, code);
+      await Promise.race([
+        ctx.repo.unlock(ctx.getState().uid, code),
+        new Promise((resolve, reject) => {
+          timer = setTimeout(reject, UNLOCK_TIMEOUT_MS, { code: 'unavailable' });
+        }),
+      ]);
     } catch (err) {
       submitError = err?.code === 'permission-denied' ? t('unlockWrongCode')
         : err?.code === 'unavailable' ? t('unlockNeedsConnection')
           : t('unlockFailed');
+    } finally {
+      clearTimeout(timer);
     }
     busy = false;
     sync();

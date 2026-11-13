@@ -5,6 +5,8 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../sw.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://pool.example';
+const SCOPE = `${ORIGIN}/`;
+const CACHE_NAME = `wp-shell-v1::${SCOPE}`;
 const keyOf = (input, ignoreSearch) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
   if (ignoreSearch) url.search = '';
@@ -12,8 +14,10 @@ const keyOf = (input, ignoreSearch) => {
 };
 
 // Runs sw.js against in-memory stand-ins for the worker globals.
-function boot({ fetchImpl, putImpl } = {}) {
+function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
   const store = new Map();
+  const opened = [];
+  const deleted = [];
   const warnings = [];
   const listeners = {};
   const cache = {
@@ -32,9 +36,14 @@ function boot({ fetchImpl, putImpl } = {}) {
     self: {
       addEventListener: (type, fn) => { listeners[type] = fn; },
       location: { origin: ORIGIN },
+      registration: { scope },
       clients: { claim: async () => {} },
     },
-    caches: { open: async () => cache, keys: async () => [], delete: async () => true },
+    caches: {
+      open: async name => { opened.push(name); return cache; },
+      keys: async () => cacheNames,
+      delete: async name => { deleted.push(name); return true; },
+    },
     fetch: (...args) => fetchImpl(...args),
     console: { warn: (...args) => warnings.push(args.join(' ')), error: () => {} },
     URL, Response, Promise, Date, setTimeout, clearTimeout,
@@ -52,7 +61,12 @@ function boot({ fetchImpl, putImpl } = {}) {
     assert.ok(responded, `${url} is intercepted`);
     return { response: responded, settled: () => Promise.all(waits) };
   }
-  return { dispatch, store, warnings };
+  async function activate() {
+    const waits = [];
+    listeners.activate({ waitUntil: promise => waits.push(promise) });
+    await Promise.all(waits);
+  }
+  return { dispatch, activate, store, warnings, opened, deleted };
 }
 
 const page = `${ORIGIN}/track.html`;
@@ -128,4 +142,53 @@ test('cache-first keeps the query of font CSS URLs and serves from the cache nex
   const { response } = await sw.dispatch(url);
   assert.equal(await (await response).text(), 'css');
   assert.equal(fetched, 1);
+});
+
+test('the shell cache is named after the worker scope, so sibling sites keep their own', async () => {
+  const sw = boot({ fetchImpl: async () => new Response('x') });
+  await (await sw.dispatch(page)).response;
+  assert.deepEqual([...new Set(sw.opened)], [CACHE_NAME]);
+  const project = boot({ scope: `${ORIGIN}/scoretracker/`, fetchImpl: async () => new Response('x') });
+  await (await project.dispatch(page)).response;
+  assert.deepEqual([...new Set(project.opened)], [`wp-shell-v1::${ORIGIN}/scoretracker/`]);
+});
+
+test('activation deletes only this scope\'s obsolete shell caches', async () => {
+  const sw = boot({
+    cacheNames: [
+      CACHE_NAME,
+      `wp-shell-v0::${SCOPE}`, // an older version of this app: removed
+      `wp-shell-v1::${ORIGIN}/sibling/`, // another project on the same origin
+      'wp-shell-v1', // legacy unscoped name: not provably ours
+      'sibling-app-cache', // an unrelated cache
+      `other-prefix-v1::${SCOPE}`, // not a shell cache
+    ],
+  });
+  await sw.activate();
+  assert.deepEqual(sw.deleted, [`wp-shell-v0::${SCOPE}`]);
+});
+
+test('a font stylesheet that is not cached and does not answer in time becomes an empty stylesheet', async () => {
+  let release;
+  const sw = boot({
+    fetchImpl: () => new Promise(resolve => { release = resolve; }),
+  });
+  const url = 'https://fonts.googleapis.com/css2?family=Fira+Sans';
+  const { response, settled } = await sw.dispatch(url);
+  const result = await response;
+  assert.equal(result.status, 200);
+  assert.match(result.headers.get('content-type'), /^text\/css/);
+  assert.equal(await result.text(), '');
+  assert.equal(sw.store.has(url), false, 'the placeholder is not cached');
+  // The real answer, when it arrives, is stored for next time.
+  release(new Response('real css', { headers: { 'content-type': 'text/css' } }));
+  await settled();
+  assert.equal(await sw.store.get(url).text(), 'real css');
+});
+
+test('a font stylesheet that answers in time is returned as it is', async () => {
+  const sw = boot({ fetchImpl: async () => new Response('real css') });
+  const { response, settled } = await sw.dispatch('https://fonts.googleapis.com/css2?family=Fira+Sans');
+  assert.equal(await (await response).text(), 'real css');
+  await settled();
 });

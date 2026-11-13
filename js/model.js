@@ -173,6 +173,11 @@ export function seasonFor(isoDate) {
   return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
 
+/** A season label is exactly YYYY-YY, for example 2026-27. */
+export function isValidSeason(season) {
+  return typeof season === 'string' && /^\d{4}-\d{2}$/.test(season);
+}
+
 export function gameResult(game) {
   const { us, them, soUs, soThem } = deriveScore(game.events);
   const result = { gameId: game.id, date: game.date, opponent: game.opponent, us, them };

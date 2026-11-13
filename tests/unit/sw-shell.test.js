@@ -69,3 +69,10 @@ test('after one timeout the rest of the page chain is served from the cache for 
   const source = readFileSync(join(root, 'sw.js'), 'utf8');
   assert.match(source, /const SLOW_NETWORK_MS = \d+;/);
 });
+
+test('the shell cache name carries the worker scope and activation only touches this scope', () => {
+  const source = readFileSync(join(root, 'sw.js'), 'utf8');
+  assert.match(source, /const CACHE = `wp-shell-v1::\$\{self\.registration\.scope\}`;/);
+  assert.match(source, /startsWith\('wp-shell-'\)/);
+  assert.match(source, /endsWith\(`::\$\{self\.registration\.scope\}`\)/);
+});
