@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function secretCode() { return get(/databases/$(database)/documents/secrets/editCode).data.code; }
+    function signedIn() { return request.auth != null; }
+    function isValidEditor() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/editors/$(request.auth.uid))
+        && get(/databases/$(database)/documents/editors/$(request.auth.uid)).data.code == secretCode();
+    }
+    function isActiveTracker() {
+      return isValidEditor()
+        && get(/databases/$(database)/documents/control/tracker).data.activeUid == request.auth.uid;
+    }
+    match /secrets/{id} { allow read, write: if false; }
+    match /editors/{uid} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['code', 'claimedAt'])
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^[0-9A-Z]{6}$')
+        && request.resource.data.code == secretCode();
+    }
+    match /control/tracker {
+      allow read: if true;
+      allow write: if isValidEditor() && request.resource.data.activeUid == request.auth.uid;
+    }
+    match /team/main        { allow read: if true; allow write: if isActiveTracker(); }
+    match /games/{gameId}   { allow read: if true; allow write: if isActiveTracker(); }
+    match /stats/{season}   { allow read: if true; allow write: if isActiveTracker(); }
+  }
+}

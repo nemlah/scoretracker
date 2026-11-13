@@ -1,1 +1,1 @@
-{"name":"waterpolo-scoretracker","private":true,"type":"module","scripts":{"test":"node --test \"tests/unit/**/*.test.js\""}}
+{"name":"waterpolo-scoretracker","private":true,"type":"module","scripts":{"test":"node --test \"tests/unit/**/*.test.js\"","test:emu":"firebase emulators:exec --only firestore,auth --project demo-scoretracker \"node --test \\\"tests/emulator/**/*.test.js\\\"\""},"devDependencies":{"@firebase/rules-unit-testing":"5.0.2","@playwright/test":"1.64.1","firebase":"12.19.0","firebase-tools":"15.34.2"}}
