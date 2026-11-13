@@ -1,11 +1,14 @@
 # Session log
 
-## 13/11/2026 - Task 9: events sheet, lineup edits, end/reopen/delete, past games, stats recompute
-- Done: `js/tracker/statsQueue.js` (persisted dirty seasons, drain shares one run), `recount.js` (mark dirty now, drain once the write is answered), events dialog/panel, lineup editor, past games list and detail, in-page confirm and overlay helpers in `js/ui/`.
-- `ctx.stats` is created in app.js; it drains on becoming active (boot or takeover) and on `online`. Every journal-recorded write on any game is now reconciled: app.js keeps one snapshot record per game subscription.
-- Live period button refuses a second tap for 1 s (same as Undo); tile label reads "1 goal".
-- Overlays live inside the view root, so unmounting the view removes them; Safari does not focus a tapped button, so `overlay.open(from)` takes the opener explicitly.
-- Next: Task 10.
+## 13/11/2026 - Where we left off (whole build)
+- Built on branch `feat/scoretracker`: public viewer (`index.html`), code-locked tracker (`track.html`), Firestore rules, offline app shell, README. All 11 plan tasks done, plus one fix wave from the final reviews (Codex and Opus).
+- Tests at the end: unit 105/105, emulator 28/28, e2e 141 passed / 13 skipped (chromium-only offline specs on webkit). JDK 21 is keg-only: `export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"`.
+- Not merged or pushed. Next steps for the owner, in README order:
+  - create the Firebase project; enable Anonymous auth; create Firestore in eur3;
+  - paste `firestore.rules`; create `secrets/editCode` (6 chars, 0-9A-Z);
+  - fill in `js/config.js` (and the matching `<title>`s); push; enable Pages.
+- Verify on the real tracker iPhone before the first game: unlock, tap, background/foreground, airplane mode on/off. Playwright can't cover a real Safari bfcache restore or iOS storage eviction.
+- Design and plan: `docs/superpowers/specs/2026-11-13-waterpolo-scoretracker-design.md`, `docs/superpowers/plans/2026-11-13-waterpolo-scoretracker.md`.
 
 ## 13/11/2026 - Task 8: new game and live tracking
 - Done: `js/tracker/taps.js` (journal-first tapper, per-device duplicate guard, undo, retry/discard), New game and Live views, app-level game watcher with journal reconcile, failed-taps banner.
@@ -13,6 +16,13 @@
 - Live tiles are updated in place so a snapshot never replaces a button mid-tap.
 - `events-open` calls the optional `ctx.openEvents`; Task 9 must define it.
 - Next: Task 9 (events sheet, lineup edits, end/reopen/delete, past games, stats queue).
+
+## 13/11/2026 - Task 9: events sheet, lineup edits, end/reopen/delete, past games, stats recompute
+- Done: `js/tracker/statsQueue.js` (persisted dirty seasons, drain shares one run), `recount.js` (mark dirty now, drain once the write is answered), events dialog/panel, lineup editor, past games list and detail, in-page confirm and overlay helpers in `js/ui/`.
+- `ctx.stats` is created in app.js; it drains on becoming active (boot or takeover) and on `online`. Every journal-recorded write on any game is now reconciled: app.js keeps one snapshot record per game subscription.
+- Live period button refuses a second tap for 1 s (same as Undo); tile label reads "1 goal".
+- Overlays live inside the view root, so unmounting the view removes them; Safari does not focus a tapped button, so `overlay.open(from)` takes the opener explicitly.
+- Next: Task 10.
 
 ## 13/11/2026 - Task 10: service worker and offline/takeover e2e
 - Done: `sw.js` (CACHE `wp-shell-v1`, SHELL between markers; same-origin network-first, gstatic SDK and Google Fonts cache-first, Firestore/Auth untouched), `js/sw-register.js` imported by both entry modules.
