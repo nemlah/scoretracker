@@ -18,11 +18,13 @@ export function createTapper({
   // Duplicate protection is per device: the last tap this tapper accepted, not any event in the game.
   let lastTap = null;
 
+  // Resolves once the write has settled; a failure goes to onError and never rejects.
   function send(write, ...args) {
     try {
-      Promise.resolve(write(...args)).catch(onError);
+      return Promise.resolve(write(...args)).catch(onError);
     } catch (err) {
       onError(err);
+      return Promise.resolve();
     }
   }
 
@@ -65,21 +67,32 @@ export function createTapper({
     return event;
   }
 
-  // `current` is the game's latest snapshot when it is not the one this tapper watches.
+  // `current` is the game's latest snapshot when it is not the one this tapper watches. Removals
+  // and replacements are resolved by event id against it: the server may hold another version
+  // of the event than the one the entry remembers (an earlier correction was refused too).
   function retryFailed(gameId, current = getGame()) {
     if (!isActive()) return;
+    const known = current?.id === gameId ? (current.events ?? []) : null;
+    const sent = [];
     for (const entry of journal.failed(gameId)) {
+      const serverVersion = known?.find(event => event.id === entry.event.id);
+      if (entry.op === 'remove' && known && !serverVersion) {
+        // Already gone: nothing to remove, so nothing is left to retry.
+        journal.discard(entry.id);
+        continue;
+      }
       journal.markRetried(entry.id);
       if (entry.op === 'add') {
-        send(repo.addEvent, gameId, entry.event);
+        sent.push(send(repo.addEvent, gameId, entry.event));
       } else if (entry.op === 'remove') {
-        send(repo.removeEvent, gameId, entry.event);
+        sent.push(send(repo.removeEvent, gameId, serverVersion ?? entry.event));
+      } else if (serverVersion) {
+        sent.push(send(repo.replaceEvent, gameId, serverVersion, entry.event));
       } else {
-        const previous = current?.id === gameId ? (current.events ?? []).find(event => event.id === entry.event.id) : undefined;
-        if (previous) send(repo.replaceEvent, gameId, previous, entry.event);
-        else send(repo.addEvent, gameId, entry.event);
+        sent.push(send(repo.addEvent, gameId, entry.event));
       }
     }
+    return Promise.all(sent);
   }
 
   function discardFailed(gameId) {

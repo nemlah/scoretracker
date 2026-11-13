@@ -79,15 +79,9 @@ export function mount(root, ctx) {
   const del = createConfirmButton({
     label: t('deleteGame'), testid: 'delete-game', className: 'btn--danger', onConfirm: onDelete,
   });
-  const failedText = h('p', {});
-  const failed = h('div', { class: 'banner banner--failed', role: 'alert', 'data-testid': 'game-failed', hidden: true },
-    failedText,
-    h('span', { class: 'banner-actions' },
-      h('button', { type: 'button', class: 'btn btn--small', 'data-testid': 'game-retry', onclick: onRetry }, t('retryFailed')),
-      h('button', { type: 'button', class: 'btn btn--small', 'data-testid': 'game-discard', onclick: onDiscard }, t('discardFailed'))));
   const panel = createEventsPanel(ctx, root, { onEnded: () => ctx.navigate('/') });
   const detailBody = h('div', { class: 'stack', hidden: true },
-    title, meta, score, liveNote, failed,
+    title, meta, score, liveNote,
     h('div', { class: 'detail-actions' }, reopen, del.el), reopenNote, panel.el);
   const detailView = h('section', { class: 'game-detail' }, back, detailStatus, detailBody);
 
@@ -135,31 +129,6 @@ export function mount(root, ctx) {
     reopenNote.hidden = live || !other;
     del.el.disabled = !state.active;
     panel.update(game, state);
-
-    // Changes to a game that is not the one the app is watching are tracked here.
-    const unsaved = state.team?.currentGameId === game.id ? [] : ctx.journal.failed(game.id);
-    failed.hidden = unsaved.length === 0;
-    if (unsaved.length > 0) {
-      failedText.textContent = unsaved.length === 1 ? t('tapNotSaved') : t('tapsNotSaved', { n: unsaved.length });
-    }
-  }
-
-  function onRetry() {
-    const game = detailGame;
-    if (game) {
-      ctx.tapper.retryFailed(game.id, game);
-      // A retried change to a final game moves the season stats; the recount waits for the writes.
-      if (game.status === 'final') {
-        ctx.stats.markDirty(game.season);
-        ctx.stats.drain();
-      }
-    }
-    renderDetail(ctx.getState());
-  }
-
-  function onDiscard() {
-    if (detailGame) ctx.tapper.discardFailed(detailGame.id);
-    renderDetail(ctx.getState());
   }
 
   function onReopen() {

@@ -55,6 +55,22 @@ export function createRepo(db) {
     watchControl: cb => watch(controlRef, cb),
     watchOwnEditor: (uid, cb) => watch(doc(db, 'editors', uid), cb),
 
+    /** The control document as the server has it; rejects when the server cannot be reached. */
+    async readControlFromServer() {
+      return (await getDocFromServer(controlRef)).data() ?? null;
+    },
+
+    /**
+     * A game as the server has it (null when it does not exist), after this client's own queued
+     * writes have been answered. Rejects when offline.
+     */
+    async readGameFromServer(gameId) {
+      requireOnline();
+      await waitForPendingWrites(db);
+      const snapshot = await getDocFromServer(gameRef(gameId));
+      return snapshot.exists() ? gameData(snapshot) : null;
+    },
+
     async listGames() {
       const snapshot = await getDocs(query(gamesRef, orderBy('date', 'desc')));
       return snapshot.docs.map(gameData);

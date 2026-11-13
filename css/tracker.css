@@ -141,6 +141,10 @@ label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
 
 .banner-actions { display: flex; gap: 0.5rem; flex: none; }
 .banner--failed { border-left-color: var(--rope); }
+.failed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; width: 100%; }
+.failed-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; }
+.failed-row p { margin: 0; }
+.failed-row a { color: var(--water); font-weight: 600; }
 .btn--center { justify-content: center; }
 .btn--fit { justify-self: start; text-decoration: none; }
 

@@ -191,7 +191,7 @@ test('retryFailed re-issues add/remove/replace with the original event objects',
   const replaceEv = makeEvent('goal', 1, 'p2', 300, 'c');
   const oldVersion = makeEvent('goal', 1, 'p5', 300, 'c');
   const { tapper, calls, failedEntries } = setup({
-    game: { id: 'g1', status: 'live', period: 1, lineup, events: [oldVersion] },
+    game: { id: 'g1', status: 'live', period: 1, lineup, events: [oldVersion, removeEv] },
   });
   failedEntries.push(
     { id: 'j1', gameId: 'g1', op: 'add', event: addEv, status: 'failed' },
@@ -205,6 +205,33 @@ test('retryFailed re-issues add/remove/replace with the original event objects',
     ['journal.markRetried', 'j2'], ['repo.removeEvent', 'g1', removeEv],
     ['journal.markRetried', 'j3'], ['repo.replaceEvent', 'g1', oldVersion, replaceEv],
   ]);
+});
+
+test('retryFailed removes the version the server holds, not the one the entry remembers', () => {
+  const serverVersion = makeEvent('goal', 1, 'p1', 300, 'c');
+  const remembered = makeEvent('goal', 1, 'p2', 300, 'c');
+  const { tapper, calls, failedEntries } = setup({
+    game: { id: 'g1', status: 'final', period: 4, lineup, events: [serverVersion] },
+  });
+  failedEntries.push({ id: 'j1', gameId: 'g1', op: 'remove', event: remembered, status: 'failed' });
+  tapper.retryFailed('g1');
+  assert.deepEqual(calls, [['journal.markRetried', 'j1'], ['repo.removeEvent', 'g1', serverVersion]]);
+});
+
+test('retryFailed uses the snapshot it is given for a game that is not the watched one', () => {
+  const serverVersion = makeEvent('goal', 1, 'p1', 300, 'c');
+  const remembered = makeEvent('goal', 1, 'p2', 300, 'c');
+  const { tapper, calls, failedEntries } = setup();
+  failedEntries.push({ id: 'j1', gameId: 'old', op: 'remove', event: remembered, status: 'failed' });
+  tapper.retryFailed('old', { id: 'old', status: 'final', events: [serverVersion] });
+  assert.deepEqual(calls, [['journal.markRetried', 'j1'], ['repo.removeEvent', 'old', serverVersion]]);
+});
+
+test('retryFailed drops a remove whose event is already gone, without writing', () => {
+  const { tapper, calls, failedEntries } = setup();
+  failedEntries.push({ id: 'j1', gameId: 'g1', op: 'remove', event: makeEvent('goal', 1, 'p2', 300, 'c'), status: 'failed' });
+  tapper.retryFailed('g1');
+  assert.deepEqual(calls, [['journal.discard', 'j1']]);
 });
 
 test('retryFailed re-issues a replace as an add when the old version is gone', () => {

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { seasonFor, todayIso, formatDate } from '../../js/model.js';
 import { closeAll, get, resetAll, seed, update } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const SEASON = seasonFor(todayIso());
@@ -359,7 +359,7 @@ test('reopen is disabled while another game is live', async ({ page }) => {
   const lineup = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
   await seed('games/g1', { opponent: 'Old FC', date: '2026-10-01', season: '2026-27', status: 'final', period: 4, lineup, events: [] });
   await seed('games/g2', { opponent: 'New FC', date: '2026-11-01', season: '2026-27', status: 'live', period: 1, lineup, events: [] });
-  await page.goto(TRACKER_URL);
+  await page.goto(HOME_URL);
   await unlockTracker(page);
   await page.getByTestId('home-games').click();
   await expect(page.getByTestId('game-row')).toHaveCount(2);
@@ -415,13 +415,14 @@ test('retrying an unsaved correction on a past game recounts the season', async 
       localStorage.setItem('wp-journal', planted);
     }
   }, JSON.stringify([{ id: 'entry-0', gameId: 'g1', op: 'add', status: 'failed', event: lost }]));
-  await page.goto(TRACKER_URL);
+  await page.goto(HOME_URL);
   await unlockTracker(page);
   await page.getByTestId('home-games').click();
   await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
-  await expect(page.getByTestId('game-failed')).toContainText('1 tap not saved');
-  await page.getByTestId('game-retry').click();
-  await expect(page.getByTestId('game-failed')).toBeHidden();
+  await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved');
+  await expect(page.getByTestId('failed-game-link')).toHaveAttribute('href', '#/games/g1');
+  await page.getByTestId('retry-failed').click();
+  await expect(page.getByTestId('failed-banner')).toBeHidden();
   await expect.poll(async () => (await get('games/g1')).events.length).toBe(1);
   await expect.poll(async () => (await get(`stats/${SEASON}`))?.results?.find(result => result.gameId === 'g1')?.us).toBe(1);
   await expect.poll(() => journalOf(page)).toBe('[]');
@@ -431,7 +432,7 @@ test('retrying an unsaved correction on a past game recounts the season', async 
 test('deleting a past game leaves the live game current', async ({ page }) => {
   await seedTwoGames();
   await seed('games/g0', { opponent: 'Newest FC', date: '2026-11-10', season: '2026-27', status: 'final', period: 4, lineup: lineupP5, events: [] });
-  await page.goto(TRACKER_URL);
+  await page.goto(HOME_URL);
   await unlockTracker(page);
   await page.getByTestId('home-games').click();
   await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
@@ -444,7 +445,7 @@ test('deleting a past game leaves the live game current', async ({ page }) => {
 
 test('the live screen link on a live game detail is a full-size button', async ({ page }) => {
   await seedTwoGames();
-  await page.goto(TRACKER_URL);
+  await page.goto(HOME_URL);
   await unlockTracker(page);
   await page.getByTestId('home-games').click();
   await page.getByTestId('game-row').filter({ hasText: 'New FC' }).click();

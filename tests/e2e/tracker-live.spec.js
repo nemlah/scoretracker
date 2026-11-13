@@ -276,10 +276,15 @@ test('the live screen resumes after a reload with the score intact', async ({ pa
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('score-them')).toHaveText('1');
   await expect(tile(page, 5).getByTestId('tile-goals')).toHaveText('1');
-  // Opening the tracker from scratch offers Resume.
+  // Opening the tracker from a bare address (bookmark, home-screen icon) resumes the live game.
   await page.goto(TRACKER_URL);
   dropNetworkNoise(problems);
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page).toHaveURL(/#\/live$/);
+  // Home stays reachable and offers Resume; the redirect happens on the first load only.
+  await page.getByTestId('nav-home').click();
   await expect(page.getByTestId('home-resume')).toBeVisible();
+  await expect(page).toHaveURL(/#\/$/);
   await page.getByTestId('home-resume').click();
   await expect(page.getByTestId('score-us')).toHaveText('1');
 });

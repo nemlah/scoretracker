@@ -73,7 +73,7 @@ export function mount(root, ctx) {
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
   const scoreThem = h('span', { class: 'score-them', 'data-testid': 'score-them' }, '0');
   const shootout = h('p', { class: 'shootout', 'data-testid': 'shootout', hidden: true });
-  const sync = h('p', { class: 'sync', role: 'status', 'data-testid': 'sync-status' }, t('syncOnline'));
+  const sync = h('p', { class: 'sync', role: 'status', 'data-testid': 'sync-status' }, t('syncConnecting'));
   const periodButton = h('button', {
     type: 'button', class: 'btn btn--primary btn--period', 'data-testid': 'period-next', onclick: advancePeriod,
   }, periodLabel(1));
@@ -150,7 +150,9 @@ export function mount(root, ctx) {
     const showShootout = hasShootout(current.period, events);
     shootout.hidden = !showShootout;
     shootout.textContent = showShootout ? scoreText(score, true).shootout : '';
-    sync.textContent = state.online && !state.gameOffline ? t('syncOnline') : t('syncOffline');
+    // "online" only after the server has answered; writes still waiting count as not synced yet.
+    sync.textContent = !state.online || state.gameOffline || state.pendingWrites ? t('syncOffline')
+      : state.synced ? t('syncOnline') : t('syncConnecting');
 
     const next = nextPeriod(current.period);
     periodButton.textContent = periodLabel(current.period);

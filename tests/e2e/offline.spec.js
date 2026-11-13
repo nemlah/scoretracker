@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { closeAll, get, resetAll, seed } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const VIEWER_URL = '/index.html?emulator=1';
@@ -123,7 +123,7 @@ test('taps after losing control are flagged, retried after taking back', async (
     // Device B unlocks and takes over while A is away.
     const pageB = await contextB.newPage();
     collectProblems(pageB, problems);
-    await pageB.goto(TRACKER_URL);
+    await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
     await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
 

@@ -1,6 +1,8 @@
 import { expect } from '@playwright/test';
 
 export const TRACKER_URL = '/track.html?emulator=1';
+// An explicit #/ is a deliberate visit to Home; a bare address resumes a live game.
+export const HOME_URL = `${TRACKER_URL}#/`;
 export const CODE = 'AB12CD';
 
 // Collects page errors and console errors so specs can assert on a pristine run.

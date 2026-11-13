@@ -79,6 +79,10 @@ const STRINGS = {
   tapsNotSaved: '{n} taps not saved',
   retryFailed: 'Retry',
   discardFailed: 'Discard',
+  failedGameLink: 'View game',
+  failedGameGone: 'That game no longer exists.',
+  retryGameGone: 'That game no longer exists, so these taps cannot be retried. Discard them.',
+  retryNeedsConnection: 'Retrying needs a connection. Connect to the internet and try again.',
 
   // New game
   newHeading: 'New game',
@@ -111,6 +115,7 @@ const STRINGS = {
   eventsButton: 'Events',
   periodAria: 'Period {label}. Tap for {next}.',
   periodLastAria: 'Period {label}, the last period',
+  syncConnecting: 'connecting…',
   syncOnline: 'online',
   syncOffline: 'offline — taps saved, will sync',
   noLiveGame: 'No game is live right now.',
