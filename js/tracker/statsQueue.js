@@ -29,6 +29,7 @@ export function createStatsQueue(storage, recompute, key = 'wp-stats-dirty') {
   // again does not clear the mark.
   const generation = new Map();
   let running = null;
+  let looping = false;
 
   function persist() {
     if (!storageAvailable) return;
@@ -67,12 +68,18 @@ export function createStatsQueue(storage, recompute, key = 'wp-stats-dirty') {
       }
       if (!done.includes(season)) done.push(season);
     }
+    // The loop has looked at everything it will look at: a mark made from here on needs a new run,
+    // even though this promise has not settled yet.
+    looping = false;
     return { done, failed };
   }
 
   function drain() {
-    if (running === null) {
-      running = run().finally(() => { running = null; });
+    if (running === null || !looping) {
+      looping = true;
+      const current = run();
+      running = current;
+      current.finally(() => { if (running === current) running = null; });
     }
     return running;
   }

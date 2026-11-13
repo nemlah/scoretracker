@@ -41,12 +41,16 @@ Before the first real game, test on the actual tracker phone, especially **iPhon
 
 1. Open the tracker online and **Unlock** with the code. One device can track at a time. Unlocking on another device takes over; the previous device shows **Tracking moved to another device**. Use **Take over** there only when you intend to move tracking back.
 2. Open **Roster** to add names and cap numbers. Edit existing players or archive players who have left; archiving preserves their history.
-3. Choose **Start a new game**, enter the opponent and date, tick the players taking part, and check their caps. Changing a cap to one held by another selected player swaps the caps. Tap **Start game**.
-4. On the live screen, tap a player's **Goal** or **Excl.**, or add an opponent goal. Advance the period as play moves from Q1 through Q4 and, if needed, the shootout. A third exclusion marks the player out and disables their event buttons. Shootout goals are shown separately and do not count toward season goal totals.
+3. Choose **Start a new game**, enter the opponent and date, tick the players taking part, and check their caps. Changing a cap to one held by another selected player swaps the caps. The **Season** field is filled in from the date (for example `2026-27`; a new season starts on 1 August) and follows it until you edit it; it must look like `YYYY-YY`. Tap **Start game**.
+4. On the live screen, tap a player's **Goal** or **Exclusion**, or add an opponent goal. Advance the period as play moves from Q1 through Q4 and, if needed, the shootout. A third exclusion marks the player out and disables their event buttons. Shootout goals are shown separately and do not count toward season goal totals.
 5. Correct the last tap with **Undo**. Open **Events** to delete an earlier event, change a goal's scorer, add a goal with an unknown scorer, adjust the lineup, or go back a period.
-6. From **Events**, choose **End game** and confirm. The viewer shows the final result and season totals update. **Past games** lets you correct, reopen or delete a game; totals are recalculated.
+6. From **Events**, choose **End game** and confirm. The viewer shows the final result and season totals update. **Past games** lets you correct, reopen or delete a game; totals are recalculated. In a past game's detail you can also edit its **opponent, date and season** (**Save details**); moving a game to another season recounts both seasons. A goal with an unknown scorer added to a past game asks which period it belongs to (Q4 by default). If you reopen an older game and end it again, the viewer goes back to showing the newest game.
 
-Open the tracker online at least once before relying on offline use. Offline taps stay on that phone and sync while the tracker is open again with a connection. A **taps not saved** banner means the server refused changes; resolve the cause and use **Retry**. Do not clear browser site data while changes are pending. Taps recorded offline after another device takes over can be refused when they sync.
+Open the tracker online at least once before relying on offline use, and **open it online once after every deploy** (a new version of the site is only picked up on a connection). **Do not deploy on game day**: a slow connection can briefly mix old and new files, and the tracker may then show a blank page until it is reloaded with a good signal.
+
+Offline taps stay on that phone and sync while the tracker is open again with a connection. A **taps not saved** banner means the server refused changes; it lists every affected game, whichever game is current, with a link to the game, **Retry** and **Discard**. If a game was created offline and refused, its taps can only be discarded. Resolve the cause and use **Retry**. Taps recorded offline after another device takes over can be refused when they sync.
+
+Do not clear browser site data while changes are pending. iOS Safari can wipe a site's data (including unsynced taps, the unlock and the offline copy) after about 7 days without a visit, so after a game with sync problems, open the tracker online the same day and check that the banner is clear.
 
 ## Change the edit code
 

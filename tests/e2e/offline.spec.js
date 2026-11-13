@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { closeAll, get, resetAll, seed } from './helpers.js';
+import { closeAll, get, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -223,5 +223,160 @@ test('a slow successful response is stored and becomes the next offline response
   await page.reload();
   await expect(page.locator('#app')).toHaveAttribute('data-shell', 'refreshed');
   await context.setOffline(false);
+  dropNetworkNoise(problems);
+});
+
+const lostGoalIds = journal => JSON.parse(journal ?? '[]').map(entry => entry.gameId);
+const journalOf = page => page.evaluate(() => localStorage.getItem('wp-journal'));
+const lineupP5 = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
+const NEXT_GAME = {
+  opponent: 'Next FC', date: '2099-01-01', season: '2098-99', status: 'live', period: 1, lineup: lineupP5, events: [],
+};
+
+// Device A taps offline on game G while device B takes over; A's writes are refused when it reconnects.
+async function refusedWhileAway(page, context, browser) {
+  const gameId = await startGame(page);
+  const contextB = await browser.newContext({ baseURL: ORIGIN });
+  await context.setOffline(true);
+  await expect(page.getByTestId('sync-status')).toHaveText(OFFLINE_TEXT);
+  await goal(page).click();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  const pageB = await contextB.newPage();
+  collectProblems(pageB, problems);
+  await pageB.goto(HOME_URL);
+  await unlockTracker(pageB);
+  await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+  return { gameId, contextB };
+}
+
+// The game being watched changes while the refused taps wait: a newer game becomes current.
+async function startNextGame() {
+  await seed('games/next', NEXT_GAME);
+  await update('team/main', { currentGameId: 'next' });
+}
+
+test('refused taps stay visible and recoverable after the current game has changed and the tracker was reopened', async ({ page, context, browser }) => {
+  const { gameId, contextB } = await refusedWhileAway(page, context, browser);
+  try {
+    await context.setOffline(false);
+    await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved', { timeout: 15000 });
+    await page.close();
+
+    await startNextGame();
+    const reopened = await context.newPage();
+    collectProblems(reopened, problems);
+    await reopened.goto(TRACKER_URL);
+    // The live game is "next" now, and the refused tap of the earlier game is still offered.
+    await expect(reopened.getByTestId('score-us')).toHaveText('0');
+    await expect(reopened.getByTestId('failed-banner')).toContainText('1 tap not saved');
+    await expect(reopened.getByTestId('failed-game-link')).toHaveAttribute('href', `#/games/${gameId}`);
+    await reopened.getByTestId('take-over').click();
+    await reopened.getByTestId('retry-failed').click();
+    await expect.poll(async () => (await get(`games/${gameId}`)).events.length).toBe(1);
+    await expect(reopened.getByTestId('failed-banner')).toBeHidden();
+    await expect.poll(() => journalOf(reopened)).toBe('[]');
+  } finally {
+    await contextB.close();
+  }
+  dropNetworkNoise(problems);
+});
+
+test('taps still waiting when the tracker closed are settled on the next start, whichever game is current', async ({ page, context, browser }) => {
+  const { gameId, contextB } = await refusedWhileAway(page, context, browser);
+  try {
+    // Closed while offline: the tap is only in the journal and the SDK's queue.
+    expect(lostGoalIds(await journalOf(page))).toEqual([gameId]);
+    await page.close();
+    await startNextGame();
+    await context.setOffline(false);
+    const reopened = await context.newPage();
+    collectProblems(reopened, problems);
+    await reopened.goto(TRACKER_URL);
+    await expect(reopened.getByTestId('score-us')).toHaveText('0');
+    await expect(reopened.getByTestId('failed-banner')).toContainText('1 tap not saved', { timeout: 20000 });
+    await expect(reopened.getByTestId('failed-game-link')).toHaveAttribute('href', `#/games/${gameId}`);
+    expect((await get(`games/${gameId}`)).events).toEqual([]);
+  } finally {
+    await contextB.close();
+  }
+  dropNetworkNoise(problems);
+});
+
+test('taps on a game whose offline creation was refused can only be discarded', async ({ page, context, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await context.setOffline(true);
+  await page.getByTestId('home-new').click();
+  await page.getByTestId('opponent-input').fill('Ghost FC');
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await goal(page).click();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+
+  const contextB = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const pageB = await contextB.newPage();
+    collectProblems(pageB, problems);
+    await pageB.goto(HOME_URL);
+    await unlockTracker(pageB);
+    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+    await context.setOffline(false);
+
+    // The creation is refused, so the game never exists on the server.
+    await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved', { timeout: 20000 });
+    await expect(page.getByTestId('failed-gone')).toContainText('no longer exists');
+    await expect(page.getByTestId('failed-game-link')).toHaveCount(0);
+    await page.getByTestId('take-over').click();
+    await page.getByTestId('retry-failed').click();
+    await expect(page.getByTestId('toast')).toContainText('no longer exists');
+    await expect(page.getByTestId('failed-banner')).toBeVisible();
+    await page.getByTestId('discard-failed').click();
+    await expect(page.getByTestId('failed-banner')).toBeHidden();
+    await expect.poll(() => journalOf(page)).toBe('[]');
+  } finally {
+    await contextB.close();
+  }
+  dropNetworkNoise(problems);
+});
+
+// Firestore's streams stay open; holding their requests is "signal bars but no data".
+const FIRESTORE_STREAMS = '**/google.firestore.v1.Firestore/**';
+const FIRESTORE_WRITES = '**/google.firestore.v1.Firestore/Write/**';
+async function releaseHeld(context, pattern, held) {
+  await context.unroute(pattern);
+  for (const route of held) await route.continue().catch(() => {});
+}
+
+test('the sync line says connecting until the server answers, then online', async ({ page, context }) => {
+  await startGame(page);
+  await tile(page, 2).getByTestId('tile-goal').click();
+  await expect.poll(() => journalOf(page)).toBe('[]');
+  await expect(page.getByTestId('sync-status')).toHaveText('online');
+  await swReady(page);
+  await reloadTracker(page, problems);
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+
+  const held = [];
+  await context.route(FIRESTORE_STREAMS, route => { held.push(route); });
+  await reloadTracker(page, problems);
+  // The cached game shows, but nothing has been confirmed by the server yet.
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page.getByTestId('sync-status')).toHaveText('connecting…');
+  await releaseHeld(context, FIRESTORE_STREAMS, held);
+  await expect(page.getByTestId('sync-status')).toHaveText('online', { timeout: 20000 });
+  dropNetworkNoise(problems);
+});
+
+test('writes the server has not answered show the offline text, and online returns once it does', async ({ page, context }) => {
+  await startGame(page);
+  await expect(page.getByTestId('sync-status')).toHaveText('online');
+  const held = [];
+  await context.route(FIRESTORE_WRITES, route => { held.push(route); });
+  await goal(page).click();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page.getByTestId('sync-status')).toHaveText(OFFLINE_TEXT, { timeout: 8000 });
+  await releaseHeld(context, FIRESTORE_WRITES, held);
+  await expect(page.getByTestId('sync-status')).toHaveText('online', { timeout: 20000 });
   dropNetworkNoise(problems);
 });

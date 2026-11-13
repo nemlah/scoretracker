@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { seasonFor, todayIso } from '../../js/model.js';
 import { closeAll, get, resetAll, seed, update } from './helpers.js';
 import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
 
@@ -413,4 +414,28 @@ test('the screen is kept awake while tracking and released when leaving', async 
   await expect.poll(() => page.evaluate(() => window.__wake)).toContain('request:screen');
   await page.getByTestId('nav-home').click();
   await expect.poll(() => page.evaluate(() => window.__wake)).toContain('release');
+});
+
+test('new game: the season follows the date until edited, must be YYYY-YY, and is saved with the game', async ({ page }) => {
+  await openNewGame(page);
+  const season = page.getByTestId('season-input');
+  await expect(season).toHaveValue(seasonFor(todayIso()));
+  await page.getByTestId('date-input').fill('2027-01-10');
+  await expect(season).toHaveValue('2026-27');
+  await page.getByTestId('date-input').fill('2027-09-01');
+  await expect(season).toHaveValue('2027-28');
+
+  await season.fill('27-28');
+  await expect(page.getByTestId('season-error')).toBeVisible();
+  await expect(page.getByTestId('start-game')).toBeDisabled();
+  await season.fill('2025-26');
+  await expect(page.getByTestId('season-error')).toBeHidden();
+  // Once edited by hand it no longer follows the date.
+  await page.getByTestId('date-input').fill('2027-10-01');
+  await expect(season).toHaveValue('2025-26');
+  await page.getByTestId('opponent-input').fill('Season FC');
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  const game = await get(`games/${await currentGameId()}`);
+  expect(game).toMatchObject({ season: '2025-26', date: '2027-10-01', opponent: 'Season FC' });
 });

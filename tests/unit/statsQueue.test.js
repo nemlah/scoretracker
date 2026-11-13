@@ -83,3 +83,14 @@ test('unavailable or corrupt storage still works in memory', async () => {
   corrupt.setItem('wp-stats-dirty', JSON.stringify([1, '2025-26']));
   assert.deepEqual(createStatsQueue(corrupt, async () => {}).dirty(), []);
 });
+
+test('a season marked right after a drain that had nothing to do is still drained', async () => {
+  const calls = [];
+  const queue = createStatsQueue(fakeStorage(), async season => { calls.push(season); });
+  const first = queue.drain();
+  queue.markDirty('2026-27');
+  const second = queue.drain();
+  await Promise.all([first, second]);
+  assert.deepEqual(calls, ['2026-27']);
+  assert.deepEqual(queue.dirty(), []);
+});

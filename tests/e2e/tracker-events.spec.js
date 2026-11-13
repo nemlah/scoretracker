@@ -455,3 +455,67 @@ test('the live screen link on a live game detail is a full-size button', async (
   await link.click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
 });
+
+test('a past game\'s opponent, date and season can be corrected, and both seasons are recounted', async ({ page }) => {
+  await seedTwoGames();
+  await seed('games/g1', {
+    opponent: 'Old FC', date: '2026-10-01', season: '2026-27', status: 'final', period: 4, lineup: lineupP5,
+    events: [{ id: 'goal-1', type: 'goal', period: 1, ts: 1000, playerId: 'p5' }],
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await expect.poll(async () => (await get('stats/2026-27'))?.results?.map(result => result.gameId)).toEqual(['g1']);
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
+  await expect(page.getByTestId('game-meta')).toHaveText('01/10/2026 · 2026-27');
+  await expect(page.getByTestId('info-opponent')).toHaveValue('Old FC');
+  await expect(page.getByTestId('info-date')).toHaveValue('2026-10-01');
+  await expect(page.getByTestId('info-season')).toHaveValue('2026-27');
+
+  // A season that is not YYYY-YY is refused and nothing is written.
+  await page.getByTestId('info-season').fill('2026');
+  await page.getByTestId('info-save').click();
+  await expect(page.getByTestId('info-error')).toContainText('Season must look like');
+  expect((await get('games/g1')).season).toBe('2026-27');
+
+  await page.getByTestId('info-opponent').fill('Harbour WPC');
+  await page.getByTestId('info-date').fill('2026-07-01');
+  // The season follows the date until it has been edited by hand; here it was, so set it explicitly.
+  await page.getByTestId('info-season').fill('2025-26');
+  await page.getByTestId('info-save').click();
+  await expect(page.getByTestId('game-meta')).toHaveText('01/07/2026 · 2025-26');
+  await expect(page.getByTestId('info-error')).toBeHidden();
+  await expect.poll(async () => (await get('games/g1')).opponent).toBe('Harbour WPC');
+  expect(await get('games/g1')).toMatchObject({ date: '2026-07-01', season: '2025-26', status: 'final' });
+  // The old season loses the game, the new one gains it.
+  await expect.poll(async () => (await get('stats/2026-27')).results).toEqual([]);
+  await expect.poll(async () => (await get('stats/2025-26'))?.results?.map(result => result.opponent)).toEqual(['Harbour WPC']);
+  await expect.poll(() => dirtyOf(page)).toBe('[]');
+});
+
+test('a goal with an unknown scorer added to a past game asks for the period, defaulting to Q4', async ({ page }) => {
+  await seedTwoGames();
+  await seed('games/g1', {
+    opponent: 'Old FC', date: '2026-10-01', season: '2026-27', status: 'final', period: 'SO', lineup: lineupP5, events: [],
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
+  const choice = page.getByTestId('add-goal-period');
+  await expect(choice).toBeVisible();
+  await expect(choice).toHaveValue('4');
+  await page.getByTestId('add-unknown-goal').click();
+  await expect.poll(async () => (await get('games/g1')).events.map(event => event.period)).toEqual([4]);
+  await choice.selectOption('2');
+  await page.getByTestId('add-unknown-goal').click();
+  await expect.poll(async () => (await get('games/g1')).events.map(event => event.period).sort()).toEqual([2, 4]);
+  await expect.poll(async () => (await get(`stats/${SEASON}`))?.results?.find(result => result.gameId === 'g1')?.us).toBe(2);
+});
+
+test('the period choice is not offered while the game is live', async ({ page }) => {
+  await startGame(page);
+  await openEvents(page);
+  await expect(page.getByTestId('add-unknown-goal')).toBeVisible();
+  await expect(page.getByTestId('add-goal-period')).toBeHidden();
+});

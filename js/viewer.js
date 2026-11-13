@@ -89,6 +89,11 @@ repo.watchTeam((data, meta) => {
 
 window.addEventListener('online', () => { state.offline = false; render(); });
 window.addEventListener('offline', () => { state.offline = true; render(); });
+// A page restored from the back/forward cache holds a Firestore client that shut itself down when
+// the page was hidden, so its score would stay frozen. Reloading starts a fresh client.
+window.addEventListener('pageshow', event => {
+  if (event.persisted) location.reload();
+});
 
 // Persistent skeleton: score elements survive renders so a change can flash.
 const note = h('p', { class: 'connection-note', 'data-testid': 'connection-note', role: 'status', hidden: true }, t('connectionNote'));
