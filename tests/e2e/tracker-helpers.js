@@ -18,8 +18,9 @@ export async function unlockTracker(page, code = CODE) {
 }
 
 // Browsers report in-flight Firestore channel requests that they abort on navigation or
-// when the network drops. That is browser noise, not an app error.
-const NETWORK_NOISE = /ERR_INTERNET_DISCONNECTED|due to access control checks|WebKit encountered an internal error|Beacon API cannot load/;
+// when the network drops, and Firestore logs once that it cannot reach the backend after a
+// page opens offline. That is expected noise around offline and reload steps, not an app error.
+const NETWORK_NOISE = /ERR_INTERNET_DISCONNECTED|due to access control checks|WebKit encountered an internal error|Beacon API cannot load|Could not reach Cloud Firestore backend/;
 
 export function dropNetworkNoise(problems) {
   for (let i = problems.length - 1; i >= 0; i -= 1) {

@@ -1,3 +1,4 @@
+import '../sw-register.js';
 import { team as teamConfig } from '../config.js';
 import { initFirebase, signIn } from '../firebase.js';
 import { createJournal } from '../journal.js';

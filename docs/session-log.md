@@ -13,3 +13,10 @@
 - Live tiles are updated in place so a snapshot never replaces a button mid-tap.
 - `events-open` calls the optional `ctx.openEvents`; Task 9 must define it.
 - Next: Task 9 (events sheet, lineup edits, end/reopen/delete, past games, stats queue).
+
+## 13/11/2026 - Task 10: service worker and offline/takeover e2e
+- Done: `sw.js` (CACHE `wp-shell-v1`, SHELL between markers; same-origin network-first, gstatic SDK and Google Fonts cache-first, Firestore/Auth untouched), `js/sw-register.js` imported by both entry modules.
+- `tests/unit/sw-shell.test.js` keeps SHELL in sync with the files on disk and the import maps; add new js/css files to SHELL or it fails.
+- `tests/e2e/offline.spec.js` (chromium only): offline reload into the live game, viewer connection-note, viewer offline shell, takeover with a real rejected write then Retry.
+- `tracker-helpers` noise filter now also drops Firestore's "Could not reach Cloud Firestore backend" log.
+- Next: Task 11.
