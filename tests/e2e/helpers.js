@@ -19,11 +19,14 @@ function env() {
 
 async function admin(fn) {
   const testEnv = await env();
-  await testEnv.withSecurityRulesDisabled(context => fn(context.firestore()));
+  let result;
+  await testEnv.withSecurityRulesDisabled(async context => { result = await fn(context.firestore()); });
+  return result;
 }
 
 export const seed = (path, data) => admin(db => db.doc(path).set(data));
 export const update = (path, data) => admin(db => db.doc(path).update(data));
+export const get = path => admin(async db => (await db.doc(path).get()).data());
 export const remove = path => admin(db => db.doc(path).delete());
 
 export async function resetAll() {

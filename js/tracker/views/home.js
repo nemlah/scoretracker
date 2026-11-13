@@ -20,7 +20,8 @@ export function mount(root, ctx) {
     h('div', { class: 'stack' }, resume, start, rosterButton, games)));
 
   function update(state) {
-    const hasGame = Boolean(state.team?.currentGameId);
+    // Only a game that is still live can be resumed; a finished one is just history.
+    const hasGame = state.game?.status === 'live';
     resume.hidden = !hasGame;
     start.classList.toggle('btn--primary', !hasGame);
   }

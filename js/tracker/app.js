@@ -4,12 +4,15 @@ import { createJournal } from '../journal.js';
 import { createRepo } from '../repo.js';
 import { t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
+import { createTapper } from './taps.js';
 import * as home from './views/home.js';
+import * as live from './views/live.js';
+import * as newgame from './views/newgame.js';
 import * as roster from './views/roster.js';
 import * as unlock from './views/unlock.js';
 
-// Views by first route segment. Later tasks register '/new', '/live' and '/games' here.
-const ROUTES = { '': home, roster };
+// Views by first route segment. Later tasks register '/games' here.
+const ROUTES = { '': home, roster, new: newgame, live };
 const TOAST_MS = 5000;
 
 document.documentElement.style.setProperty('--accent', teamConfig.accent);
@@ -36,6 +39,11 @@ const state = {
   team: null,
   control: null,
   failedTaps: [],
+  // The game team.currentGameId points at. null until its first snapshot (see gameLoaded).
+  game: null,
+  gameLoaded: false,
+  // True once the server has answered and Firestore has since fallen back to its cache.
+  gameOffline: false,
   route: '/',
   notice: null,
 };
@@ -50,6 +58,13 @@ let bootFailed = false;
 
 let repo = null;
 let journal = null;
+let tapper = null;
+let gameUnsub = null;
+let watchedGameId = null;
+// Event writes the server has not answered yet. While any is in flight a snapshot cannot be
+// trusted to say whether a journalled tap reached the server, so reconciling waits for them.
+let writesInFlight = 0;
+let lastGameSnapshot = null; // { gameId, game, meta } of the watched game
 let current = { slot: null, view: null };
 let toastTimer = null;
 const unsubscribers = [];
@@ -65,7 +80,15 @@ const takeoverBanner = h('div', { class: 'banner banner--takeover', 'data-testid
     t('takeoverButton')));
 const offlineBanner = h('div', { class: 'banner', 'data-testid': 'offline-banner', hidden: true },
   h('p', {}, t('offlineBanner')));
-const banners = h('div', { class: 'banners' }, takeoverBanner, offlineBanner);
+const failedText = h('p', {});
+const failedBanner = h('div', { class: 'banner banner--failed', 'data-testid': 'failed-banner', role: 'alert', hidden: true },
+  failedText,
+  h('span', { class: 'banner-actions' },
+    h('button', { type: 'button', class: 'btn btn--small', 'data-write': true, 'data-testid': 'retry-failed', onclick: () => retryFailed() },
+      t('retryFailed')),
+    h('button', { type: 'button', class: 'btn btn--small', 'data-testid': 'discard-failed', onclick: () => discardFailed() },
+      t('discardFailed'))));
+const banners = h('div', { class: 'banners' }, takeoverBanner, failedBanner, offlineBanner);
 const view = h('main', { class: 'view' });
 const toast = h('div', { class: 'toast', role: 'status', 'aria-live': 'polite', 'data-testid': 'toast', hidden: true });
 root.append(
@@ -122,10 +145,102 @@ function navigate(route) {
 const ctx = {
   repo: null,
   journal: null,
+  tapper: null,
   navigate,
   getState: () => state,
   onWriteError,
 };
+
+function refreshFailed() {
+  state.failedTaps = journal && watchedGameId !== null ? journal.failed(watchedGameId) : [];
+}
+
+function retryFailed() {
+  if (watchedGameId === null) return;
+  tapper.retryFailed(watchedGameId);
+  refreshFailed();
+  render();
+}
+
+function discardFailed() {
+  if (watchedGameId === null) return;
+  tapper.discardFailed(watchedGameId);
+  refreshFailed();
+  render();
+}
+
+function isConfirmed(meta) {
+  return !meta.fromCache && !meta.hasPendingWrites;
+}
+
+function reconcileLast() {
+  const last = lastGameSnapshot;
+  if (!last || last.gameId !== watchedGameId || !last.game || !isConfirmed(last.meta)) return;
+  if (writesInFlight > 0) return;
+  journal.reconcile(last.gameId, last.game.events ?? []);
+  refreshFailed();
+}
+
+// Counts event writes in flight, then reconciles again once the last one has settled.
+function trackWrite(write) {
+  return (...args) => {
+    writesInFlight += 1;
+    let promise;
+    try {
+      promise = Promise.resolve(write(...args));
+    } catch (err) {
+      promise = Promise.reject(err);
+    }
+    const settle = () => {
+      writesInFlight -= 1;
+      if (writesInFlight === 0) {
+        reconcileLast();
+        render();
+      }
+    };
+    promise.then(settle, settle);
+    return promise;
+  };
+}
+
+// repo.watchGame plus the journal: a server-confirmed snapshot settles every pending journal
+// entry of this game (confirmed, or failed if the server does not have it).
+function watchGameWithJournal(gameId, cb) {
+  return repo.watchGame(gameId, (game, meta) => {
+    lastGameSnapshot = { gameId, game, meta };
+    if (gameId === watchedGameId) reconcileLast();
+    cb(game, meta);
+  });
+}
+ctx.watchGame = watchGameWithJournal;
+
+let serverSeen = false;
+let gameWatchReady = false; // false until the watched game has been chosen since (re)subscribing
+
+function syncGameWatch() {
+  if (!repo || unsubscribers.length === 0 || !teamLoaded) return;
+  const wanted = state.team?.currentGameId ?? null;
+  if (gameWatchReady && wanted === watchedGameId && (wanted === null || gameUnsub)) return;
+  gameWatchReady = true;
+  gameUnsub?.();
+  gameUnsub = null;
+  watchedGameId = wanted;
+  lastGameSnapshot = null;
+  serverSeen = false;
+  state.game = null;
+  state.gameLoaded = wanted === null;
+  state.gameOffline = false;
+  refreshFailed();
+  if (wanted === null) return;
+  gameUnsub = watchGameWithJournal(wanted, (game, meta) => {
+    if (!meta.fromCache) serverSeen = true;
+    state.game = game;
+    state.gameLoaded = true;
+    state.gameOffline = serverSeen && meta.fromCache;
+    refreshFailed();
+    render();
+  });
+}
 
 function derive() {
   state.route = parseRoute();
@@ -156,6 +271,7 @@ function statusView(text) {
 }
 
 function render() {
+  syncGameWatch();
   derive();
   const next = pickSlot();
   if (next.slot !== current.slot) {
@@ -173,6 +289,11 @@ function syncChrome() {
   backButton.hidden = !inRoute || current.slot === 'home';
   takeoverBanner.hidden = !readOnly;
   offlineBanner.hidden = state.online || current.slot === 'unlock';
+  failedBanner.hidden = !inRoute || state.failedTaps.length === 0;
+  if (state.failedTaps.length > 0) {
+    failedText.textContent = state.failedTaps.length === 1
+      ? t('tapNotSaved') : t('tapsNotSaved', { n: state.failedTaps.length });
+  }
   root.classList.toggle('is-readonly', readOnly);
   applyReadOnly();
 }
@@ -180,7 +301,7 @@ function syncChrome() {
 // Write controls stay in the DOM but are disabled while this device is not the active tracker.
 function applyReadOnly() {
   const readOnly = root.classList.contains('is-readonly');
-  for (const control of view.querySelectorAll('[data-write]')) control.disabled = readOnly;
+  for (const control of root.querySelectorAll('[data-write]')) control.disabled = readOnly;
 }
 
 new MutationObserver(applyReadOnly).observe(view, { childList: true, subtree: true });
@@ -188,6 +309,10 @@ new MutationObserver(applyReadOnly).observe(view, { childList: true, subtree: tr
 function unsubscribeAll() {
   for (const off of unsubscribers) off();
   unsubscribers.length = 0;
+  gameUnsub?.();
+  gameUnsub = null;
+  watchedGameId = null;
+  gameWatchReady = false;
 }
 
 async function boot() {
@@ -198,6 +323,9 @@ async function boot() {
     // Unlocking also clears any "code changed" state, whichever view asked for it.
     ctx.repo = {
       ...repo,
+      addEvent: trackWrite(repo.addEvent),
+      removeEvent: trackWrite(repo.removeEvent),
+      replaceEvent: trackWrite(repo.replaceEvent),
       async unlock(uid, code) {
         await repo.unlock(uid, code);
         revoked = false;
@@ -206,6 +334,14 @@ async function boot() {
       },
     };
     ctx.journal = journal;
+    tapper = createTapper({
+      repo: ctx.repo,
+      journal,
+      getGame: () => state.game,
+      isActive: () => state.active,
+      onError: onWriteError,
+    });
+    ctx.tapper = tapper;
     state.uid = await signIn(auth);
   } catch (err) {
     console.warn('Tracker failed to start', err);
@@ -232,6 +368,7 @@ function subscribe() {
     repo.watchControl(doc => { state.control = doc; controlLoaded = true; render(); }),
     repo.watchTeam(doc => { state.team = doc; teamLoaded = true; render(); }),
   );
+  syncGameWatch();
 }
 
 window.addEventListener('hashchange', render);

@@ -73,6 +73,47 @@ const STRINGS = {
   rosterEmpty: 'No players yet. Add your first player above.',
   rosterNameRequired: 'Enter a name.',
   rosterCapRange: 'Cap number must be a whole number from 1 to 99.',
+
+  // Failed taps banner
+  tapNotSaved: '1 tap not saved',
+  tapsNotSaved: '{n} taps not saved',
+  retryFailed: 'Retry',
+  discardFailed: 'Discard',
+
+  // New game
+  newHeading: 'New game',
+  opponentLabel: 'Opponent',
+  opponentDefault: 'Opponent',
+  dateLabel: 'Date',
+  lineupHeading: 'Who is playing',
+  capFor: 'Cap number for {name}',
+  startGame: 'Start game',
+  endLiveGameFirst: 'A game is live. Resume it and end it before starting a new one.',
+  newNoRoster: 'The roster is empty. Add players first.',
+  newGoRoster: 'Open the roster',
+  selNoPlayers: 'Tick at least one player.',
+  selMissingCap: 'Enter a cap number.',
+  selBadCap: 'Cap number must be a whole number from 1 to 99.',
+  selDuplicateCap: 'Another player has this cap.',
+
+  // Live
+  goalButton: 'Goal',
+  exclButton: 'Exclusion',
+  goalFor: 'Goal for {name}',
+  exclFor: 'Exclusion for {name}',
+  tileGoalsLabel: 'goals',
+  tileGoalsAria: 'Goals: {n}',
+  tileExclAria: 'Exclusions: {n}',
+  oppGoalButton: '+1 opponent goal',
+  undo: 'Undo: {label} ({period})',
+  undoNothing: 'Nothing to undo',
+  eventsButton: 'Events',
+  periodAria: 'Period {label}. Tap for {next}.',
+  periodLastAria: 'Period {label}, the last period',
+  syncOnline: 'online',
+  syncOffline: 'offline — taps saved, will sync',
+  noLiveGame: 'No game is live right now.',
+  liveLoading: 'Loading the game…',
 };
 
 export function t(key, params = {}) {
