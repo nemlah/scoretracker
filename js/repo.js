@@ -132,12 +132,17 @@ export function createRepo(db) {
     },
 
     async deleteGame(gameId) {
-      // Two candidates suffice because only the deleted game is excluded.
-      const candidates = await getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(2)));
-      const replacement = candidates.docs.find(game => game.id !== gameId);
       const batch = writeBatch(db);
       batch.delete(gameRef(gameId));
-      batch.set(teamRef, updated({ currentGameId: replacement?.id ?? null }), { merge: true });
+      // The pointer only moves when it points at the game being deleted; deleting any other
+      // game must not detach the current (possibly live) one.
+      const team = await getDocFromServer(teamRef);
+      if (team.data()?.currentGameId === gameId) {
+        // Two candidates suffice because only the deleted game is excluded.
+        const candidates = await getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(2)));
+        const replacement = candidates.docs.find(game => game.id !== gameId);
+        batch.set(teamRef, updated({ currentGameId: replacement?.id ?? null }), { merge: true });
+      }
       await batch.commit();
     },
 

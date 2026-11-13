@@ -398,3 +398,59 @@ test('ending a game offline is saved, and the season stats follow once back onli
   await expect.poll(() => dirtyOf(page)).toBe('[]');
   dropNetworkNoise(problems);
 });
+
+const lineupP5 = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
+async function seedTwoGames() {
+  await seed('team/main', { roster, currentGameId: 'g2' });
+  await seed('games/g1', { opponent: 'Old FC', date: '2026-10-01', season: '2026-27', status: 'final', period: 4, lineup: lineupP5, events: [] });
+  await seed('games/g2', { opponent: 'New FC', date: '2026-11-01', season: '2026-27', status: 'live', period: 1, lineup: lineupP5, events: [] });
+}
+
+test('retrying an unsaved correction on a past game recounts the season', async ({ page }) => {
+  await seedTwoGames();
+  const lost = { id: 'lost-goal', type: 'goal', period: 1, ts: 1000, playerId: 'p5' };
+  await page.addInitScript(planted => {
+    if (sessionStorage.getItem('planted') === null) {
+      sessionStorage.setItem('planted', '1');
+      localStorage.setItem('wp-journal', planted);
+    }
+  }, JSON.stringify([{ id: 'entry-0', gameId: 'g1', op: 'add', status: 'failed', event: lost }]));
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
+  await expect(page.getByTestId('game-failed')).toContainText('1 tap not saved');
+  await page.getByTestId('game-retry').click();
+  await expect(page.getByTestId('game-failed')).toBeHidden();
+  await expect.poll(async () => (await get('games/g1')).events.length).toBe(1);
+  await expect.poll(async () => (await get(`stats/${SEASON}`))?.results?.find(result => result.gameId === 'g1')?.us).toBe(1);
+  await expect.poll(() => journalOf(page)).toBe('[]');
+  await expect.poll(() => dirtyOf(page)).toBe('[]');
+});
+
+test('deleting a past game leaves the live game current', async ({ page }) => {
+  await seedTwoGames();
+  await seed('games/g0', { opponent: 'Newest FC', date: '2026-11-10', season: '2026-27', status: 'final', period: 4, lineup: lineupP5, events: [] });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
+  await armThenConfirm(page, 'delete-game');
+  await expect(page.getByTestId('game-row')).toHaveCount(2);
+  expect((await get('team/main')).currentGameId).toBe('g2');
+  await page.getByTestId('nav-home').click();
+  await expect(page.getByTestId('home-resume')).toBeVisible();
+});
+
+test('the live screen link on a live game detail is a full-size button', async ({ page }) => {
+  await seedTwoGames();
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').filter({ hasText: 'New FC' }).click();
+  const link = page.getByTestId('game-live-open');
+  await expect(link).toBeVisible();
+  expect((await link.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await link.click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+});

@@ -171,6 +171,11 @@ function refreshFailed() {
 function retryFailed() {
   if (watchedGameId === null) return;
   tapper.retryFailed(watchedGameId);
+  // The game stays current after it ends, so a retried change may belong to a final game.
+  if (state.game?.id === watchedGameId && state.game.status === 'final') {
+    ctx.stats.markDirty(state.game.season);
+    ctx.stats.drain();
+  }
   refreshFailed();
   render();
 }

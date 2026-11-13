@@ -180,6 +180,23 @@ test('deleteGame repoints currentGameId to the newest remaining game and recompu
   assert.deepEqual(stats.results, []);
 });
 
+test('deleting a game that is not the current one leaves currentGameId alone', async () => {
+  const { db, repo } = await activeClient();
+  const newer = await createGame(repo, { ...gameInput, date: '2026-11-10' });
+  const old = await createGame(repo, { ...gameInput, date: '2026-11-05' });
+  await repo.endGame(newer);
+  await repo.endGame(old);
+  const live = await createGame(repo, { ...gameInput, date: '2026-11-01' });
+  assert.equal((await read(db, 'team/main')).currentGameId, live);
+  await repo.deleteGame(old);
+  assert.equal(await read(db, `games/${old}`), undefined);
+  assert.equal((await read(db, 'team/main')).currentGameId, live);
+  assert.equal((await read(db, `games/${live}`)).status, 'live');
+  // Deleting the current game still moves the pointer to the newest remaining one.
+  await repo.deleteGame(live);
+  assert.equal((await read(db, 'team/main')).currentGameId, newer);
+});
+
 test('roster, lineup, period and reopen updates preserve team fields; listGames sorts by date', async () => {
   const { db, repo } = await activeClient();
   const newest = await createGame(repo, { ...gameInput, date: '2026-11-10' });

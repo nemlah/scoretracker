@@ -57,10 +57,13 @@ export function createJournal(storage, key = 'wp-journal') {
 
   return {
     record(gameId, op, event) {
-      // Removing an event cancels our own earlier add of it. Otherwise, once both writes have
-      // settled, the add would look unsaved (the event is absent) and a retry would restore it.
-      if (op === 'remove') {
-        entries = entries.filter(entry => !(entry.gameId === gameId && entry.op === 'add'
+      // A later correction supersedes our own earlier ones for the same event. Otherwise, once
+      // all the writes have settled, the earlier entry would look unsaved (it no longer matches
+      // the server) and a retry would undo the newer correction. A remove cancels the earlier
+      // add and replaces of that event; a replace cancels the earlier replaces.
+      const superseded = op === 'remove' ? ['add', 'replace'] : op === 'replace' ? ['replace'] : [];
+      if (superseded.length > 0) {
+        entries = entries.filter(entry => !(entry.gameId === gameId && superseded.includes(entry.op)
           && entry.event.id === event.id));
       }
       const entry = {

@@ -148,3 +148,43 @@ test('a remove also cancels a failed add of the same event', () => {
   assert.deepEqual(journal.failed('g'), []);
   assert.deepEqual(journal.reconcile('g', []), { confirmed: 1, failed: [] });
 });
+
+const scorer = playerId => makeEvent('goal', 1, playerId, 1000, 'e1');
+
+test('a later replace of the same event supersedes earlier pending and failed replaces', () => {
+  const journal = createJournal(fakeStorage());
+  journal.record('g', 'replace', scorer('p1'));
+  journal.record('g', 'replace', scorer('p2'));
+  const second = journal.record('g', 'replace', scorer('p3'));
+  // A different event's replace and another game's replace are not touched.
+  const other = journal.record('g', 'replace', makeEvent('goal', 1, 'p1', 1000, 'e2'));
+  journal.record('h', 'replace', scorer('p1'));
+  assert.deepEqual(journal.reconcile('g', [scorer('p3'), makeEvent('goal', 1, 'p1', 1000, 'e2')]), { confirmed: 2, failed: [] });
+  assert.deepEqual(journal.failed('g'), []);
+  assert.equal(second.event.playerId, 'p3');
+  assert.equal(other.event.id, 'e2');
+
+  // A failed earlier replace is dropped too, so Retry cannot undo the latest correction.
+  const again = createJournal(fakeStorage());
+  again.record('g', 'replace', scorer('p1'));
+  again.reconcile('g', [scorer('p9')]);
+  assert.equal(again.failed('g').length, 1);
+  again.record('g', 'replace', scorer('p2'));
+  assert.deepEqual(again.failed('g'), []);
+});
+
+test('a remove drops the pending and failed adds and replaces of that event', () => {
+  const storage = fakeStorage();
+  const journal = createJournal(storage);
+  journal.record('g', 'replace', scorer('p1'));
+  journal.reconcile('g', []); // failed
+  journal.record('g', 'replace', scorer('p2')); // supersedes the failed one
+  journal.record('g', 'add', makeEvent('goal', 1, null, 1000, 'e1'));
+  journal.record('g', 'replace', makeEvent('goal', 1, 'p4', 1000, 'e9'));
+  const removal = journal.record('g', 'remove', scorer('p2'));
+  assert.deepEqual(stored(storage).map(entry => [entry.op, entry.event.id]), [['replace', 'e9'], ['remove', 'e1']]);
+  assert.equal(removal.status, 'pending');
+  journal.reconcile('g', [makeEvent('goal', 1, 'p4', 1000, 'e9')]);
+  assert.deepEqual(journal.failed('g'), []);
+  assert.deepEqual(stored(storage), []);
+});

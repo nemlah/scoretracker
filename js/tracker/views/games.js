@@ -69,8 +69,9 @@ export function mount(root, ctx) {
   const title = h('h2', {});
   const meta = h('p', { class: 'help', 'data-testid': 'game-meta' });
   const score = h('p', { class: 'detail-score', 'data-testid': 'game-score' });
-  const liveNote = h('p', { class: 'notice', 'data-testid': 'game-live-note' }, t('gameLiveNote'),
-    ' ', h('a', { href: '#/live' }, t('gameLiveOpen')));
+  const liveNote = h('div', { class: 'stack', 'data-testid': 'game-live-note' },
+    h('p', { class: 'notice' }, t('gameLiveNote')),
+    h('a', { class: 'btn btn--primary btn--small btn--fit', href: '#/live', 'data-testid': 'game-live-open' }, t('gameLiveOpen')));
   const reopen = h('button', {
     type: 'button', class: 'btn', 'data-testid': 'reopen-game', onclick: onReopen,
   }, t('reopenGame'));
@@ -144,7 +145,15 @@ export function mount(root, ctx) {
   }
 
   function onRetry() {
-    if (detailGame) ctx.tapper.retryFailed(detailGame.id, detailGame);
+    const game = detailGame;
+    if (game) {
+      ctx.tapper.retryFailed(game.id, game);
+      // A retried change to a final game moves the season stats; the recount waits for the writes.
+      if (game.status === 'final') {
+        ctx.stats.markDirty(game.season);
+        ctx.stats.drain();
+      }
+    }
     renderDetail(ctx.getState());
   }
 
