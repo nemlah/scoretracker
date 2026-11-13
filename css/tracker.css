@@ -1,0 +1,139 @@
+/* Tracker: always light for sunlight. Tokens live in base.css. */
+:root { color-scheme: light; }
+
+body.tracker { background: var(--paper); }
+
+#app {
+  max-width: 40rem;
+  margin: 0 auto;
+  min-height: 100vh;
+  text-align: left;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.brand { margin: 0; font-size: 1.25rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+
+.view {
+  padding: 1.25rem 1rem calc(3rem + env(safe-area-inset-bottom, 0px));
+}
+.view > section > * + * { margin-top: 1rem; }
+
+.status-line { color: var(--ink); }
+
+/* Banners sit directly under the header: one line, one action. */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: var(--pool);
+  border-bottom: 1px solid var(--line);
+  border-left: 4px solid var(--ink);
+  font-size: 0.875rem;
+}
+.banner--takeover { border-left-color: var(--water); }
+.banner .btn { flex: none; white-space: nowrap; }
+
+/* Controls: every one is at least 44px; inputs are 16px so iOS does not zoom. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0.5rem 1.25rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 600 1rem/1.2 var(--font-body);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #FFFFFF; }
+.btn--ghost { border-color: transparent; min-height: 2.75rem; }
+.btn--small { min-height: 2.75rem; padding: 0.25rem 0.875rem; font-size: 0.875rem; }
+.btn--wide { width: 100%; justify-content: flex-start; min-height: 3.5rem; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Read-only mode: write controls stay visible but plainly dimmed. */
+.is-readonly [data-write] { opacity: 0.4; cursor: not-allowed; }
+.is-readonly .roster-row .cap { opacity: 0.7; }
+
+.input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 1rem/1.4 var(--font-body);
+}
+.input:disabled { opacity: 0.4; }
+.input--code {
+  max-width: 14rem;
+  font: 700 2rem/1.2 var(--font-num);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.input--cap { width: 5.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+
+label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+.help { font-size: 0.875rem; }
+.notice {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid var(--water);
+  background: var(--pool);
+}
+.form-error { color: var(--rope); font-weight: 600; }
+
+.unlock-form { display: grid; gap: 0.75rem; justify-items: start; }
+.unlock-form .btn { min-width: 10rem; }
+
+.stack { display: grid; gap: 0.75rem; }
+
+/* Roster */
+.add-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; }
+.field--grow { flex: 1 1 12rem; }
+.roster-list { list-style: none; margin: 0; padding: 0; }
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.roster-name { flex: 1; min-width: 0; font-size: 1.125rem; overflow-wrap: anywhere; }
+.row-actions { display: flex; gap: 0.5rem; }
+.edit-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; }
+.edit-form .input:first-child { flex: 1 1 10rem; width: auto; }
+.edit-form .form-error { flex-basis: 100%; }
+.archived summary {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  max-width: 38rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--ink);
+  color: #FFFFFF;
+}

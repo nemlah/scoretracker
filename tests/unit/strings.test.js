@@ -50,3 +50,11 @@ test('static index.html title matches the catalog title used for document.title'
   const staticTitle = html.match(/<title>([^<]*)<\/title>/)?.[1];
   assert.equal(staticTitle, t('viewerTitle', { team: team.name }));
 });
+
+test('static track.html title matches the catalog title used for document.title', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { team } = await import('../../js/config.js');
+  const html = await readFile(new URL('../../track.html', import.meta.url), 'utf8');
+  const staticTitle = html.match(/<title>([^<]*)<\/title>/)?.[1];
+  assert.equal(staticTitle, t('trackerTitle', { team: team.name }));
+});

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FFFFFF">
+  <meta name="robots" content="noindex">
+  <title>Our Team tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans+Extra+Condensed:wght@600;700&family=Fira+Sans:wght@400;600&display=swap">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/tracker.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js",
+      "firebase/firestore": "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js"
+    }
+  }
+  </script>
+</head>
+<body class="tracker">
+  <div class="rope" aria-hidden="true"></div>
+  <div id="app"></div>
+  <script type="module" src="js/tracker/app.js"></script>
+</body>
+</html>

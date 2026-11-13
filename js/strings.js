@@ -26,6 +26,53 @@ const STRINGS = {
   shootout: 'Shootout',
   shootoutScore: '({us} – {them} pen.)',
   scoreMain: '{us} – {them}',
+
+  // Tracker shell
+  trackerTitle: '{team} tracker',
+  trackerLoading: 'Loading…',
+  trackerUnavailable: 'The tracker could not start. Check your connection and reload the page.',
+  navHome: 'Home',
+  offlineBanner: 'Offline. Changes are saved here and sent when you reconnect.',
+  takeoverBanner: 'Another device is tracking. This one is read-only.',
+  takeoverButton: 'Take over',
+  takeoverNeedsConnection: 'Taking over needs a connection. Connect to the internet and try again.',
+  writeFailed: 'That change could not be saved. Try again.',
+
+  // Unlock
+  unlockHeading: 'Enter the tracker code',
+  unlockHelp: 'The code is 6 letters and digits.',
+  unlockLabel: 'Tracker code',
+  unlockButton: 'Unlock',
+  unlockWorking: 'Checking…',
+  unlockWrongCode: 'That code is not right. Check it and try again.',
+  unlockFailed: 'Could not unlock. Try again.',
+  unlockNeedsConnection: 'Unlocking needs a connection. Connect to the internet and try again.',
+  codeChanged: 'The code was changed. Enter the new code to keep tracking.',
+
+  // Home
+  homeHeading: 'Tracker',
+  homeResume: 'Resume game',
+  homeNew: 'Start a new game',
+  homeRoster: 'Roster',
+  homeGames: 'Past games',
+
+  // Roster
+  rosterHeading: 'Roster',
+  rosterNameLabel: 'Name',
+  rosterCapLabel: 'Cap number',
+  rosterAdd: 'Add player',
+  rosterEdit: 'Edit',
+  rosterEditFor: 'Edit {name}',
+  rosterSave: 'Save',
+  rosterCancel: 'Cancel',
+  rosterArchive: 'Archive',
+  rosterArchiveFor: 'Archive {name}',
+  rosterUnarchive: 'Unarchive',
+  rosterUnarchiveFor: 'Unarchive {name}',
+  rosterArchivedHeading: 'Archived ({n})',
+  rosterEmpty: 'No players yet. Add your first player above.',
+  rosterNameRequired: 'Enter a name.',
+  rosterCapRange: 'Cap number must be a whole number from 1 to 99.',
 };
 
 export function t(key, params = {}) {
