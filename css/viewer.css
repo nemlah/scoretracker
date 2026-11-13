@@ -8,6 +8,7 @@ body.viewer { background: var(--pool); }
     --paper: #0E2238;
     --pool: #08192A;
     --water: #5CC3EC;
+    --water-text: #5CC3EC;
     --rope: #FF6B7D;
     --line: #2B4660;
   }
@@ -42,7 +43,7 @@ body.viewer { background: var(--pool); }
 .team-name { font-size: 1.25rem; font-weight: 600; overflow-wrap: anywhere; }
 .status { display: flex; align-items: baseline; gap: 0.5rem; font-weight: 600; }
 .status .period::before { content: "· "; color: var(--ink); }
-.live-badge { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--water); }
+.live-badge { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--water-text); }
 .live-dot {
   width: 0.6rem;
   height: 0.6rem;

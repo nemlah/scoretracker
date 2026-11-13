@@ -3,6 +3,7 @@
   --paper: #FFFFFF;
   --pool: #EEF5F8;
   --water: #0F7FA8;
+  --water-text: #0B6A8C; /* water for normal-size text: 5.52:1 on --pool */
   --rope: #D7263D;
   --line: #C9D6DF;
   --accent: #0057B8;
