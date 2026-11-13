@@ -57,11 +57,18 @@ async function openEvents(page) {
   await expect(sheet(page)).toBeVisible();
 }
 
+// A confirming tap right after arming counts as a double tap and is ignored, so wait it out.
+async function armThenConfirm(page, testid) {
+  const button = page.getByTestId(testid);
+  await button.click();
+  await expect(button).toHaveText('Tap again to confirm');
+  await page.waitForTimeout(700);
+  await button.click();
+}
+
 async function endGameFromSheet(page) {
   await openEvents(page);
-  await page.getByTestId('end-game').click();
-  await expect(page.getByTestId('end-game')).toHaveText('Tap again to confirm');
-  await page.getByTestId('end-game').click();
+  await armThenConfirm(page, 'end-game');
 }
 
 async function withViewer(browser, fn) {
@@ -228,8 +235,7 @@ test('end game needs a second tap; viewer shows Final and season stats', async (
   // The armed state lapses after a few seconds.
   await expect(page.getByTestId('end-game')).toHaveText('End game', { timeout: 6000 });
   await expect(page.getByTestId('end-game')).not.toHaveClass(/is-armed/);
-  await page.getByTestId('end-game').click();
-  await page.getByTestId('end-game').click();
+  await armThenConfirm(page, 'end-game');
 
   await expect(page.getByTestId('home-new')).toBeVisible();
   await expect(page.getByTestId('home-resume')).toBeHidden();
@@ -273,9 +279,7 @@ test('past games: reopen then delete', async ({ page, browser }) => {
   await expect.poll(async () => (await get(`stats/${SEASON}`))?.results?.length).toBe(1);
   await page.getByTestId('home-games').click();
   await page.getByTestId('game-row').click();
-  await page.getByTestId('delete-game').click();
-  await expect(page.getByTestId('delete-game')).toHaveText('Tap again to confirm');
-  await page.getByTestId('delete-game').click();
+  await armThenConfirm(page, 'delete-game');
   await expect(page.getByTestId('games-empty')).toBeVisible();
   await expect.poll(async () => (await get('team/main')).currentGameId).toBeNull();
   await expect.poll(async () => (await get(`stats/${SEASON}`)).results).toEqual([]);
@@ -283,6 +287,43 @@ test('past games: reopen then delete', async ({ page, browser }) => {
   await withViewer(browser, async viewer => {
     await expect(viewer.getByTestId('empty-state')).toBeVisible();
   });
+});
+
+test('a double tap does not delete a game; a later second tap does', async ({ page }) => {
+  await startGame(page);
+  await goals(page, [5]);
+  await endGameFromSheet(page);
+  await expect(page.getByTestId('home-new')).toBeVisible();
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').click();
+  const button = page.getByTestId('delete-game');
+  await button.dblclick();
+  await expect(button).toHaveText('Tap again to confirm');
+  await expect(button).toHaveClass(/is-armed/);
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('game-meta')).toBeVisible();
+  expect((await get(`games/${await currentGameId()}`)).status).toBe('final');
+  // Still armed: a deliberate tap inside the window goes through.
+  await page.waitForTimeout(300);
+  await button.click();
+  await expect(page.getByTestId('games-empty')).toBeVisible();
+  await expect.poll(async () => (await get('team/main')).currentGameId).toBeNull();
+});
+
+test('a double tap does not end a game; a later second tap does', async ({ page }) => {
+  await startGame(page);
+  await goals(page, [5]);
+  await openEvents(page);
+  const button = page.getByTestId('end-game');
+  await button.dblclick();
+  await expect(button).toHaveText('Tap again to confirm');
+  await page.waitForTimeout(500);
+  await expect(button).toBeVisible();
+  expect((await get(`games/${await currentGameId()}`)).status).toBe('live');
+  await page.waitForTimeout(300);
+  await button.click();
+  await expect(page.getByTestId('home-new')).toBeVisible();
+  await expect.poll(async () => (await get(`games/${await currentGameId()}`)).status).toBe('final');
 });
 
 test('correcting a past game updates the season stats', async ({ page }) => {

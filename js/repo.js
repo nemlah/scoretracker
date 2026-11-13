@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  waitForPendingWrites,
   where,
   writeBatch,
 } from 'firebase/firestore';
@@ -142,6 +143,9 @@ export function createRepo(db) {
 
     async recomputeSeason(season) {
       requireOnline();
+      // Our own queued writes (an offline end or edit) must reach the server first, or the
+      // server read below would aggregate games as they were before them.
+      await waitForPendingWrites(db);
       const [games, team] = await Promise.all([
         getDocsFromServer(query(gamesRef, where('season', '==', season))),
         getDocFromServer(teamRef),

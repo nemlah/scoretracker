@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
-import { doc, getDocFromServer, setDoc, Timestamp } from 'firebase/firestore';
+import {
+  disableNetwork, doc, enableNetwork, getDocFromServer, setDoc, Timestamp,
+} from 'firebase/firestore';
 import { makeEvent, withPlayer } from '../../js/model.js';
 import { makeClient, testEnv } from './helpers.js';
 
@@ -104,6 +106,26 @@ test('endGame marks final and writes stats/{season}', async () => {
   assert.equal(stats.results.length, 1);
   assert.equal(stats.results[0].gameId, id);
   assert.ok(stats.updatedAt instanceof Timestamp);
+});
+
+test('recomputeSeason includes this client\'s queued writes', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo);
+  await repo.addEvent(id, makeEvent('goal', 1, 'a', 1000, 'goal-1'));
+  // Queued while offline, as after an offline edit and a reload: the recount must wait for the
+  // queue to reach the server instead of aggregating what the server had before.
+  await disableNetwork(db);
+  const queued = [
+    repo.addEvent(id, makeEvent('goal', 2, 'a', 2000, 'goal-2')),
+    repo.endGame(id),
+  ];
+  await enableNetwork(db);
+  await repo.recomputeSeason('2026-27');
+  await Promise.all(queued);
+  const stats = await read(db, 'stats/2026-27');
+  assert.equal(stats.results.length, 1);
+  assert.equal(stats.results[0].us, 2);
+  assert.equal(stats.players.a.goals, 2);
 });
 
 test("after takeover by a second client, the first client's addEvent rejects with permission-denied", async () => {
