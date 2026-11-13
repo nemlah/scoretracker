@@ -118,6 +118,21 @@ test("after takeover by a second client, the first client's addEvent rejects wit
   assert.deepEqual((await read(first.db, `games/${id}`)).events, [event]);
 });
 
+test('deleteGame rejects an inactive tracker and leaves the game and team unchanged', async () => {
+  const first = await activeClient();
+  await createGame(first.repo, { ...gameInput, date: '2026-11-01' });
+  const id = await createGame(first.repo);
+  const second = await activeClient();
+  const gameBefore = await read(second.db, `games/${id}`);
+  const teamBefore = await read(second.db, 'team/main');
+  assert.equal(teamBefore.currentGameId, id);
+
+  await assert.rejects(first.repo.deleteGame(id), { code: 'permission-denied' });
+
+  assert.deepEqual(await read(second.db, `games/${id}`), gameBefore);
+  assert.deepEqual(await read(second.db, 'team/main'), teamBefore);
+});
+
 test('deleteGame repoints currentGameId to the newest remaining game and recomputeSeason drops it', async () => {
   const { db, repo } = await activeClient();
   const older = await createGame(repo, { ...gameInput, date: '2026-11-01' });

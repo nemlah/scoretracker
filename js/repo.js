@@ -2,7 +2,6 @@ import {
   arrayRemove,
   arrayUnion,
   collection,
-  deleteDoc,
   doc,
   FirestoreError,
   getDocFromServer,
@@ -132,9 +131,13 @@ export function createRepo(db) {
     },
 
     async deleteGame(gameId) {
-      await deleteDoc(gameRef(gameId));
-      const remaining = await getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(1)));
-      await setDoc(teamRef, updated({ currentGameId: remaining.docs[0]?.id ?? null }), { merge: true });
+      // Two candidates suffice because only the deleted game is excluded.
+      const candidates = await getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(2)));
+      const replacement = candidates.docs.find(game => game.id !== gameId);
+      const batch = writeBatch(db);
+      batch.delete(gameRef(gameId));
+      batch.set(teamRef, updated({ currentGameId: replacement?.id ?? null }), { merge: true });
+      await batch.commit();
     },
 
     async recomputeSeason(season) {
