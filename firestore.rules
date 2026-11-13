@@ -23,7 +23,9 @@ service cloud.firestore {
     }
     match /control/tracker {
       allow read: if true;
-      allow write: if isValidEditor() && request.resource.data.activeUid == request.auth.uid;
+      allow write: if isValidEditor()
+        && request.resource.data.keys().hasOnly(['activeUid', 'claimedAt'])
+        && request.resource.data.activeUid == request.auth.uid;
     }
     match /team/main        { allow read: if true; allow write: if isActiveTracker(); }
     match /games/{gameId}   { allow read: if true; allow write: if isActiveTracker(); }
