@@ -23,6 +23,7 @@ export function mount(root, ctx) {
   // The open editor row is built once per edit and kept across re-renders, so its draft and
   // focus survive snapshots and failed saves; only the surrounding rows are replaced.
   let editorRow = null;
+  let editorPlayerId = null; // the player editorRow was built for
   // Roster we have just written but the team snapshot has not reflected yet, so quick
   // successive edits build on each other instead of on a stale snapshot.
   let optimistic = null;
@@ -160,12 +161,16 @@ export function mount(root, ctx) {
     const live = players.filter(player => !player.archived);
     const gone = players.filter(player => player.archived);
     if (editingId !== null && !live.some(player => player.id === editingId)) editingId = null;
-    if (editingId === null) editorRow = null;
+    // A different edited player gets a fresh editor: the cached one saves to its own player.
+    if (editingId === null || editorPlayerId !== editingId) editorRow = null;
 
     const sorted = [...live].sort(byCapThenName);
     const nodes = sorted.map(player => {
       if (player.id !== editingId) return row(player, false);
-      editorRow ??= editRow(player);
+      if (editorRow === null) {
+        editorRow = editRow(player);
+        editorPlayerId = player.id;
+      }
       return editorRow;
     });
     place(list, nodes, editorRow);

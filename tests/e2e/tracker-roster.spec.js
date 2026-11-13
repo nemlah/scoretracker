@@ -148,3 +148,29 @@ test('a rejected save keeps the draft and editor of another player being edited'
   });
   expect(kept).toEqual({ same: true, connected: true, value: 'Draft name' });
 });
+
+test('opening another player\'s editor switches the editor and its save target', async ({ page }) => {
+  await seed('team/main', {
+    roster: [
+      { id: 'a', name: 'Alexiou', cap: 2, archived: false },
+      { id: 'b', name: 'Beta', cap: 5, archived: false },
+    ],
+  });
+  await openRoster(page);
+  const rowA = page.locator('[data-player-id="a"]');
+  const rowB = page.locator('[data-player-id="b"]');
+
+  await rowA.getByTestId('roster-edit').click();
+  await expect(rowA.getByTestId('roster-edit-name')).toHaveValue('Alexiou');
+  await rowB.getByTestId('roster-edit').click();
+  // B's editor replaces A's: A is a plain row again and the form holds B's values.
+  await expect(rowA.getByTestId('roster-edit-name')).toHaveCount(0);
+  await expect(rowB.getByTestId('roster-edit-name')).toHaveValue('Beta');
+
+  await rowB.getByTestId('roster-edit-name').fill('Beta renamed');
+  await rowB.getByTestId('roster-save').click();
+  await expect(rowB).toContainText('Beta renamed');
+  await expect(rowA).toContainText('Alexiou');
+  await expect(rowA).not.toContainText('Beta');
+  await expect(page.getByTestId('roster-edit-name')).toHaveCount(0);
+});
