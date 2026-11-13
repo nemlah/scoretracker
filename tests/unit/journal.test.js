@@ -188,3 +188,49 @@ test('a remove drops the pending and failed adds and replaces of that event', ()
   assert.deepEqual(journal.failed('g'), []);
   assert.deepEqual(stored(storage), []);
 });
+
+test('two instances sharing one storage never overwrite each other', () => {
+  const storage = fakeStorage();
+  const a = createJournal(storage);
+  const b = createJournal(storage);
+  const first = a.record('g', 'add', e1);
+  const second = b.record('g', 'add', makeEvent('goal', 1, 'p2', 2000, 'e2'));
+  assert.deepEqual(stored(storage).map(entry => entry.id), [first.id, second.id]);
+
+  // Reconcile, retry and discard in one tab are seen by the other, and nothing else is lost.
+  assert.equal(a.reconcile('g', []).failed.length, 2);
+  assert.equal(b.failed('g').length, 2);
+  b.markRetried(first.id);
+  assert.deepEqual(a.failed('g').map(entry => entry.id), [second.id]);
+  const third = a.record('h', 'add', e1);
+  a.discard(second.id);
+  assert.deepEqual(stored(storage).map(entry => entry.id), [first.id, third.id]);
+  assert.deepEqual(b.pendingGameIds().sort(), ['g', 'h']);
+});
+
+test('a stale in-memory copy is never written back after another tab changed storage', () => {
+  const storage = fakeStorage();
+  const a = createJournal(storage);
+  const entry = a.record('g', 'add', e1);
+  // Another tab clears the journal (everything confirmed); this tab must not resurrect the entry.
+  storage.setItem('wp-journal', '[]');
+  a.markRetried(entry.id);
+  a.record('h', 'add', e1);
+  assert.deepEqual(stored(storage).map(item => item.gameId), ['h']);
+});
+
+test('pendingGameIds lists games with pending entries, markGone fails them as gone', () => {
+  const storage = fakeStorage();
+  const journal = createJournal(storage);
+  journal.record('g', 'add', e1);
+  journal.record('h', 'add', e1);
+  journal.reconcile('h', []);
+  assert.deepEqual(journal.pendingGameIds(), ['g']);
+  const gone = journal.markGone('g');
+  assert.equal(gone.length, 1);
+  assert.equal(gone[0].gone, true);
+  assert.deepEqual(journal.pendingGameIds(), []);
+  assert.equal(journal.failed('g')[0].gone, true);
+  assert.equal(createJournal(storage).failed('g')[0].gone, true);
+  assert.equal(createJournal(storage).failed('h')[0].gone, undefined);
+});

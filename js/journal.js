@@ -6,6 +6,7 @@
  * @property {'add'|'remove'|'replace'} op
  * @property {Event} event
  * @property {'pending'|'failed'} status
+ * @property {boolean} [gone] the game no longer exists on the server
  */
 
 function validEntry(entry) {
@@ -25,18 +26,27 @@ const copyEntry = entry => ({ ...entry, event: { ...entry.event } });
 /**
  * Local safety net for event writes. Reconcile only against a server snapshot
  * with fromCache === false and hasPendingWrites === false.
+ *
+ * Several tabs of one browser share the storage, so every call re-reads it and every change is
+ * applied to what was just read: no instance ever writes back a stale copy. When storage is
+ * unavailable the journal keeps working from memory.
  */
 export function createJournal(storage, key = 'wp-journal') {
   /** @type {Entry[]} */
   let entries = [];
   let storageAvailable = true;
-  let raw;
-  try {
-    raw = storage.getItem(key);
-  } catch {
-    storageAvailable = false;
-  }
-  if (raw != null) {
+
+  function load() {
+    if (!storageAvailable) return;
+    let raw;
+    try {
+      raw = storage.getItem(key);
+    } catch {
+      storageAvailable = false;
+      return;
+    }
+    entries = [];
+    if (raw == null) return;
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.every(validEntry)) entries = parsed;
@@ -57,6 +67,7 @@ export function createJournal(storage, key = 'wp-journal') {
 
   return {
     record(gameId, op, event) {
+      load();
       // A later correction supersedes our own earlier ones for the same event. Otherwise, once
       // all the writes have settled, the earlier entry would look unsaved (it no longer matches
       // the server) and a retry would undo the newer correction. A remove cancels the earlier
@@ -75,6 +86,7 @@ export function createJournal(storage, key = 'wp-journal') {
       return copyEntry(entry);
     },
     reconcile(gameId, serverEvents) {
+      load();
       let confirmed = 0;
       const failed = [];
       entries = entries.filter(entry => {
@@ -94,16 +106,37 @@ export function createJournal(storage, key = 'wp-journal') {
       persist();
       return { confirmed, failed };
     },
+    /** The game does not exist on the server: its entries can only be discarded. */
+    markGone(gameId) {
+      load();
+      const gone = [];
+      for (const entry of entries) {
+        if (entry.gameId !== gameId) continue;
+        entry.status = 'failed';
+        entry.gone = true;
+        gone.push(copyEntry(entry));
+      }
+      if (gone.length > 0) persist();
+      return gone;
+    },
     failed(gameId) {
+      load();
       return entries.filter(entry => entry.status === 'failed'
         && (gameId === undefined || entry.gameId === gameId)).map(copyEntry);
     },
+    /** Games with entries that are still waiting for the server's verdict. */
+    pendingGameIds() {
+      load();
+      return [...new Set(entries.filter(entry => entry.status === 'pending').map(entry => entry.gameId))];
+    },
     markRetried(entryId) {
+      load();
       const entry = entries.find(entry => entry.id === entryId);
       if (entry) entry.status = 'pending';
       persist();
     },
     discard(entryId) {
+      load();
       entries = entries.filter(entry => entry.id !== entryId);
       persist();
     },
