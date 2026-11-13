@@ -147,3 +147,22 @@ test('taps after losing control are flagged, retried after taking back', async (
   }
   dropNetworkNoise(problems);
 });
+
+test('a connection with no data serves the cached shell after the timeout', async ({ page, context }) => {
+  await startGame(page);
+  await tile(page, 2).getByTestId('tile-goal').click();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await swReady(page);
+  await reloadTracker(page, problems);
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+
+  // Signal bars but no data: same-origin requests (the worker's own included) never answer.
+  const hung = [];
+  await context.route(`${ORIGIN}/**`, route => { hung.push(route); });
+  await page.reload({ waitUntil: 'commit' });
+  await expect(page.getByTestId('score-us')).toHaveText('1', { timeout: 6000 });
+  expect(hung.length).toBeGreaterThan(0);
+  await context.unroute(`${ORIGIN}/**`);
+  for (const route of hung) await route.abort().catch(() => {});
+  dropNetworkNoise(problems);
+});

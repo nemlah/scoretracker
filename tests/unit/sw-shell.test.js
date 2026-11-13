@@ -58,3 +58,14 @@ test('the shell matches the import map in both pages', () => {
     for (const url of mapped) assert.ok(urls.has(url), `${page}: ${url} is in SHELL`);
   }
 });
+
+test('same-origin requests fall back to the cache after a 3000 ms timeout', () => {
+  const source = readFileSync(join(root, 'sw.js'), 'utf8');
+  assert.match(source, /const NETWORK_TIMEOUT_MS = 3000;/);
+  assert.match(source, /Promise\.race\(\[network, timeout\]\)/);
+});
+
+test('after one timeout the rest of the page chain is served from the cache for a named window', () => {
+  const source = readFileSync(join(root, 'sw.js'), 'utf8');
+  assert.match(source, /const SLOW_NETWORK_MS = \d+;/);
+});

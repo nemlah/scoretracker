@@ -38,6 +38,14 @@ const SHELL = [
 ];
 // SHELL-END
 
+// Longest a same-origin request may take before the cached copy is served instead.
+const NETWORK_TIMEOUT_MS = 3000;
+// A page loads in a chain (html, then the modules each module imports). Once one request has
+// timed out, the rest of the chain is served from the cache straight away for this long instead
+// of waiting out the timeout again at every level. A request that succeeds ends this early.
+const SLOW_NETWORK_MS = 20000;
+let slowUntil = 0;
+
 // Pinned SDK files and the Google Fonts CSS and font files never change under one URL, so they
 // are served from the cache first and stored on their first use.
 const CACHE_FIRST_PREFIXES = [
@@ -62,16 +70,37 @@ self.addEventListener('activate', event => {
 // Opaque responses (cross-origin stylesheets and fonts loaded without CORS) are cacheable too.
 const storable = response => response.ok || response.type === 'opaque';
 
-async function networkFirst(request) {
+// Signal bars but no data is the normal state at a pool deck: a request that has not answered
+// by then is served from the cache while it carries on in the background.
+async function networkFirst(event) {
+  const { request } = event;
   const cache = await caches.open(CACHE);
-  try {
-    const response = await fetch(request);
-    if (storable(response)) await cache.put(request, response.clone());
+  const cachedCopy = () => cache.match(request, { ignoreSearch: true });
+  const network = fetch(request).then(response => {
+    slowUntil = 0;
+    if (storable(response)) cache.put(request, response.clone()).catch(() => {});
     return response;
+  });
+  let timer;
+  const wait = Date.now() < slowUntil ? 0 : NETWORK_TIMEOUT_MS;
+  const timeout = new Promise(resolve => { timer = setTimeout(resolve, wait, null); });
+  try {
+    const first = await Promise.race([network, timeout]);
+    if (first) return first;
+    const cached = await cachedCopy();
+    if (cached) {
+      slowUntil = Date.now() + SLOW_NETWORK_MS;
+      // Let the slow request finish, so a success still refreshes the cache entry.
+      event.waitUntil(network.catch(() => {}));
+      return cached;
+    }
+    return await network;
   } catch (err) {
-    const cached = await cache.match(request, { ignoreSearch: true });
+    const cached = await cachedCopy();
     if (cached) return cached;
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -90,7 +119,7 @@ self.addEventListener('fetch', event => {
   if (CACHE_FIRST_PREFIXES.some(prefix => request.url.startsWith(prefix))) {
     event.respondWith(cacheFirst(request));
   } else if (new URL(request.url).origin === self.location.origin) {
-    event.respondWith(networkFirst(request));
+    event.respondWith(networkFirst(event));
   }
   // Anything else (Firestore, Auth) goes straight to the network.
 });
