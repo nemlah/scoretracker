@@ -110,3 +110,41 @@ test('a rejected save rolls the roster back to the authoritative rows', async ({
   await expect(activeRows(page).first()).toContainText('Alexiou');
   await expect(page.getByText('Ghost')).toHaveCount(0);
 });
+
+test('a rejected save keeps the draft and editor of another player being edited', async ({ page }) => {
+  await seed('team/main', {
+    roster: [
+      { id: 'a', name: 'Alexiou', cap: 2, archived: false },
+      { id: 'b', name: 'Beta', cap: 5, archived: false },
+    ],
+  });
+  await openRoster(page);
+  await expect(activeRows(page)).toHaveCount(2);
+
+  await update('control/tracker', { activeUid: 'another-device' });
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('[data-write]')) el.disabled = false;
+  });
+
+  // In one tick, so the save for A is still pending: archive A, open B's editor, type a draft.
+  await page.evaluate(() => {
+    document.querySelector('[data-player-id="a"] [data-testid="roster-archive"]').click();
+    document.querySelector('[data-player-id="b"] [data-testid="roster-edit"]').click();
+    const input = document.querySelector('[data-testid="roster-edit-name"]');
+    input.value = 'Draft name';
+    window.__editorInput = input;
+  });
+
+  // The server rejects A's save; A returns to the active list.
+  await expect(page.getByTestId('roster-archived')).toBeHidden();
+  await expect(activeRows(page)).toHaveCount(2);
+  await expect(activeRows(page).nth(0)).toContainText('Alexiou');
+
+  // B's editor is the same element, not rebuilt from roster values, so draft (and focus) survive.
+  const kept = await page.evaluate(() => {
+    const input = document.querySelector('[data-testid="roster-edit-name"]');
+    return { same: input === window.__editorInput, connected: input.isConnected, value: input.value };
+  });
+  expect(kept).toEqual({ same: true, connected: true, value: 'Draft name' });
+});

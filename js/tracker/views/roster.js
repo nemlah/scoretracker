@@ -20,6 +20,9 @@ const sameRoster = (a, b) => a.length === b.length && a.every((p, i) =>
 
 export function mount(root, ctx) {
   let editingId = null;
+  // The open editor row is built once per edit and kept across re-renders, so its draft and
+  // focus survive snapshots and failed saves; only the surrounding rows are replaced.
+  let editorRow = null;
   // Roster we have just written but the team snapshot has not reflected yet, so quick
   // successive edits build on each other instead of on a stale snapshot.
   let optimistic = null;
@@ -101,7 +104,7 @@ export function mount(root, ctx) {
     const edit = h('button', {
       type: 'button', class: 'btn btn--small', 'data-write': true, 'data-testid': 'roster-edit',
       'aria-label': t('rosterEditFor', { name: player.name }),
-      onclick: () => { editingId = player.id; renderList(); list.querySelector('[data-testid="roster-edit-name"]')?.focus(); },
+      onclick: () => { editingId = player.id; renderList(); editorRow?.querySelector('[data-testid="roster-edit-name"]')?.focus(); },
     }, t('rosterEdit'));
     return h('li', { class: 'roster-row', 'data-testid': 'roster-row', 'data-player-id': player.id },
       h('span', { class: isArchived ? 'cap cap--out' : 'cap' }, player.cap),
@@ -140,18 +143,34 @@ export function mount(root, ctx) {
         error));
   }
 
+  // Replace every row except `keep` without moving it, which would drop focus from its inputs.
+  function place(target, nodes, keep) {
+    const at = nodes.indexOf(keep);
+    if (at < 0 || keep.parentNode !== target) {
+      target.replaceChildren(...nodes);
+      return;
+    }
+    for (const child of [...target.children]) if (child !== keep) child.remove();
+    for (const node of nodes.slice(0, at)) target.insertBefore(node, keep);
+    target.append(...nodes.slice(at + 1));
+  }
+
   function renderList() {
     const players = currentRoster();
-    const fill = (target, group, isArchived) => {
-      clear(target);
-      for (const player of [...group].sort(byCapThenName)) {
-        target.append(editingId === player.id && !isArchived ? editRow(player) : row(player, isArchived));
-      }
-    };
     const live = players.filter(player => !player.archived);
     const gone = players.filter(player => player.archived);
-    fill(list, live, false);
-    fill(archivedList, gone, true);
+    if (editingId !== null && !live.some(player => player.id === editingId)) editingId = null;
+    if (editingId === null) editorRow = null;
+
+    const sorted = [...live].sort(byCapThenName);
+    const nodes = sorted.map(player => {
+      if (player.id !== editingId) return row(player, false);
+      editorRow ??= editRow(player);
+      return editorRow;
+    });
+    place(list, nodes, editorRow);
+    clear(archivedList);
+    for (const player of [...gone].sort(byCapThenName)) archivedList.append(row(player, true));
     empty.hidden = players.length > 0;
     archived.hidden = gone.length === 0;
     archivedSummary.textContent = t('rosterArchivedHeading', { n: gone.length });
@@ -162,8 +181,7 @@ export function mount(root, ctx) {
   function update(state) {
     const roster = state.team?.roster ?? [];
     if (optimistic && sameRoster(roster, optimistic)) optimistic = null;
-    // An open edit form keeps its draft; it re-renders when the edit ends.
-    if (editingId !== null) return;
+    // An open editor row is preserved by renderList, so snapshots never disturb its draft.
     renderList();
   }
 
