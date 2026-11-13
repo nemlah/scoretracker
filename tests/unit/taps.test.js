@@ -132,18 +132,15 @@ test('undo removes lastEvent and journals remove', () => {
   assert.deepEqual(calls, []);
 });
 
-test('a second undo within 1000 ms is ignored so one double tap removes one event', () => {
-  let clock = 5000;
+test('every undo that reaches the tapper is performed, however close together', () => {
   const events = [makeEvent('goal', 1, 'p5', 100, 'a'), makeEvent('oppGoal', 1, null, 200, 'b')];
-  const { tapper, calls } = setup({
+  const { tapper, calls, state } = setup({
     game: { id: 'g1', status: 'live', period: 1, lineup, events },
-    now: () => clock,
+    now: () => 5000,
   });
-  assert.ok(tapper.undo());
-  clock = 5400;
-  assert.equal(tapper.undo(), null);
-  clock = 6000;
-  assert.ok(tapper.undo());
+  assert.deepEqual(tapper.undo(), events[1]);
+  state.game = { ...state.game, events: [events[0]] };
+  assert.deepEqual(tapper.undo(), events[0]);
   assert.equal(calls.filter(call => call[0] === 'repo.removeEvent').length, 2);
 });
 

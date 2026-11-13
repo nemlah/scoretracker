@@ -123,3 +123,28 @@ test('throwing storage falls back to memory', () => {
   readFailure.discard(memoryEntry.id);
   assert.deepEqual(readFailure.failed(), []);
 });
+
+test('a remove cancels the pending add of the same event, so a later retry cannot bring it back', () => {
+  const storage = fakeStorage();
+  const journal = createJournal(storage);
+  const other = makeEvent('goal', 1, 'p2', 2000, 'e2');
+  journal.record('g', 'add', e1);
+  journal.record('g', 'add', other);
+  journal.record('other-game', 'add', e1);
+  const removal = journal.record('g', 'remove', e1);
+  const ops = stored(storage).map(entry => [entry.gameId, entry.op, entry.event.id]);
+  assert.deepEqual(ops, [['g', 'add', 'e2'], ['other-game', 'add', 'e1'], ['g', 'remove', 'e1']]);
+  // The server has e2 only: the add of e1 is gone, the remove is confirmed, nothing fails.
+  assert.deepEqual(journal.reconcile('g', [other]), { confirmed: 2, failed: [] });
+  assert.deepEqual(journal.failed('g'), []);
+  assert.equal(removal.op, 'remove');
+});
+
+test('a remove also cancels a failed add of the same event', () => {
+  const journal = createJournal(fakeStorage());
+  journal.record('g', 'add', e1);
+  assert.equal(journal.reconcile('g', []).failed.length, 1);
+  journal.record('g', 'remove', e1);
+  assert.deepEqual(journal.failed('g'), []);
+  assert.deepEqual(journal.reconcile('g', []), { confirmed: 1, failed: [] });
+});

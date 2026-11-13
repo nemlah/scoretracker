@@ -1,4 +1,4 @@
-import { DUPLICATE_TAP_MS, isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
+import { isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
 
 /**
  * Every tap goes through here: journal first, then the write. The write is never awaited, so
@@ -17,7 +17,6 @@ export function createTapper({
 }) {
   // Duplicate protection is per device: the last tap this tapper accepted, not any event in the game.
   let lastTap = null;
-  let lastUndoAt = null;
 
   function send(write, ...args) {
     try {
@@ -56,12 +55,10 @@ export function createTapper({
   function undo() {
     const game = liveGame();
     if (game === null) return null;
-    const at = now();
-    // One accidental double tap must not remove two events.
-    if (lastUndoAt !== null && at >= lastUndoAt && at - lastUndoAt < DUPLICATE_TAP_MS) return null;
+    // A tap that reaches here is never ignored. The view disables the button briefly after an
+    // Undo, so an accidental double tap is visibly refused rather than silently dropped.
     const event = lastEvent(game.events ?? []);
     if (event === null) return null;
-    lastUndoAt = at;
     lastTap = null;
     journal.record(game.id, 'remove', event);
     send(repo.removeEvent, game.id, event);

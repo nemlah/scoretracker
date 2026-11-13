@@ -1,4 +1,6 @@
-import { assignCap, defaultSelection, lineupFrom, todayIso, validateLineup } from '../../model.js';
+import {
+  assignCap, defaultSelection, lineupFrom, todayIso, toggleSelected, validateLineup,
+} from '../../model.js';
 import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
@@ -53,7 +55,7 @@ export function mount(root, ctx) {
   function buildRow(player) {
     const check = h('input', {
       type: 'checkbox', class: 'sel-check', 'data-testid': 'sel-check',
-      onchange: () => { base = null; setSelection(toggle(player.playerId)); },
+      onchange: () => { base = null; setSelection(toggleSelected(selection, player.playerId)); },
     });
     const cap = h('input', {
       class: 'input input--cap', type: 'text', inputmode: 'numeric', maxlength: 2, autocomplete: 'off',
@@ -74,16 +76,6 @@ export function mount(root, ctx) {
       h('label', { class: 'sel-label' }, check, h('span', { class: 'sel-name' }, player.name)),
       cap, error);
     return { el, check, cap, error };
-  }
-
-  function toggle(playerId) {
-    return selection.map(entry => {
-      if (entry.playerId !== playerId) return { ...entry };
-      const selected = !entry.selected;
-      const clash = selected && selection.some(other => other.playerId !== playerId
-        && other.selected && other.cap === entry.cap);
-      return { ...entry, selected, cap: clash ? null : entry.cap };
-    });
   }
 
   function renderRows() {

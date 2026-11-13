@@ -128,7 +128,9 @@ test('goal, exclusion, opponent goal, undo label', async ({ page }) => {
   await page.getByTestId('undo').click();
   await expect(tile(page, 2).getByTestId('tile-excl-count')).toHaveText('0');
   await expect(page.getByTestId('undo')).toHaveText('Undo: Opponent goal (Q1)');
-  await page.waitForTimeout(1100);
+  // Right after an Undo the button is visibly disabled for a moment, then usable again.
+  await expect(page.getByTestId('undo')).toBeDisabled();
+  await expect(page.getByTestId('undo')).toBeEnabled();
   await page.getByTestId('undo').click();
   await expect(page.getByTestId('score-them')).toHaveText('0');
   await expect(page.getByTestId('score-us')).toHaveText('1');
@@ -136,6 +138,23 @@ test('goal, exclusion, opponent goal, undo label', async ({ page }) => {
   // Every tap was confirmed by the server, so nothing is left in the local journal.
   await expect.poll(() => journalOf(page)).toBe('[]');
   await expect(page.getByTestId('failed-banner')).toBeHidden();
+});
+
+test('a double tap on Undo removes one event; the next tap after it re-enables works', async ({ page }) => {
+  await startGame(page);
+  await tile(page, 5).getByTestId('tile-goal').click();
+  await tile(page, 2).getByTestId('tile-goal').click();
+  await expect(page.getByTestId('score-us')).toHaveText('2');
+  await page.getByTestId('undo').dblclick();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page.getByTestId('undo')).toBeDisabled();
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page.getByTestId('undo')).toBeEnabled();
+  await expect(page.getByTestId('undo')).toHaveText('Undo: Goal · #5 Alexiou (Q1)');
+  await page.getByTestId('undo').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.getByTestId('undo')).toBeDisabled();
 });
 
 test('third exclusion marks OUT and disables tile buttons', async ({ page }) => {
@@ -294,6 +313,26 @@ test('taps made offline show on screen, are kept, and sync when the signal retur
   await expect(page.getByTestId('failed-banner')).toBeHidden();
   const game = await get(`games/${await currentGameId()}`);
   expect(game.events.map(event => event.type).sort()).toEqual(['goal', 'oppGoal']);
+  dropNetworkNoise(problems);
+});
+
+test('a goal added and undone offline stays removed after reconnecting', async ({ page, context }) => {
+  await startGame(page);
+  await currentGameId();
+  await context.setOffline(true);
+  await expect(page.getByTestId('sync-status')).toHaveText('offline — taps saved, will sync');
+  await tile(page, 5).getByTestId('tile-goal').click();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await page.getByTestId('undo').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await context.setOffline(false);
+  await expect(page.getByTestId('sync-status')).toHaveText('online');
+  await expect.poll(() => journalOf(page)).toBe('[]');
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('failed-banner')).toBeHidden();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  const game = await get(`games/${await currentGameId()}`);
+  expect(game.events).toEqual([]);
   dropNetworkNoise(problems);
 });
 

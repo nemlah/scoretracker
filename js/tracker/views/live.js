@@ -5,6 +5,7 @@ import { eventLabel, periodLabel, scoreText, t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
 const PIPS = 3;
+const UNDO_LOCK_MS = 1000;
 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
@@ -61,6 +62,8 @@ export function mount(root, ctx) {
   const tiles = new Map(); // playerId -> tile
   let unmounted = false;
   let wakeLock = null;
+  let undoLocked = false;
+  let undoTimer = null;
 
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
   const scoreThem = h('span', { class: 'score-them', 'data-testid': 'score-them' }, '0');
@@ -69,11 +72,13 @@ export function mount(root, ctx) {
   const periodButton = h('button', {
     type: 'button', class: 'btn btn--primary btn--period', 'data-testid': 'period-next', onclick: advancePeriod,
   }, periodLabel(1));
-  const head = h('div', { class: 'live-head' },
-    h('div', { class: 'live-score-block' },
-      h('div', { class: 'live-score' }, scoreUs, h('span', { class: 'score-dash', 'aria-hidden': 'true' }, '–'), scoreThem),
-      h('div', { class: 'live-meta' }, shootout, sync)),
-    periodButton);
+  const head = h('div', { class: 'live-top' },
+    h('div', { class: 'live-head' },
+      h('div', { class: 'live-score-block' },
+        h('div', { class: 'live-score' }, scoreUs, h('span', { class: 'score-dash', 'aria-hidden': 'true' }, '–'), scoreThem),
+        h('div', { class: 'live-meta' }, shootout, sync)),
+      periodButton),
+    h('div', { class: 'rope', 'aria-hidden': 'true' }));
 
   const tileList = h('ul', { class: 'tiles', 'data-testid': 'tiles' });
 
@@ -81,7 +86,7 @@ export function mount(root, ctx) {
     type: 'button', class: 'btn btn--opp', 'data-testid': 'opp-goal', onclick: () => ctx.tapper.tap('oppGoal', null),
   }, t('oppGoalButton'));
   const undo = h('button', {
-    type: 'button', class: 'btn btn--undo', 'data-testid': 'undo', onclick: () => ctx.tapper.undo(),
+    type: 'button', class: 'btn btn--undo', 'data-testid': 'undo', onclick: onUndo,
   }, t('undoNothing'));
   // Task 9 supplies ctx.openEvents; until then the button is present and does nothing.
   const eventsOpen = h('button', {
@@ -96,6 +101,19 @@ export function mount(root, ctx) {
     h('button', { type: 'button', class: 'btn btn--wide', onclick: () => ctx.navigate('/') }, t('navHome')));
   root.append(game, loading, none);
   document.body.classList.add('on-live');
+
+  // After an Undo the button is disabled for a moment, so an accidental double tap is visibly
+  // refused instead of removing a second event. A tap on an enabled button is always performed.
+  function onUndo() {
+    if (undoLocked || !ctx.tapper.undo()) return;
+    undoLocked = true;
+    undo.disabled = true;
+    undoTimer = setTimeout(() => {
+      undoLocked = false;
+      undoTimer = null;
+      update(ctx.getState());
+    }, UNDO_LOCK_MS);
+  }
 
   function advancePeriod() {
     const current = ctx.getState().game;
@@ -148,7 +166,7 @@ export function mount(root, ctx) {
       label: eventLabel(last, current.lineup ?? []),
       period: periodLabel(last.period),
     });
-    undo.disabled = last === null || !writable;
+    undo.disabled = last === null || !writable || undoLocked;
     oppGoal.disabled = !writable;
   }
 
@@ -193,6 +211,7 @@ export function mount(root, ctx) {
     update,
     unmount() {
       unmounted = true;
+      clearTimeout(undoTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
       document.body.classList.remove('on-live');

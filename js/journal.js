@@ -57,6 +57,12 @@ export function createJournal(storage, key = 'wp-journal') {
 
   return {
     record(gameId, op, event) {
+      // Removing an event cancels our own earlier add of it. Otherwise, once both writes have
+      // settled, the add would look unsaved (the event is absent) and a retry would restore it.
+      if (op === 'remove') {
+        entries = entries.filter(entry => !(entry.gameId === gameId && entry.op === 'add'
+          && entry.event.id === event.id));
+      }
       const entry = {
         id: globalThis.crypto.randomUUID(), gameId, op,
         event: { ...event }, status: 'pending',
