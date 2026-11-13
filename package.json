@@ -1,0 +1,1 @@
+{"name":"waterpolo-scoretracker","private":true,"type":"module","scripts":{"test":"node --test \"tests/unit/**/*.test.js\""}}
