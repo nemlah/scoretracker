@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { closeAll, resetAll, seed } from './helpers.js';
+import { closeAll, resetAll, seed, update } from './helpers.js';
 import { CODE, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 let problems;
@@ -81,4 +81,32 @@ test('rejects empty name and cap outside 1–99', async ({ page }) => {
   await addPlayer(page, '  Nikos  ', 99);
   await expect(activeRows(page)).toHaveCount(1);
   await expect(page.getByTestId('roster-error')).toBeHidden();
+});
+
+test('archived rows offer Unarchive but no Edit', async ({ page }) => {
+  await seed('team/main', { roster: [{ id: 'a', name: 'Gone', cap: 4, archived: true }] });
+  await openRoster(page);
+  await page.getByTestId('roster-archived').locator('summary').click();
+  await expect(archivedRows(page)).toHaveCount(1);
+  await expect(archivedRows(page).first().getByTestId('roster-unarchive')).toBeVisible();
+  await expect(archivedRows(page).first().getByTestId('roster-edit')).toHaveCount(0);
+});
+
+test('a rejected save rolls the roster back to the authoritative rows', async ({ page }) => {
+  await seed('team/main', { roster: [{ id: 'a', name: 'Alexiou', cap: 5, archived: false }] });
+  await openRoster(page);
+  await expect(activeRows(page)).toHaveCount(1);
+
+  // Another device takes control, then this page (still showing enabled controls) writes anyway.
+  await update('control/tracker', { activeUid: 'another-device' });
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll('[data-write]')) el.disabled = false;
+  });
+  await addPlayer(page, 'Ghost', 9);
+
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await expect(activeRows(page)).toHaveCount(1);
+  await expect(activeRows(page).first()).toContainText('Alexiou');
+  await expect(page.getByText('Ghost')).toHaveCount(0);
 });

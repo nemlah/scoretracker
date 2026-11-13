@@ -32,6 +32,8 @@ export function mount(root, ctx) {
       await ctx.repo.saveRoster(next);
     } catch (err) {
       if (optimistic === next) optimistic = null;
+      // Show the authoritative roster again, not the rows we only hoped to save.
+      renderList();
       ctx.onWriteError(err);
     }
   }
@@ -104,7 +106,8 @@ export function mount(root, ctx) {
     return h('li', { class: 'roster-row', 'data-testid': 'roster-row', 'data-player-id': player.id },
       h('span', { class: isArchived ? 'cap cap--out' : 'cap' }, player.cap),
       h('span', { class: 'roster-name' }, player.name),
-      h('span', { class: 'row-actions' }, edit, action));
+      // Archived players can only be unarchived; editing happens once they are back on the roster.
+      h('span', { class: 'row-actions' }, isArchived ? null : edit, action));
   }
 
   function editRow(player) {

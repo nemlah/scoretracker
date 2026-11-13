@@ -56,6 +56,8 @@ test('second device takes over; first becomes read-only and can take back', asyn
     await unlockTracker(pageB);
 
     await expect(page.getByTestId('takeover-banner')).toBeVisible();
+    await expect(page.getByTestId('takeover-banner')).toContainText('Tracking moved to another device');
+    await expect(page.getByTestId('take-over')).toHaveText('Take over');
     await expect(page.getByTestId('home-new')).toBeDisabled();
     await expect(pageB.getByTestId('takeover-banner')).toBeHidden();
     await expect(pageB.getByTestId('home-new')).toBeEnabled();
@@ -85,6 +87,32 @@ test('revoked code: next write shows unlock with code-changed notice', async ({ 
   await page.getByTestId('unlock-btn').click();
   await expect(page.getByTestId('roster-add-btn')).toBeEnabled();
   await expect(page.getByText('The code was changed')).toHaveCount(0);
+});
+
+test('subscriptions are restored when the page comes back from the back/forward cache', async ({ page }) => {
+  // The Firestore SDK has its own pagehide handler that, in WebKit, shuts its listeners down when
+  // it sees a synthetic event. Only the app's handlers should react to the replayed events.
+  await page.addInitScript(() => {
+    const add = window.addEventListener.bind(window);
+    window.addEventListener = (type, listener, options) => {
+      if (type === 'pagehide' && !new Error().stack.includes('tracker/app.js')) return;
+      add(type, listener, options);
+    };
+  });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await expect(page.getByTestId('takeover-banner')).toBeHidden();
+
+  // Playwright cannot drive a real bfcache round trip, so replay its two events.
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await update('control/tracker', { activeUid: 'another-device' });
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('takeover-banner')).toBeHidden();
+  await expect(page.getByTestId('home-new')).toBeEnabled();
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await expect(page.getByTestId('home-new')).toBeDisabled();
 });
 
 test('unlock offline shows the connection message without trying', async ({ page, context }) => {

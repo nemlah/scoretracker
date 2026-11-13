@@ -213,7 +213,14 @@ async function boot() {
     render();
     return;
   }
-  unsubscribeAll();
+  subscribe();
+  render();
+}
+
+// Our three watchers. Dropped on pagehide and re-attached on pageshow so a page restored from
+// the back/forward cache does not keep acting on stale ownership and roster state.
+function subscribe() {
+  if (unsubscribers.length > 0) return;
   unsubscribers.push(
     repo.watchOwnEditor(state.uid, (doc, meta) => {
       // An unconfirmed local write (e.g. a code the server may still reject) must not unlock the UI.
@@ -225,13 +232,15 @@ async function boot() {
     repo.watchControl(doc => { state.control = doc; controlLoaded = true; render(); }),
     repo.watchTeam(doc => { state.team = doc; teamLoaded = true; render(); }),
   );
-  render();
 }
 
 window.addEventListener('hashchange', render);
 window.addEventListener('online', () => { state.online = true; render(); });
 window.addEventListener('offline', () => { state.online = false; render(); });
 window.addEventListener('pagehide', unsubscribeAll);
+window.addEventListener('pageshow', () => {
+  if (state.uid !== null) subscribe();
+});
 
 render();
 boot();

@@ -33,7 +33,7 @@ const STRINGS = {
   trackerUnavailable: 'The tracker could not start. Check your connection and reload the page.',
   navHome: 'Home',
   offlineBanner: 'Offline. Changes are saved here and sent when you reconnect.',
-  takeoverBanner: 'Another device is tracking. This one is read-only.',
+  takeoverBanner: 'Tracking moved to another device',
   takeoverButton: 'Take over',
   takeoverNeedsConnection: 'Taking over needs a connection. Connect to the internet and try again.',
   writeFailed: 'That change could not be saved. Try again.',
