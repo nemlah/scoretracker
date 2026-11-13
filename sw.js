@@ -69,31 +69,54 @@ self.addEventListener('activate', event => {
 
 // Opaque responses (cross-origin stylesheets and fonts loaded without CORS) are cacheable too.
 const storable = response => response.ok || response.type === 'opaque';
+// An upstream error must not replace a usable cached copy. Redirects are not errors.
+const failed = response => response.type === 'error' || response.status >= 400;
+
+// Same-origin entries are keyed without the query string, so a refreshed `track.html?emulator=1`
+// replaces the pre-cached `track.html` instead of sitting beside it. (Cache-first URLs keep
+// theirs: the Google Fonts CSS URL is defined by its query.)
+function cacheKey(request) {
+  const url = new URL(request.url);
+  url.search = '';
+  return url.href;
+}
+
+// Storage can fail (quota, private mode). That must never fail the request: log and go on.
+async function store(cache, key, copy) {
+  try {
+    await cache.put(key, copy);
+  } catch (err) {
+    console.warn('Service worker could not cache', typeof key === 'string' ? key : key.url, err);
+  }
+}
 
 // Signal bars but no data is the normal state at a pool deck: a request that has not answered
-// by then is served from the cache while it carries on in the background.
+// by then, or that answered with an error, is served from the cache when there is a copy. A slow
+// request carries on in the background, and the worker stays alive until its copy is stored.
 async function networkFirst(event) {
   const { request } = event;
   const cache = await caches.open(CACHE);
-  const cachedCopy = () => cache.match(request, { ignoreSearch: true });
+  const cachedCopy = () => cache.match(cacheKey(request), { ignoreSearch: true });
+  let persisted = Promise.resolve();
   const network = fetch(request).then(response => {
     slowUntil = 0;
-    if (storable(response)) cache.put(request, response.clone()).catch(() => {});
+    if (storable(response) && !failed(response)) persisted = store(cache, cacheKey(request), response.clone());
     return response;
   });
+  event.waitUntil(network.then(() => persisted, () => {}));
   let timer;
   const wait = Date.now() < slowUntil ? 0 : NETWORK_TIMEOUT_MS;
   const timeout = new Promise(resolve => { timer = setTimeout(resolve, wait, null); });
   try {
     const first = await Promise.race([network, timeout]);
-    if (first) return first;
+    if (first && !failed(first)) return first;
     const cached = await cachedCopy();
+    if (first) return cached ?? first;
     if (cached) {
       slowUntil = Date.now() + SLOW_NETWORK_MS;
-      // Let the slow request finish, so a success still refreshes the cache entry.
-      event.waitUntil(network.catch(() => {}));
       return cached;
     }
+    // Nothing cached: keep waiting for the network, whatever it answers.
     return await network;
   } catch (err) {
     const cached = await cachedCopy();
@@ -104,12 +127,20 @@ async function networkFirst(event) {
   }
 }
 
-async function cacheFirst(request) {
-  const cache = await caches.open(CACHE);
-  const cached = await cache.match(request);
-  if (cached) return cached;
+async function cacheFirst(event) {
+  const { request } = event;
+  let cache = null;
+  try {
+    cache = await caches.open(CACHE);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+  } catch (err) {
+    console.warn('Service worker cache unavailable', err);
+  }
   const response = await fetch(request);
-  if (storable(response)) await cache.put(request, response.clone());
+  if (cache && storable(response) && !failed(response)) {
+    event.waitUntil(store(cache, request, response.clone()));
+  }
   return response;
 }
 
@@ -117,7 +148,7 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET') return;
   if (CACHE_FIRST_PREFIXES.some(prefix => request.url.startsWith(prefix))) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(cacheFirst(event));
   } else if (new URL(request.url).origin === self.location.origin) {
     event.respondWith(networkFirst(event));
   }

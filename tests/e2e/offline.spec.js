@@ -166,3 +166,61 @@ test('a connection with no data serves the cached shell after the timeout', asyn
   for (const route of hung) await route.abort().catch(() => {});
   dropNetworkNoise(problems);
 });
+
+// Loads the tracker so the worker has cached the shell and controls the page.
+async function cacheShell(page) {
+  await startGame(page);
+  await tile(page, 2).getByTestId('tile-goal').click();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await swReady(page);
+  await reloadTracker(page, problems);
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+}
+
+test('an upstream 503 on a shell file is served from the cache instead', async ({ page, context }) => {
+  await cacheShell(page);
+  let refused = 0;
+  await context.route(`${ORIGIN}/js/tracker/views/live.js`, route => {
+    refused += 1;
+    return route.fulfill({ status: 503, body: 'unavailable' });
+  });
+  await context.route(`${ORIGIN}/track.html*`, route => {
+    refused += 1;
+    return route.fulfill({ status: 503, body: 'unavailable' });
+  });
+  await page.reload();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  expect(refused).toBeGreaterThan(1);
+  await context.unroute(`${ORIGIN}/js/tracker/views/live.js`);
+  await context.unroute(`${ORIGIN}/track.html*`);
+  dropNetworkNoise(problems);
+});
+
+test('a slow successful response is stored and becomes the next offline response', async ({ page, context }) => {
+  await page.goto(VIEWER_URL);
+  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await swReady(page);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+
+  // The server answers after the worker's timeout, with a visibly newer page.
+  await context.route(`${ORIGIN}/index.html*`, async route => {
+    const response = await route.fetch();
+    await new Promise(resolve => setTimeout(resolve, 4000));
+    const body = (await response.text()).replace('<main id="app"', '<main data-shell="refreshed" id="app"');
+    await route.fulfill({ response, body });
+  });
+  await page.reload();
+  await expect(page.locator('#app')).not.toHaveAttribute('data-shell', 'refreshed');
+  await expect.poll(() => page.evaluate(async () => {
+    const cached = await (await caches.open('wp-shell-v1')).match('/index.html');
+    return (await cached.text()).includes('data-shell="refreshed"');
+  }), { timeout: 10000 }).toBe(true);
+  await context.unroute(`${ORIGIN}/index.html*`);
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#app')).toHaveAttribute('data-shell', 'refreshed');
+  await context.setOffline(false);
+  dropNetworkNoise(problems);
+});
