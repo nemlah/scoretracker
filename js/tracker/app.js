@@ -5,14 +5,16 @@ import { createRepo } from '../repo.js';
 import { t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
 import { createTapper } from './taps.js';
+import { createStatsQueue } from './statsQueue.js';
+import * as games from './views/games.js';
 import * as home from './views/home.js';
 import * as live from './views/live.js';
 import * as newgame from './views/newgame.js';
 import * as roster from './views/roster.js';
 import * as unlock from './views/unlock.js';
 
-// Views by first route segment. Later tasks register '/games' here.
-const ROUTES = { '': home, roster, new: newgame, live };
+// Views by first route segment.
+const ROUTES = { '': home, roster, new: newgame, live, games };
 const TOAST_MS = 5000;
 
 document.documentElement.style.setProperty('--accent', teamConfig.accent);
@@ -64,7 +66,11 @@ let watchedGameId = null;
 // Event writes the server has not answered yet. While any is in flight a snapshot cannot be
 // trusted to say whether a journalled tap reached the server, so reconciling waits for them.
 let writesInFlight = 0;
-let lastGameSnapshot = null; // { gameId, game, meta } of the watched game
+// One record per open game subscription (the app's own, plus a past-game view's), each holding
+// its latest { game, meta } snapshot. Every one of them can settle that game's journal entries.
+const gameWatches = new Set();
+let stats = null;
+let wasActive = false;
 let current = { slot: null, view: null };
 let toastTimer = null;
 const unsubscribers = [];
@@ -142,10 +148,17 @@ function navigate(route) {
   else location.hash = route;
 }
 
+const noDrain = { done: [], failed: [] };
 const ctx = {
   repo: null,
   journal: null,
   tapper: null,
+  // Seasons whose stats need recounting. Only the active tracker can write them, so draining
+  // waits until this device is active; whatever is left stays queued for the next drain.
+  stats: {
+    markDirty: season => stats?.markDirty(season),
+    drain: () => (stats && state.active ? stats.drain() : Promise.resolve(noDrain)),
+  },
   navigate,
   getState: () => state,
   onWriteError,
@@ -173,12 +186,16 @@ function isConfirmed(meta) {
   return !meta.fromCache && !meta.hasPendingWrites;
 }
 
-function reconcileLast() {
-  const last = lastGameSnapshot;
-  if (!last || last.gameId !== watchedGameId || !last.game || !isConfirmed(last.meta)) return;
+function reconcileWatch(watch) {
+  const last = watch.last;
+  if (!journal || !last?.game || !isConfirmed(last.meta)) return;
   if (writesInFlight > 0) return;
-  journal.reconcile(last.gameId, last.game.events ?? []);
+  journal.reconcile(watch.gameId, last.game.events ?? []);
   refreshFailed();
+}
+
+function reconcileLast() {
+  for (const watch of gameWatches) reconcileWatch(watch);
 }
 
 // Counts event writes in flight, then reconciles again once the last one has settled.
@@ -206,11 +223,17 @@ function trackWrite(write) {
 // repo.watchGame plus the journal: a server-confirmed snapshot settles every pending journal
 // entry of this game (confirmed, or failed if the server does not have it).
 function watchGameWithJournal(gameId, cb) {
-  return repo.watchGame(gameId, (game, meta) => {
-    lastGameSnapshot = { gameId, game, meta };
-    if (gameId === watchedGameId) reconcileLast();
+  const watch = { gameId, last: null };
+  gameWatches.add(watch);
+  const off = repo.watchGame(gameId, (game, meta) => {
+    watch.last = { game, meta };
+    reconcileWatch(watch);
     cb(game, meta);
   });
+  return () => {
+    gameWatches.delete(watch);
+    off();
+  };
 }
 ctx.watchGame = watchGameWithJournal;
 
@@ -225,7 +248,6 @@ function syncGameWatch() {
   gameUnsub?.();
   gameUnsub = null;
   watchedGameId = wanted;
-  lastGameSnapshot = null;
   serverSeen = false;
   state.game = null;
   state.gameLoaded = wanted === null;
@@ -246,6 +268,9 @@ function derive() {
   state.route = parseRoute();
   state.editor = editorDoc && !revoked ? 'valid' : editorLoaded ? 'none' : 'unknown';
   state.active = state.editor === 'valid' && state.control?.activeUid === state.uid;
+  // Boot, and taking over from another device, are both moments to catch up on stats recounts.
+  if (state.active && !wasActive) ctx.stats.drain();
+  wasActive = state.active;
 }
 
 function pickSlot() {
@@ -320,6 +345,7 @@ async function boot() {
     const { db, auth } = initFirebase();
     repo = createRepo(db);
     journal = createJournal(safeStorage());
+    stats = createStatsQueue(safeStorage(), season => repo.recomputeSeason(season));
     // Unlocking also clears any "code changed" state, whichever view asked for it.
     ctx.repo = {
       ...repo,
@@ -372,7 +398,7 @@ function subscribe() {
 }
 
 window.addEventListener('hashchange', render);
-window.addEventListener('online', () => { state.online = true; render(); });
+window.addEventListener('online', () => { state.online = true; ctx.stats.drain(); render(); });
 window.addEventListener('offline', () => { state.online = false; render(); });
 window.addEventListener('pagehide', unsubscribeAll);
 window.addEventListener('pageshow', () => {

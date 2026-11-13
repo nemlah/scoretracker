@@ -1,11 +1,13 @@
 import {
   deriveScore, hasShootout, lastEvent, nextPeriod, playerLines,
 } from '../../model.js';
-import { eventLabel, periodLabel, scoreText, t } from '../../strings.js';
+import { eventLabel, goalCountLabel, periodLabel, scoreText, t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
+import { createEventsSheet } from './events.js';
 
 const PIPS = 3;
 const UNDO_LOCK_MS = 1000;
+const PERIOD_LOCK_MS = 1000;
 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
@@ -14,7 +16,7 @@ function buildTile(player, ctx) {
   const name = h('span', { class: 'tile-name' }, player.name);
   const out = h('span', { class: 'out-label', 'data-testid': 'tile-out', hidden: true }, t('out'));
   const goals = h('span', { class: 'tile-goals', 'data-testid': 'tile-goals' }, '0');
-  const goalsLabel = h('span', { class: 'tile-goals-label' }, t('tileGoalsLabel'));
+  const goalsLabel = h('span', { class: 'tile-goals-label' }, goalCountLabel(0));
   const soGoals = h('span', { class: 'tile-so', 'data-testid': 'tile-so-goals', hidden: true });
   const pips = Array.from({ length: PIPS }, () => h('i', { class: 'pip' }));
   const exclCount = h('span', { class: 'pips', role: 'img', 'data-testid': 'tile-excl-count' },
@@ -44,6 +46,7 @@ function buildTile(player, ctx) {
       badge.classList.toggle('cap--out', line.out);
       name.textContent = line.name;
       goals.textContent = line.goals;
+      goalsLabel.textContent = goalCountLabel(line.goals);
       goals.setAttribute('aria-label', t('tileGoalsAria', { n: line.goals }));
       soGoals.hidden = line.soGoals === 0;
       soGoals.textContent = line.soGoals === 0 ? '' : t('penaltyGoals', { n: line.soGoals });
@@ -64,6 +67,8 @@ export function mount(root, ctx) {
   let wakeLock = null;
   let undoLocked = false;
   let undoTimer = null;
+  let periodLocked = false;
+  let periodTimer = null;
 
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
   const scoreThem = h('span', { class: 'score-them', 'data-testid': 'score-them' }, '0');
@@ -88,9 +93,8 @@ export function mount(root, ctx) {
   const undo = h('button', {
     type: 'button', class: 'btn btn--undo', 'data-testid': 'undo', onclick: onUndo,
   }, t('undoNothing'));
-  // Task 9 supplies ctx.openEvents; until then the button is present and does nothing.
   const eventsOpen = h('button', {
-    type: 'button', class: 'btn btn--events', 'data-testid': 'events-open', onclick: () => ctx.openEvents?.(),
+    type: 'button', class: 'btn btn--events', 'data-testid': 'events-open', onclick: event => sheet.open(event.currentTarget),
   }, t('eventsButton'));
   const dock = h('div', { class: 'dock' }, h('div', { class: 'dock-inner' }, oppGoal, h('div', { class: 'dock-row' }, undo, eventsOpen)));
 
@@ -100,6 +104,7 @@ export function mount(root, ctx) {
     h('p', {}, t('noLiveGame')),
     h('button', { type: 'button', class: 'btn btn--wide', onclick: () => ctx.navigate('/') }, t('navHome')));
   root.append(game, loading, none);
+  const sheet = createEventsSheet(ctx, root);
   document.body.classList.add('on-live');
 
   // After an Undo the button is disabled for a moment, so an accidental double tap is visibly
@@ -115,11 +120,20 @@ export function mount(root, ctx) {
     }, UNDO_LOCK_MS);
   }
 
+  // Same guard as Undo: a double tap would skip a quarter, so after a change the button is
+  // refused for a second.
   function advancePeriod() {
     const current = ctx.getState().game;
-    if (!ctx.getState().active || current?.status !== 'live') return;
+    if (periodLocked || !ctx.getState().active || current?.status !== 'live') return;
     const next = nextPeriod(current.period);
     if (next === null) return;
+    periodLocked = true;
+    periodButton.disabled = true;
+    periodTimer = setTimeout(() => {
+      periodLocked = false;
+      periodTimer = null;
+      update(ctx.getState());
+    }, PERIOD_LOCK_MS);
     try {
       Promise.resolve(ctx.repo.setPeriod(current.id, next)).catch(ctx.onWriteError);
     } catch (err) {
@@ -143,7 +157,7 @@ export function mount(root, ctx) {
     periodButton.setAttribute('aria-label', next === null
       ? t('periodLastAria', { label: periodLabel(current.period) })
       : t('periodAria', { label: periodLabel(current.period), next: periodLabel(next) }));
-    periodButton.disabled = !writable || next === null;
+    periodButton.disabled = !writable || next === null || periodLocked;
 
     const lines = playerLines(current.lineup ?? [], events);
     const keep = new Set(lines.map(line => line.playerId));
@@ -177,6 +191,7 @@ export function mount(root, ctx) {
     loading.hidden = state.gameLoaded;
     none.hidden = !(state.gameLoaded && !live);
     if (live) renderGame(current, state);
+    sheet.update(live ? current : null, state);
   }
 
   // Keep the screen awake while tracking; browsers drop the lock when the page is hidden.
@@ -212,6 +227,8 @@ export function mount(root, ctx) {
     unmount() {
       unmounted = true;
       clearTimeout(undoTimer);
+      clearTimeout(periodTimer);
+      sheet.destroy();
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
       document.body.classList.remove('on-live');

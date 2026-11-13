@@ -136,6 +136,7 @@ label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
   border-radius: 0.5rem;
   background: var(--ink);
   color: #FFFFFF;
+  z-index: 20;
 }
 
 .banner-actions { display: flex; gap: 0.5rem; flex: none; }
@@ -285,3 +286,84 @@ body.on-live .toast { bottom: calc(var(--dock-h) + 0.75rem + env(safe-area-inset
   .live-score { font-size: 3rem; }
   .btn--period { min-height: 3rem; }
 }
+
+/* In-page confirm: the armed button turns rope red until the window lapses. */
+.btn.is-armed { background: var(--rope); border-color: var(--rope); color: #FFFFFF; }
+.btn--danger { border-color: var(--rope); color: var(--rope); }
+
+/* Dialogs (events, lineup): a sheet rising from the bottom edge. */
+body.sheet-open { overflow: hidden; }
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(14, 34, 56, 0.55);
+}
+.sheet-backdrop--raised { z-index: 11; } /* a dialog opened from another dialog */
+.sheet {
+  width: 100%;
+  max-width: 40rem;
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  border-radius: 0.75rem 0.75rem 0 0;
+  background: var(--paper);
+  color: var(--ink);
+  outline: none;
+}
+.sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+.sheet-body { display: grid; gap: 1rem; padding-top: 1rem; }
+@media (min-width: 700px) {
+  .sheet-backdrop { align-items: center; }
+  .sheet { border-radius: 0.75rem; }
+}
+
+/* Events list */
+.events { display: grid; gap: 1rem; }
+.ev-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ev-list { list-style: none; margin: 0; padding: 0; }
+.ev-row { display: grid; gap: 0.5rem; padding: 0.625rem 0; border-bottom: 1px solid var(--line); }
+.ev-line { display: flex; align-items: baseline; gap: 0.75rem; }
+.ev-period { min-width: 2.5rem; font: 700 1.125rem/1 var(--font-num); font-variant-numeric: tabular-nums; }
+.ev-label { overflow-wrap: anywhere; }
+.ev-controls { display: flex; gap: 0.5rem; }
+.ev-scorer { flex: 1; min-width: 0; width: auto; }
+
+/* Lineup editor */
+.lu-name { flex: 1; }
+.lu-actions { display: inline-flex; align-items: center; }
+
+/* Past games */
+.game-list { list-style: none; margin: 0; padding: 0; }
+.game-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+.game-date { font-variant-numeric: tabular-nums; }
+.game-opponent { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.game-live { color: var(--water-text); font-weight: 600; }
+.game-score { font: 700 1.5rem/1 var(--font-num); font-variant-numeric: tabular-nums; }
+.detail-score { font: 700 3rem/1 var(--font-num); font-variant-numeric: tabular-nums; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.game-detail > * + * { margin-top: 1rem; }

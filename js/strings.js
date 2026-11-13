@@ -102,6 +102,7 @@ const STRINGS = {
   goalFor: 'Goal for {name}',
   exclFor: 'Exclusion for {name}',
   tileGoalsLabel: 'goals',
+  tileGoalsOne: 'goal',
   tileGoalsAria: 'Goals: {n}',
   tileExclAria: 'Exclusions: {n}',
   oppGoalButton: '+1 opponent goal',
@@ -114,6 +115,50 @@ const STRINGS = {
   syncOffline: 'offline — taps saved, will sync',
   noLiveGame: 'No game is live right now.',
   liveLoading: 'Loading the game…',
+
+  // Confirm, events sheet
+  tapAgainToConfirm: 'Tap again to confirm',
+  sheetClose: 'Close',
+  eventsHeading: 'Events',
+  eventsEmpty: 'No events yet.',
+  goalPlain: 'Goal',
+  scorerLabel: 'Scorer',
+  scorerFor: 'Scorer for {label}',
+  scorerUnknown: 'Scorer unknown',
+  scorerOption: '#{cap} {name}',
+  evDelete: 'Delete',
+  evDeleteFor: 'Delete {label}',
+  addUnknownGoal: 'Add goal, scorer unknown',
+  periodPrev: 'Back to {label}',
+  periodPrevNone: 'No earlier period',
+  openLineup: 'Edit lineup',
+  endGame: 'End game',
+
+  // Lineup sheet
+  lineupSheetHeading: 'Lineup',
+  luRemove: 'Remove',
+  luRemoveFor: 'Remove {name}',
+  luKeepsEvents: 'Has events',
+  luAddLabel: 'Add a player',
+  luAddPlaceholder: 'Choose a player…',
+  luNoMore: 'Everyone on the roster is already in the lineup.',
+  luNoPlayers: 'Keep at least one player.',
+  luSave: 'Save lineup',
+
+  // Past games
+  gamesHeading: 'Past games',
+  gamesLoading: 'Loading games…',
+  gamesLoadFailed: 'Could not load the games. Check your connection and try again.',
+  gamesEmpty: 'No games yet.',
+  gamesBack: 'All games',
+  gameLiveBadge: 'Live',
+  gameOpenFor: 'Open game against {opponent}',
+  gameNotFound: 'This game no longer exists.',
+  reopenGame: 'Reopen game',
+  reopenBlocked: 'Another game is live. End it before reopening this one.',
+  deleteGame: 'Delete game',
+  gameLiveNote: 'This game is live. Use the live screen to track it.',
+  gameLiveOpen: 'Open the live screen',
 };
 
 export function t(key, params = {}) {
@@ -144,4 +189,8 @@ export function scoreText({ us, them, soUs, soThem }, shootout) {
     main: t('scoreMain', { us, them }),
     shootout: shootout ? t('shootoutScore', { us: soUs, them: soThem }) : null,
   };
+}
+
+export function goalCountLabel(n) {
+  return t(n === 1 ? 'tileGoalsOne' : 'tileGoalsLabel');
 }

@@ -65,7 +65,8 @@ export function createTapper({
     return event;
   }
 
-  function retryFailed(gameId) {
+  // `current` is the game's latest snapshot when it is not the one this tapper watches.
+  function retryFailed(gameId, current = getGame()) {
     if (!isActive()) return;
     for (const entry of journal.failed(gameId)) {
       journal.markRetried(entry.id);
@@ -74,8 +75,7 @@ export function createTapper({
       } else if (entry.op === 'remove') {
         send(repo.removeEvent, gameId, entry.event);
       } else {
-        const game = getGame();
-        const previous = game?.id === gameId ? (game.events ?? []).find(event => event.id === entry.event.id) : undefined;
+        const previous = current?.id === gameId ? (current.events ?? []).find(event => event.id === entry.event.id) : undefined;
         if (previous) send(repo.replaceEvent, gameId, previous, entry.event);
         else send(repo.addEvent, gameId, entry.event);
       }

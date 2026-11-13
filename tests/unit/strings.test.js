@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { eventLabel, periodLabel, scoreText, t } from '../../js/strings.js';
+import { eventLabel, goalCountLabel, periodLabel, scoreText, t } from '../../js/strings.js';
 
 const lineup = [
   { playerId: 'p5', name: 'Alexiou', cap: 5 },
@@ -57,4 +57,10 @@ test('static track.html title matches the catalog title used for document.title'
   const html = await readFile(new URL('../../track.html', import.meta.url), 'utf8');
   const staticTitle = html.match(/<title>([^<]*)<\/title>/)?.[1];
   assert.equal(staticTitle, t('trackerTitle', { team: team.name }));
+});
+
+test('goalCountLabel is singular for exactly one goal', () => {
+  assert.equal(goalCountLabel(0), 'goals');
+  assert.equal(goalCountLabel(1), 'goal');
+  assert.equal(goalCountLabel(2), 'goals');
 });
