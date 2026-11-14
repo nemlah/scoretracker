@@ -1,5 +1,14 @@
 # Session log
 
+## 15/11/2026 - Viewer foul badges + goal celebration live (main da754d6)
+- Viewer timeline: grey E (exclusion) / P (penalty foul) badges; 🟥 + "· out" only on the foul that brings a player to 3 (`foulOutIds` in js/model.js).
+- Goal celebration (js/celebrate.js, firing rules in js/goalWatch.js): wave, droplets, yellow-and-blue ball into a net, "GOAL!" + scorer (+ "· man-up"), 2.5 s, tap to close, reduce-motion = banner only, landscape layout keeps the score clear. Never on load/reload, Undo, scorer change, opponent goals, final games.
+- Hardening from review: viewer degrades (no blank page) if a phone mixes old cached and new modules; SW install now re-fetches same-origin shell files with cache 'reload'.
+- Spec/plan: docs/superpowers/specs|plans/2026-11-14-viewer-icons-goal-celebration*. Tests: unit 164, emulator 28, e2e 229 / 13 skipped.
+- Known flake: 1 e2e failure in 1 of 3 full runs, not reproduced (incl. under CPU load). Suspect offline.spec "viewer reopens offline" hitting real Google Fonts. Next time: run with --reporter=list to capture the name, then stub fonts in e2e.
+- Live check 15/11 (375 px): Delfin 11–14 shows 4 E, 2 P, 1 🟥; celebration hidden on load; no console errors.
+- Next: the 4 parked tracker issues from 14/11 (repo.endGame first).
+
 ## 14/11/2026 - Man-up / man-down live (merged to main, 07cd830)
 - All 6 plan tasks done plus one final-review fix wave; head 97cd61e. Tasks 1–3 Codex, 4–6 sonnet, Codex review per task, Opus whole-branch review ("ready to merge").
 - Tests on 97cd61e: unit 149, emulator 28, e2e 203 passed / 13 skipped / 0 failed.
