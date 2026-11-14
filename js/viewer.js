@@ -177,13 +177,16 @@ function renderGame(game) {
   gameDate.textContent = formatDate(game.date);
 
   // Rebuilding the sections would reset the timeline box to the top; carry its scroll position over.
-  const scrollTop = gameSections.querySelector('.timeline-scroll')?.scrollTop ?? 0;
+  const oldBox = gameSections.querySelector('.timeline-scroll');
+  const scrollTop = oldBox?.scrollTop ?? 0;
+  const hadFocus = oldBox?.contains(document.activeElement) ?? false;
   renderIfChanged(gameSections, [game.lineup, game.events], () => [
     timelineSection(game),
     playersSection(scoringLines(playerLines(game.lineup, game.events))),
   ]);
   const box = gameSections.querySelector('.timeline-scroll');
   if (box && scrollTop) box.scrollTop = scrollTop;
+  if (box && hadFocus && box !== oldBox) box.focus({ preventScroll: true });
 }
 
 function capBadge(cap, out) {

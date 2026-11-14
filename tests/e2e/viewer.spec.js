@@ -117,6 +117,12 @@ test('the timeline scrolls inside a fixed-height region', async ({ page }) => {
   expect(await box.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
   expect(await box.evaluate(el => getComputedStyle(el).maxHeight)).toBe('288px');
   expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).position)).toBe('sticky');
+
+  // Partway into a group, a period header is pinned to the top edge of the box.
+  await box.evaluate(el => { el.scrollTop = 100; });
+  const boxTop = (await box.boundingBox()).y;
+  const headerTops = await page.locator('.timeline h3').evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
+  expect(headerTops.some(top => Math.abs(top - boxTop) <= 1)).toBe(true);
 });
 
 test('a short timeline is not padded to the full height', async ({ page }) => {
@@ -135,7 +141,28 @@ test('the timeline keeps its scroll position when a new event arrives', async ({
   expect(await box.evaluate(el => el.scrollTop)).toBe(200);
   await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
   await expect(page.getByTestId('timeline-item')).toHaveCount(31, { timeout: 5000 });
-  expect(await page.getByTestId('timeline-scroll').evaluate(el => el.scrollTop)).toBeGreaterThan(150);
+  expect(Math.abs(await page.getByTestId('timeline-scroll').evaluate(el => el.scrollTop) - 200)).toBeLessThanOrEqual(2);
+});
+
+test('the timeline keeps its scroll position on a metadata-only update', async ({ page }) => {
+  await seedLive(manyEvents());
+  await open(page);
+  await expect(page.getByTestId('timeline-item')).toHaveCount(30);
+  await page.getByTestId('timeline-scroll').evaluate(el => { el.scrollTop = 200; });
+  await update('games/g1', { period: 3 });
+  await expect(page.getByTestId('period')).toHaveText('Q3', { timeout: 5000 });
+  expect(Math.abs(await page.getByTestId('timeline-scroll').evaluate(el => el.scrollTop) - 200)).toBeLessThanOrEqual(2);
+});
+
+test('keyboard focus stays on the timeline when a new event arrives', async ({ page }) => {
+  const events = manyEvents();
+  await seedLive(events);
+  await open(page);
+  await expect(page.getByTestId('timeline-item')).toHaveCount(30);
+  await page.getByTestId('timeline-scroll').focus();
+  await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
+  await expect(page.getByTestId('timeline-item')).toHaveCount(31, { timeout: 5000 });
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('timeline-scroll');
 });
 
 test('updates live without reload', async ({ page }) => {
