@@ -18,6 +18,17 @@ Four issues from the final review were parked; fix them before the first real ga
 3. Auto-resume to `#/live` (app.js ~385) has the same cached-`null` cause. Same fix.
 4. The endGame repoint is best-effort while offline and nothing retries it. Retry it on reconnect, or let the viewer pick the newest live game.
 
+## 14/11/2026 - Viewer timeline restyle
+- Commit 06a1de4 (sonnet implementer; Codex read-only review found no issues):
+  - Period headers are 1.5rem condensed 700 with a 2px ink rule above.
+  - Events use ⚽ for goals and 🟥 for exclusions instead of words; screen readers still hear "Q2 · Goal · #5 Name".
+  - Opponent goals are right-aligned and labelled with the opponent's name.
+- Viewer only. `eventLabel` and the tracker wording are unchanged, because Undo and the events sheet depend on them.
+- To change an emoji, edit `tlGoalIcon` or `tlExclIcon` in `js/strings.js`.
+- Tests: unit 111, e2e 141 passed / 13 skipped.
+- Earlier today, the unlock failure turned out to be an invisible character in the owner's `secrets/editCode` path. It was fixed by recreating the document. The owner then wiped the test data.
+- Still open: the 4 parked issues from 14/11 (below).
+
 ## 14/11/2026 - Live on Firebase
 - `js/config.js` now points at Firebase project `score-tracker-1be7c` (commit ddc69d6). `measurementId` was left out because the site doesn't load Analytics.
 - Live check in headless Chromium at https://nemlah.github.io/scoretracker/: the tracker reaches the unlock screen, the viewer shows "No game yet", and neither page logs a console error.
