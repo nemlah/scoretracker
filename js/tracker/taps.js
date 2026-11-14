@@ -1,3 +1,4 @@
+import { isTracked, replaySituations, SITUATION_TYPES } from '../situations.js';
 import { isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
 
 /**
@@ -36,7 +37,14 @@ export function createTapper({
   function tap(type, playerId = null) {
     const game = liveGame();
     if (game === null) return null;
-    if (type === 'goal' || type === 'excl') {
+    if (SITUATION_TYPES.includes(type)) {
+      if (!isTracked(game) || ![1, 2, 3, 4].includes(game.period)) return null;
+      const { open } = replaySituations(game);
+      if (type === 'manUp' ? open !== null
+        : open?.kind !== (type === 'manUpEnd' ? 'manUp' : 'manDown')) return null;
+    }
+    if (type === 'pen' && playerId === null) return null;
+    if (type === 'goal' || type === 'excl' || type === 'pen') {
       if (playerId !== null) {
         const line = playerLines(game.lineup, game.events ?? []).find(entry => entry.playerId === playerId);
         if (!line || line.out) return null;

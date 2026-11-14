@@ -103,3 +103,31 @@ test('goalCountLabel is singular for exactly one goal', () => {
   assert.equal(goalCountLabel(1), 'goal');
   assert.equal(goalCountLabel(2), 'goals');
 });
+
+test('eventLabel names penalty fouls and situation events', () => {
+  const players = [{ playerId: 'p2', cap: 2, name: 'Papadakis' }];
+  assert.equal(eventLabel({ type: 'pen', playerId: 'p2' }, players), 'Penalty foul · #2 Papadakis');
+  assert.equal(eventLabel({ type: 'pen', playerId: 'gone' }, players), '#? Unknown player');
+  for (const [type, label] of [['manUp', 'Man-up'], ['manUpEnd', 'End man-up · no goal'], ['manDownEnd', 'End man-down · stopped']]) {
+    assert.equal(eventLabel({ type }, players), label);
+  }
+});
+
+test('figure text', async () => {
+  const { manUpText, manDownText, situationShort } = await import('../../js/strings.js');
+  assert.equal(manUpText({ played: 7, scored: 3 }), 'Man-up 3/7 · 43%');
+  assert.equal(manUpText({ played: 0, scored: 0 }), 'Man-up 0/0');
+  assert.equal(manUpText(null), 'Man-up —');
+  assert.equal(manDownText({ played: 6, stopped: 4 }), 'Man-down 4/6 stopped · 67%');
+  assert.equal(manDownText({ played: 0, stopped: 0 }), 'Man-down 0/0 stopped');
+  assert.equal(manDownText(null), 'Man-down —');
+  assert.equal(situationShort({ manUp: { played: 7, scored: 3 }, manDown: { played: 6, stopped: 4 } }), 'MU 3/7 · MD 4/6');
+  assert.equal(situationShort(null), '—');
+});
+
+test('timelineEntry for a penalty foul', () => {
+  assert.deepEqual(timelineEntry({ type: 'pen', playerId: 'p5' }, lineup),
+    { side: 'us', icon: '🟧', sr: 'Penalty foul', text: '#5 Alexiou' });
+  assert.deepEqual(timelineEntry({ type: 'pen', playerId: 'gone' }, lineup),
+    { side: 'us', icon: '🟧', sr: 'Penalty foul', text: '#? Unknown player' });
+});

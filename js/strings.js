@@ -1,5 +1,32 @@
 // Every user-visible string lives here (English). A Greek translation can replace this table.
 const STRINGS = {
+  penButton: 'Pen',
+  penFor: 'Penalty foul for {name}',
+  penNamed: 'Penalty foul · #{cap} {name}',
+  tileFoulsAria: 'Exclusions: {excl}, penalty fouls: {pens}',
+  manUpButton: 'Man-up',
+  manUpEndButton: 'End man-up · no goal',
+  manDownEndButton: 'End man-down · stopped',
+  situationSeconds: '{s} s',
+  manUpEvent: 'Man-up',
+  manUpEndEvent: 'End man-up · no goal',
+  manDownEndEvent: 'End man-down · stopped',
+  manUpFigure: 'Man-up {scored}/{played}',
+  manDownFigure: 'Man-down {stopped}/{played} stopped',
+  figurePercent: '{text} · {pct}%',
+  manUpNone: 'Man-up —',
+  manDownNone: 'Man-down —',
+  situationShort: 'MU {scored}/{muPlayed} · MD {stopped}/{mdPlayed}',
+  notTracked: '—',
+  situationManUp: 'Man-up',
+  situationManDown: 'Man-down',
+  tlPenIcon: '🟧',
+  tlPenSr: 'Penalty foul',
+  tlManUpTag: 'man-up',
+  colPen: 'Pen.',
+  evManUpGoal: 'Man-up goal',
+  evManUpGoalFor: 'Man-up goal: {label}',
+
   viewerTitle: '{team} live score',
   live: 'Live',
   final: 'Final',
@@ -198,10 +225,11 @@ export function periodLabel(period) {
 
 export function eventLabel(event, lineup) {
   if (event.type === 'oppGoal') return t('oppGoal');
+  if (['manUp', 'manUpEnd', 'manDownEnd'].includes(event.type)) return t(`${event.type}Event`);
   if (event.type === 'goal' && event.playerId == null) return t('goalUnknown');
   const player = lineup.find(entry => entry.playerId === event.playerId);
   if (!player) return t('unknownPlayer');
-  return t(event.type === 'goal' ? 'goalNamed' : 'exclNamed', { cap: player.cap, name: player.name });
+  return t(event.type === 'goal' ? 'goalNamed' : event.type === 'pen' ? 'penNamed' : 'exclNamed', { cap: player.cap, name: player.name });
 }
 
 export function timelineEntry(event, lineup, opponent) {
@@ -216,8 +244,8 @@ export function timelineEntry(event, lineup, opponent) {
   const isGoal = event.type === 'goal';
   const entry = {
     side: 'us',
-    icon: t(isGoal ? 'tlGoalIcon' : 'tlExclIcon'),
-    sr: t(isGoal ? 'tlGoalSr' : 'tlExclSr'),
+    icon: t(isGoal ? 'tlGoalIcon' : event.type === 'pen' ? 'tlPenIcon' : 'tlExclIcon'),
+    sr: t(isGoal ? 'tlGoalSr' : event.type === 'pen' ? 'tlPenSr' : 'tlExclSr'),
   };
   if (isGoal && event.playerId == null) return { ...entry, text: t('tlUnknownScorer') };
   const player = lineup.find(candidate => candidate.playerId === event.playerId);
@@ -236,4 +264,27 @@ export function scoreText({ us, them, soUs, soThem }, shootout) {
 
 export function goalCountLabel(n) {
   return t(n === 1 ? 'tileGoalsOne' : 'tileGoalsLabel');
+}
+
+function figureText(counts, kind, numerator) {
+  if (counts === null) return t(`${kind}None`);
+  const text = t(`${kind}Figure`, counts);
+  return counts.played === 0 ? text
+    : t('figurePercent', { text, pct: Math.round(100 * counts[numerator] / counts.played) });
+}
+
+export function manUpText(counts) {
+  return figureText(counts, 'manUp', 'scored');
+}
+
+export function manDownText(counts) {
+  return figureText(counts, 'manDown', 'stopped');
+}
+
+export function situationShort(counts) {
+  if (counts === null) return t('notTracked');
+  return t('situationShort', {
+    scored: counts.manUp.scored, muPlayed: counts.manUp.played,
+    stopped: counts.manDown.stopped, mdPlayed: counts.manDown.played,
+  });
 }

@@ -269,3 +269,55 @@ test('discardFailed drops every failed entry of the game', () => {
   tapper.discardFailed('g1');
   assert.deepEqual(calls, [['journal.discard', 'j1'], ['journal.discard', 'j2']]);
 });
+
+test('pen is journaled and written like an exclusion; refused for an OUT player', () => {
+  const { tapper, calls, vibrations, state } = setup({ now: () => 1234 });
+  const event = tapper.tap('pen', 'p2');
+  assert.deepEqual(event, { id: event.id, type: 'pen', period: 2, ts: 1234, playerId: 'p2' });
+  assert.deepEqual(calls, [['journal.record', 'g1', 'add', event], ['repo.addEvent', 'g1', event]]);
+  assert.deepEqual(vibrations, [30]);
+  calls.length = 0;
+  state.game.events = ['excl', 'pen', 'pen'].map((type, i) => makeEvent(type, 1, 'p5', i, `f${i}`));
+  for (const playerId of ['p5', 'ghost', null]) assert.equal(tapper.tap('pen', playerId), null);
+  assert.deepEqual(names(calls), []);
+  assert.deepEqual(vibrations, [30]);
+});
+
+test('situation taps are refused on an untracked game and in the shootout', () => {
+  for (const situations of [undefined, false, 'true', true]) {
+    for (const period of [0, 1, 2, 3, 4, 5, 'SO']) {
+      if (situations === true && [1, 2, 3, 4].includes(period)) continue;
+      for (const type of ['manUp', 'manUpEnd', 'manDownEnd']) {
+        const { tapper, calls, vibrations, state } = setup();
+        Object.assign(state.game, { situations, period });
+        assert.equal(tapper.tap(type, 'p2'), null);
+        assert.deepEqual(names(calls), []);
+        assert.deepEqual(vibrations, []);
+      }
+    }
+  }
+});
+
+test('manUp is refused while a man-up or man-down is open; manUpEnd only while a man-up is open; manDownEnd only while a man-down is open', () => {
+  for (const period of [1, 2, 3, 4]) {
+    for (const start of [null, 'manUp', 'excl']) {
+      for (const type of ['manUp', 'manUpEnd', 'manDownEnd']) {
+        const { tapper, calls, vibrations, state } = setup({ now: () => 100 });
+        Object.assign(state.game, { situations: true, period, events: start ? [makeEvent(start, period, start === 'excl' ? 'p2' : null, 1, 'start')] : [] });
+        const accepted = type === (start === null ? 'manUp' : start === 'manUp' ? 'manUpEnd' : 'manDownEnd');
+        const event = tapper.tap(type, 'p2');
+        if (accepted) {
+          assert.deepEqual(event, { id: event.id, type, period, ts: 100 });
+          assert.deepEqual(names(calls), ['journal.record', 'repo.addEvent']);
+          assert.deepEqual(vibrations, [30]);
+          assert.equal(tapper.tap(type, 'p5'), null);
+          assert.equal(calls.length, 2);
+        } else {
+          assert.equal(event, null);
+          assert.deepEqual(names(calls), []);
+          assert.deepEqual(vibrations, []);
+        }
+      }
+    }
+  }
+});
