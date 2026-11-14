@@ -172,3 +172,188 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
     white-space: normal;
   }
 }
+
+/* Goal celebration: a pool wave rises and drains, droplets splash, a water polo ball arcs into the net.
+   Everything animates transform/opacity only, in --celebration-ms (set from celebrate.js). */
+.celebration {
+  --ball-size: 3.5rem;
+  --banner-bg: var(--paper);
+  --banner-ink: var(--ink);
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow: hidden;
+  pointer-events: none;
+}
+.celebration[hidden] { display: none; }
+.celebration.is-playing { animation: celebration-out var(--celebration-ms) linear both; }
+
+@media (prefers-color-scheme: dark) {
+  .celebration { --banner-bg: var(--ink); --banner-ink: var(--paper); }
+}
+
+/* Wave */
+.wave-layer {
+  position: absolute;
+  inset: auto 0 0;
+  height: 64vh;
+  transform: translateY(110%);
+  will-change: transform;
+}
+.wave-back { opacity: 0.5; --water-mix: 30%; }
+.wave-front { height: 56vh; opacity: 0.62; --water-mix: 55%; }
+.wave-fill {
+  height: 100%;
+  background: linear-gradient(color-mix(in srgb, var(--water), var(--accent) var(--water-mix)),
+    color-mix(in srgb, var(--water), var(--accent) calc(var(--water-mix) + 30%)));
+}
+.wave-crest {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 0;
+  width: 200%;
+  height: 1.75rem;
+  fill: color-mix(in srgb, var(--water), var(--accent) var(--water-mix));
+  will-change: transform;
+}
+.is-playing .wave-back { animation: wave-rise var(--celebration-ms) linear both; }
+.is-playing .wave-front { animation: wave-rise var(--celebration-ms) linear 140ms both; }
+.is-playing .wave-crest { animation: wave-slide 1400ms linear infinite; }
+.is-playing .wave-front .wave-crest { animation-direction: reverse; }
+
+/* Droplets */
+.celebration-drop {
+  position: absolute;
+  bottom: 0;
+  left: var(--x);
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50% 0 50% 50%;
+  rotate: -45deg;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.drop-water { background: var(--water); }
+.drop-accent { background: var(--accent); }
+.drop-light { background: color-mix(in srgb, var(--water) 45%, #FFFFFF); box-shadow: 0 0 0 1px var(--water); }
+.is-playing .celebration-drop {
+  animation: drop-splash 1500ms cubic-bezier(0.2, 0.7, 0.4, 1) var(--delay) both;
+}
+
+/* Goal and ball */
+.celebration-scene {
+  position: absolute;
+  top: 14.5rem; /* below the scoreboard, so the new score stays readable */
+  left: 50%;
+  width: min(70vw, 18rem);
+  aspect-ratio: 2 / 1;
+  translate: -50% 0;
+}
+.celebration-scene::before {
+  content: "";
+  position: absolute;
+  inset: 4% 4% 6%;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--accent) 35%, #06182B);
+}
+.celebration-net, .celebration-ball { position: absolute; }
+.celebration-net { inset: 0; transform-origin: 50% 0; }
+.celebration-net svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.net-mesh path { fill: none; stroke: rgb(255 255 255 / 0.7); stroke-width: 1.2; }
+.net-frame, .net-frame-edge { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.net-frame-edge { stroke: var(--ink); stroke-width: 9; }
+.net-frame { stroke: #FFFFFF; stroke-width: 5.5; }
+.celebration-ball {
+  top: 50%;
+  left: 50%;
+  width: var(--ball-size);
+  height: var(--ball-size);
+  margin: calc(var(--ball-size) / -2) 0 0 calc(var(--ball-size) / -2);
+  opacity: 0;
+}
+.celebration-ball svg { display: block; width: 100%; height: 100%; will-change: transform; }
+.is-playing .celebration-ball { animation: ball-x var(--celebration-ms) linear both; }
+.is-playing .celebration-ball svg {
+  animation: ball-y var(--celebration-ms) linear both, ball-spin var(--celebration-ms) linear both;
+}
+.is-playing .celebration-net { animation: net-catch var(--celebration-ms) ease-out both; }
+
+/* Banner: a card in the pool's lane-rope stripes, so the team colour stays legible over the water. */
+.celebration-banner {
+  position: absolute;
+  top: max(1rem, min(25rem, calc(100% - 11rem)));
+  left: 0;
+  right: 0;
+  width: min(90vw, 24rem);
+  margin-inline: auto;
+  padding: 1.25rem 1rem 1rem;
+  overflow: hidden;
+  text-align: center;
+  background: var(--banner-bg);
+  color: var(--banner-ink);
+  border-radius: 0.75rem;
+  box-shadow: 0 0.5rem 2rem color-mix(in srgb, #000000 35%, transparent);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.celebration-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0.5rem;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 14px, #FFFFFF 14px 20px, var(--accent) 20px 34px, var(--rope) 34px 40px);
+}
+.celebration-goal {
+  font: 700 clamp(4.5rem, 24vw, 7rem)/0.9 var(--font-num);
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+.celebration-scorer { margin-top: 0.5rem; font-size: 1.5rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.is-playing .celebration-banner { animation: banner-pop var(--celebration-ms) cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+@keyframes celebration-out { 0%, 90% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes wave-rise {
+  0% { transform: translateY(110%); }
+  28% { transform: translateY(0); }
+  58% { transform: translateY(2%); }
+  100% { transform: translateY(110%); }
+}
+@keyframes wave-slide { to { transform: translateX(-50%); } }
+@keyframes drop-splash {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  12% { opacity: 1; }
+  45% { transform: translate(var(--dx), var(--rise)) scale(1); opacity: 1; }
+  100% { transform: translate(calc(var(--dx) * 1.5), 6vh) scale(0.8); opacity: 0; }
+}
+@keyframes ball-x {
+  0%, 4% { transform: translateX(-46vw); opacity: 0; }
+  5% { opacity: 1; }
+  36% { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+@keyframes ball-y {
+  0%, 4% { transform: translateY(78vh) scale(0.55); animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1); }
+  21% { transform: translateY(-8vh) scale(1); animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.6); }
+  36% { transform: translateY(0) scale(1); animation-timing-function: ease-out; }
+  42% { transform: translateY(0.9rem) scale(1); animation-timing-function: ease-in-out; }
+  52%, 100% { transform: translateY(0.4rem) scale(1); }
+}
+@keyframes ball-spin { 0%, 4% { rotate: 0deg; } 36%, 100% { rotate: 540deg; } }
+@keyframes net-catch {
+  0%, 35% { transform: scale(1); }
+  42% { transform: scale(1.04, 1.1); }
+  55%, 100% { transform: scale(1); }
+}
+@keyframes banner-pop {
+  0%, 8% { scale: 0.5; opacity: 0; }
+  20% { scale: 1.08; opacity: 1; }
+  28%, 100% { scale: 1; opacity: 1; }
+}
+
+/* Reduce motion: the banner alone, fading in and out. */
+@media (prefers-reduced-motion: reduce) {
+  .celebration-wave, .celebration-drop, .celebration-scene { display: none; }
+  .celebration.is-playing { animation: none; }
+  .is-playing .celebration-banner { animation: banner-fade var(--celebration-ms) linear both; }
+  @keyframes banner-fade { 0% { opacity: 0; } 8%, 88% { opacity: 1; } 100% { opacity: 0; } }
+}

@@ -1,6 +1,8 @@
 import './sw-register.js';
 import { team as teamConfig } from './config.js';
+import { createCelebration } from './celebrate.js';
 import { initFirebase } from './firebase.js';
+import { createGoalWatcher } from './goalWatch.js';
 import {
   deriveScore, foulOutIds, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
 } from './model.js';
@@ -18,6 +20,9 @@ document.title = t('viewerTitle', { team: teamConfig.name });
 
 const repo = createRepo(initFirebase().db);
 const root = document.getElementById('app');
+// Mounted on the body: the game sections are rebuilt on every change and would wipe it mid-animation.
+const celebration = createCelebration(document.body);
+const goals = createGoalWatcher();
 
 // undefined = no snapshot yet, null = document absent.
 const state = {
@@ -162,9 +167,23 @@ function render() {
   note.hidden = !isOffline();
   empty.hidden = mode !== 'empty';
   scoreboard.hidden = mode !== 'game';
-  if (mode === 'game') renderGame(state.game);
-  else clear(gameSections), signatures.delete(gameSections);
+  if (mode === 'game') {
+    renderGame(state.game);
+    celebrateGoal(goals.next(state.game, state.gameMeta ?? {}));
+  } else {
+    clear(gameSections), signatures.delete(gameSections);
+    goals.next(null);
+  }
   renderSeason(state.stats);
+}
+
+function celebrateGoal(goal) {
+  if (!goal) return;
+  const player = state.game.lineup.find(entry => entry.playerId === goal.playerId);
+  celebration.show({
+    scorer: player ? t('celebrateScorer', { cap: player.cap, name: player.name }) : null,
+    manUp: manUpGoalIds(state.game).has(goal.id),
+  });
 }
 
 function renderGame(game) {
