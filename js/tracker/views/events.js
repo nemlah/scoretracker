@@ -177,16 +177,15 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     return { el: li, label, period, select, manUp, manUpBox, manUpShown: false, remove, shown: null, lineupKey: null };
   }
 
-  // Like the scorer picker, the box follows what the list last showed, so a refused write puts it back.
+  // The box always follows the figures, so a refused or no-op write puts it back.
   function syncManUp(parts, event, text, writable, manUpIds) {
     const available = manUpIds !== null && event.period !== 'SO';
     parts.manUp.hidden = !available;
     if (!available) return;
     const wanted = manUpIds.has(event.id);
-    if (parts.manUpShown !== wanted) {
-      parts.manUpBox.checked = wanted;
-      parts.manUpShown = wanted;
-    }
+    // A checkbox has no open picker to protect, so it always follows the figures.
+    parts.manUpBox.checked = wanted;
+    parts.manUpShown = wanted;
     parts.manUpBox.setAttribute('aria-label', t('evManUpGoalFor', { label: `${text} (${periodLabel(event.period)})` }));
     parts.manUpBox.disabled = !writable;
   }

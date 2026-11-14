@@ -221,3 +221,32 @@ test('PEN is at least as wide as EXCL and both are full-size targets on a narrow
     }
   }
 });
+
+test('opening a man-down does not move the tiles', async ({ page }) => {
+  await startGame(page);
+  const yOf = async () => (await tile(page, 5).boundingBox()).y;
+  const before = await yOf();
+  await tile(page, 2).getByTestId('tile-excl').click();
+  await expect(situation(page)).toHaveAttribute('data-state', 'manDown');
+  await expect(body(page)).toHaveClass(/sit-down/);
+  expect(Math.abs((await yOf()) - before)).toBeLessThanOrEqual(0.5);
+  await page.getByTestId('opp-goal').click();
+  await expect(situation(page)).toHaveAttribute('data-state', 'none');
+  await expect(body(page)).not.toHaveClass(/sit-/);
+  expect(Math.abs((await yOf()) - before)).toBeLessThanOrEqual(0.5);
+});
+
+test('ending the game with a man-up open removes the tint', async ({ page }) => {
+  await startGame(page);
+  await situation(page).click();
+  await expect(body(page)).toHaveClass(/sit-up/);
+  await page.getByTestId('events-open').click();
+  const end = page.getByTestId('end-game');
+  await end.click();
+  await expect(end).toHaveText('Tap again to confirm');
+  await page.waitForTimeout(700);
+  await end.click();
+  await expect(page.getByTestId('home-new')).toBeVisible();
+  await expect(body(page)).not.toHaveClass(/sit-up/);
+  await expect(body(page)).not.toHaveClass(/sit-down/);
+});

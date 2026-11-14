@@ -37,7 +37,6 @@ import { SITUATION_TYPES, isTracked, situationCounts } from './situations.js';
  * @property {boolean} [situations]
  */
 
-export { isTracked };
 export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES]);
 export const PERIODS = Object.freeze([1, 2, 3, 4, 'SO']);
 export const EXCL_LIMIT = 3;

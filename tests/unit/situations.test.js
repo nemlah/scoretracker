@@ -205,3 +205,9 @@ test('manUpSwitch returns null when nothing should change', () => {
   assert.equal(s.manUpSwitch(g([ev('manUp', 2, null, 50), goal]), goal.id, true, 'x'), null);
   assert.equal(s.manUpSwitch(g([goal]), goal.id, false, 'x'), null);
 });
+
+test('manUpSwitch on with only an orphan end adds a start', () => {
+  const game = g([ev('manUpEnd', 2, null, 99), ev('goal', 2, 'p1', 100)]);
+  const change = s.manUpSwitch(game, 'e100', true, 'x');
+  assert.deepEqual(change, { op: 'add', event: { id: 'x', type: 'manUp', period: 2, ts: 99 } });
+});

@@ -88,7 +88,10 @@ export function manUpSwitch(game, goalId, on, id = crypto.randomUUID()) {
   if (on === Boolean(scored)) return null;
 
   if (on) {
-    const end = game.events.find(event => event.type === 'manUpEnd' && event.ts === goal.ts - 1);
+    // Only an end that really closed a man-up is undone; an orphan end (its start was deleted) stays.
+    const { closed } = replaySituations(game);
+    const end = game.events.find(event => event.type === 'manUpEnd' && event.ts === goal.ts - 1
+      && closed.some(situation => situation.closedBy === event.id));
     if (end) return { op: 'remove', event: end };
   } else if (scored.startTs === goal.ts - 1) {
     return { op: 'remove', event: game.events.find(event => event.id === scored.startId) };
