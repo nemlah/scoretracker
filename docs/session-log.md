@@ -9,7 +9,7 @@
   1. Fix the 4 parked tracker issues (see "Merged to main; open follow-ups" below), `repo.endGame` first. Do it before the first real match.
   2. Owner: make sure the edit code was changed from the temporary test value.
   3. Owner: a real-iPhone run (unlock, tap, background/foreground, airplane mode on/off).
-  4. Owner cleanup (my run was denied by permissions): `git branch -d feat/scoretracker` and `rm -rf .superpowers` (git-ignored scratch: old SDD ledger, throwaway screenshot scripts).
+  4. Done: the owner deleted `feat/scoretracker` and `.superpowers`.
 - **Workflow that worked:**
   - Viewer changes go to a sonnet implementer with a brief file, then a Codex read-only review, then my own full run (unit + e2e), then push.
   - E2E needs `PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH`.
