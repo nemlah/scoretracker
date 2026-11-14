@@ -1,3 +1,5 @@
+import { EVENT_TYPES } from './model.js';
+
 /** @typedef {import('./model.js').Event} Event */
 /**
  * @typedef {Object} Entry
@@ -15,7 +17,7 @@ function validEntry(entry) {
     && ['add', 'remove', 'replace'].includes(entry.op)
     && ['pending', 'failed'].includes(entry.status)
     && typeof event?.id === 'string'
-    && ['goal', 'excl', 'oppGoal'].includes(event.type)
+    && EVENT_TYPES.includes(event.type)
     && [1, 2, 3, 4, 'SO'].includes(event.period)
     && Number.isFinite(event.ts)
     && (!Object.hasOwn(event, 'playerId') || typeof event.playerId === 'string');

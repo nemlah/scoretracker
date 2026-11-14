@@ -1,7 +1,9 @@
+import { SITUATION_TYPES, isTracked } from './situations.js';
+
 /**
  * @typedef {Object} Event
  * @property {string} id
- * @property {'goal'|'excl'|'oppGoal'} type
+ * @property {'goal'|'excl'|'oppGoal'|'pen'|'manUp'|'manUpEnd'|'manDownEnd'} type
  * @property {1|2|3|4|'SO'} period
  * @property {number} ts
  * @property {string} [playerId]
@@ -32,8 +34,11 @@
  * @property {1|2|3|4|'SO'} period
  * @property {LineupEntry[]} lineup
  * @property {Event[]} events
+ * @property {boolean} [situations]
  */
 
+export { isTracked };
+export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES]);
 export const PERIODS = Object.freeze([1, 2, 3, 4, 'SO']);
 export const EXCL_LIMIT = 3;
 export const DUPLICATE_TAP_MS = 1000;
@@ -75,19 +80,21 @@ export function playerLines(lineup, events) {
   return lineup.map(player => {
     const ownEvents = events.filter(event => event.playerId === player.playerId);
     const excl = ownEvents.filter(event => event.type === 'excl').length;
+    const pens = ownEvents.filter(event => event.type === 'pen').length;
     return {
       ...player,
       goals: ownEvents.filter(event => event.type === 'goal' && event.period !== 'SO').length,
       soGoals: ownEvents.filter(event => event.type === 'goal' && event.period === 'SO').length,
       excl,
-      out: excl >= EXCL_LIMIT,
+      pens,
+      out: excl + pens >= EXCL_LIMIT,
     };
   }).sort((a, b) => a.cap - b.cap);
 }
 
-// Lines with something to show: at least one goal (regular or shootout) or exclusion.
+// Lines with something to show: at least one goal (regular or shootout) or foul.
 export function scoringLines(lines) {
-  return lines.filter(line => line.goals + line.soGoals + line.excl > 0);
+  return lines.filter(line => line.goals + line.soGoals + line.excl + line.pens > 0);
 }
 
 export function lastEvent(events) {
@@ -97,7 +104,7 @@ export function lastEvent(events) {
 
 export function timeline(events) {
   return [...PERIODS].reverse().flatMap(period => {
-    const entries = events.filter(event => event.period === period)
+    const entries = events.filter(event => event.period === period && !SITUATION_TYPES.includes(event.type))
       .map(event => withPlayer(event, event.playerId))
       .reverse().sort((a, b) => b.ts - a.ts);
     return entries.length ? [{ period, events: entries }] : [];

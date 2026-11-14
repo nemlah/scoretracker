@@ -34,12 +34,12 @@ test('playerLines: per-player counts, sorted by cap, OUT at 3 exclusions', () =>
   const lineup = [{ playerId:'a', name:'Alexiou', cap:5 }, { playerId:'b', name:'Papadakis', cap:2 }];
   const events = [ev('goal',1,'a',1), ev('goal','SO','a',2), ev('excl',1,'b',3), ev('excl',2,'b',4), ev('excl',3,'b',5), ev('goal',2,null,6)];
   assert.deepEqual(m.playerLines(lineup, events), [
-    { playerId:'b', name:'Papadakis', cap:2, goals:0, soGoals:0, excl:3, out:true },
-    { playerId:'a', name:'Alexiou',   cap:5, goals:1, soGoals:1, excl:0, out:false },
+    { playerId:'b', name:'Papadakis', cap:2, goals:0, soGoals:0, excl:3, pens:0, out:true },
+    { playerId:'a', name:'Alexiou',   cap:5, goals:1, soGoals:1, excl:0, pens:0, out:false },
   ]);
 });
 test('scoringLines keeps only players with a goal, shootout goal or exclusion, in order', () => {
-  const line = (playerId, goals, soGoals, excl) => ({ playerId, name: playerId, cap: 1, goals, soGoals, excl, out: excl >= 3 });
+  const line = (playerId, goals, soGoals, excl) => ({ playerId, name: playerId, cap: 1, goals, soGoals, excl, pens: 0, out: excl >= 3 });
   const lines = [line('a', 0, 0, 0), line('b', 1, 0, 0), line('c', 0, 0, 1), line('d', 0, 0, 0), line('e', 0, 2, 0), line('f', 0, 0, 3)];
   assert.deepEqual(m.scoringLines(lines).map(l => l.playerId), ['b', 'c', 'e', 'f']);
   assert.equal(m.scoringLines(lines)[3], lines[5]);
@@ -67,4 +67,30 @@ test('isDuplicateTap: same type + player within the window', () => {
 test('playerHasEvents', () => {
   assert.equal(m.playerHasEvents([ev('excl',1,'a',1)], 'a'), true);
   assert.equal(m.playerHasEvents([ev('goal',1,null,1)], 'a'), false);
+});
+
+test('EVENT_TYPES contains all seven event types and is frozen', () => {
+  assert.deepEqual(m.EVENT_TYPES, ['goal', 'excl', 'oppGoal', 'pen', 'manUp', 'manUpEnd', 'manDownEnd']);
+  assert.equal(Object.isFrozen(m.EVENT_TYPES), true);
+});
+test('playerLines counts penalty fouls toward OUT', () => {
+  const lineup = [{ playerId: 'p1', name: 'Alexiou', cap: 5 }];
+  const events = [ev('excl', 1, 'p1', 1), ev('excl', 2, 'p1', 2), ev('pen', 3, 'p1', 3)];
+  assert.deepEqual(m.playerLines(lineup, events), [
+    { ...lineup[0], goals: 0, soGoals: 0, excl: 2, pens: 1, out: true },
+  ]);
+  assert.equal(m.playerLines(lineup, events.slice(0, 2))[0].out, false);
+  assert.equal(m.playerLines(lineup, [...events, ev('pen', 4, 'p1', 4)])[0].out, true);
+});
+test('scoringLines keeps a player with only a penalty foul', () => {
+  const lineup = [{ playerId: 'p1', name: 'Alexiou', cap: 5 }];
+  const lines = m.playerLines(lineup, [ev('pen', 1, 'p1', 1)]);
+  assert.deepEqual(m.scoringLines(lines).map(line => line.playerId), ['p1']);
+  assert.equal(m.scoringLines(lines)[0], lines[0]);
+});
+test('timeline leaves out man-up and man-down events', () => {
+  const goal = ev('goal', 1, 'p1', 4);
+  const pen = ev('pen', 1, 'p2', 5);
+  const events = [ev('manUp', 1, null, 1), ev('manUpEnd', 1, null, 2), ev('manDownEnd', 2, null, 3), goal, pen];
+  assert.deepEqual(m.timeline(events), [{ period: 1, events: [pen, goal] }]);
 });

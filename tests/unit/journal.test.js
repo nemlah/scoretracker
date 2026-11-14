@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createJournal } from '../../js/journal.js';
-import { makeEvent } from '../../js/model.js';
+import * as m from '../../js/model.js';
+
+const { makeEvent } = m;
 
 function fakeStorage() {
   const values = new Map();
@@ -12,6 +14,20 @@ function fakeStorage() {
 }
 const e1 = makeEvent('goal', 1, 'p1', 1000, 'e1');
 const stored = storage => JSON.parse(storage.getItem('wp-journal'));
+
+test('entries of every event type load; an unknown type still empties the journal', () => {
+  const storage = fakeStorage();
+  const entries = m.EVENT_TYPES.map((type, index) => ({
+    id: `j${index}`, gameId: 'g', op: 'add',
+    event: makeEvent(type, 1, null, index, `e${index}`), status: 'failed',
+  }));
+  storage.setItem('wp-journal', JSON.stringify(entries));
+  assert.deepEqual(createJournal(storage).failed('g'), entries);
+  storage.setItem('wp-journal', JSON.stringify([...entries, {
+    id: 'unknown', gameId: 'g', op: 'add', event: makeEvent('shot', 1, null, 10, 'shot'), status: 'failed',
+  }]));
+  assert.deepEqual(createJournal(storage).failed('g'), []);
+});
 
 test('add confirmed when server has the event', () => {
   const storage = fakeStorage();
