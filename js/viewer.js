@@ -2,7 +2,7 @@ import './sw-register.js';
 import { team as teamConfig } from './config.js';
 import { initFirebase } from './firebase.js';
 import {
-  deriveScore, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
+  deriveScore, foulOutIds, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
 } from './model.js';
 import { createRepo } from './repo.js';
 import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
@@ -231,21 +231,26 @@ function playersSection(lines) {
 function timelineSection(game) {
   const groups = timeline(game.events);
   const manUpGoals = manUpGoalIds(game);
+  const outIds = foulOutIds(game.events);
   return h('section', { class: 'section timeline' },
     h('h2', {}, t('timelineHeading')),
     groups.length ? h('div', {
       class: 'timeline-scroll', tabindex: '0', role: 'region', 'aria-label': t('timelineHeading'), 'data-testid': 'timeline-scroll',
     }, groups.map(group => h('div', {},
       h('h3', {}, periodLabel(group.period)),
-      h('ul', {}, group.events.map(event => timelineItem(event, game, manUpGoals)))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
+      h('ul', {}, group.events.map(event => timelineItem(event, game, manUpGoals, outIds.has(event.id))))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
 }
 
-function timelineItem(event, game, manUpGoals) {
-  const entry = timelineEntry(event, game.lineup, game.opponent);
-  const icon = h('span', { class: 'tl-icon', 'aria-hidden': 'true' }, entry.icon);
+function timelineItem(event, game, manUpGoals, out) {
+  const entry = timelineEntry(event, game.lineup, game.opponent, out);
+  const icon = h('span', {
+    class: entry.badge ? 'tl-icon tl-badge' : 'tl-icon', 'data-testid': 'tl-icon', 'aria-hidden': 'true',
+  }, entry.icon);
   const text = h('span', { class: 'tl-text' }, entry.text);
   const tagged = event.type === 'goal' && manUpGoals.has(event.id);
-  return h('li', { 'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}` },
+  return h('li', {
+    'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}`, 'data-out': out ? 'true' : null,
+  },
     h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
     entry.side === 'them' ? null : icon,
     h('span', { class: 'sr-only' }, `${entry.sr}${tagged ? ` · ${t('tlManUpTag')}` : ''} · `),

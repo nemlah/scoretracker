@@ -85,7 +85,9 @@ test('live game', async ({ page }) => {
   // The word "Goal" is only in the screen-reader prefix; the visible text is cap and name.
   await expect(us.locator('.tl-text')).toHaveText('#5 Alexiou');
   await expect(us.locator('.tl-text')).not.toContainText('Goal');
-  await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' }).first()).toContainText('#2 Papadakis');
+  await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' })).toHaveCount(1);
+  await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' })).toContainText('#2 Papadakis · out');
+  await expect(page.locator('[data-testid="timeline-item"]', { has: page.locator('.tl-badge', { hasText: 'E' }) }).first()).toContainText('#2 Papadakis');
   expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
 });
 
@@ -342,12 +344,36 @@ test('goals scored on a man-up are tagged; situation events are not listed; pena
   await expect(page.getByTestId('tl-manup')).toHaveText('man-up');
   const tagged = page.getByTestId('timeline-item').filter({ has: page.getByTestId('tl-manup') });
   await expect(tagged).toContainText('#5 Alexiou');
-  const pen = page.getByTestId('timeline-item').filter({ hasText: '🟧' });
+  const pen = page.getByTestId('timeline-item').filter({ has: page.locator('.tl-badge', { hasText: 'P' }) });
   await expect(pen).toHaveCount(1);
   await expect(pen).toContainText('#2 Papadakis');
   await expect(page.getByTestId('player-pen')).toHaveCount(2);
   await expect(page.locator('[data-testid="player-row"][data-cap="2"]').getByTestId('player-pen')).toHaveText('1');
   await expect(page.locator('[data-testid="player-row"][data-cap="5"]').getByTestId('player-pen')).toHaveText('0');
+});
+
+test('fouls show E and P badges; the third foul shows a red card and out', async ({ page }) => {
+  await seedLive([
+    ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('pen', 2, 'p2'), ev('pen', 2, 'p5'),
+  ]);
+  await open(page);
+  const items = page.getByTestId('timeline-item');
+  await expect(items).toHaveCount(4);
+  const p2 = items.filter({ hasText: '#2 Papadakis' });
+  await expect(p2).toHaveCount(3);
+  // The timeline lists newest first: the fouling-out pen, then the two exclusions.
+  for (const i of [1, 2]) {
+    await expect(p2.nth(i).getByTestId('tl-icon')).toHaveText('E');
+    await expect(p2.nth(i).getByTestId('tl-icon')).toHaveClass(/tl-badge/);
+  }
+  const out = p2.first();
+  await expect(out).toHaveAttribute('data-out', 'true');
+  await expect(out.getByTestId('tl-icon')).toHaveText('🟥');
+  await expect(out).toContainText('#2 Papadakis · out');
+  const p5 = items.filter({ hasText: '#5 Alexiou' });
+  await expect(p5.getByTestId('tl-icon')).toHaveText('P');
+  await expect(p5.getByTestId('tl-icon')).toHaveClass(/tl-badge/);
+  await expect(items.filter({ hasText: '🟧' })).toHaveCount(0);
 });
 
 test('untracked game shows dashes and no badge', async ({ page }) => {

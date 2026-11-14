@@ -111,6 +111,19 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
 .timeline li:first-child { border-top: 0; }
 .tl-them { justify-content: flex-end; text-align: right; }
 .tl-icon { flex: none; width: 1.25em; text-align: center; line-height: 1; }
+.tl-badge {
+  width: 1.25em;
+  height: 1.25em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.3em;
+  background: color-mix(in srgb, var(--ink) 12%, var(--pool));
+  color: color-mix(in srgb, var(--ink) 80%, var(--pool));
+  font-size: 0.75em;
+  font-weight: 600;
+  align-self: center;
+}
 .tl-text { overflow-wrap: anywhere; }
 
 .result-score { font: 600 1.25rem/1.2 var(--font-num); white-space: nowrap; text-align: right; }
