@@ -5,7 +5,7 @@ import {
   deriveScore, formatDate, hasShootout, playerLines, seasonFor, timeline, todayIso,
 } from './model.js';
 import { createRepo } from './repo.js';
-import { eventLabel, periodLabel, scoreText, t } from './strings.js';
+import { periodLabel, scoreText, t, timelineEntry } from './strings.js';
 import { clear, h } from './ui/dom.js';
 
 const STALE_MS = 6000;
@@ -212,9 +212,19 @@ function timelineSection(game) {
     h('h2', {}, t('timelineHeading')),
     groups.length ? groups.map(group => h('div', {},
       h('h3', {}, periodLabel(group.period)),
-      h('ul', {}, group.events.map(event => h('li', { 'data-testid': 'timeline-item' },
-        h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
-        eventLabel(event, game.lineup)))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
+      h('ul', {}, group.events.map(event => timelineItem(event, game))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
+}
+
+function timelineItem(event, game) {
+  const entry = timelineEntry(event, game.lineup, game.opponent);
+  const icon = h('span', { class: 'tl-icon', 'aria-hidden': 'true' }, entry.icon);
+  const text = h('span', { class: 'tl-text' }, entry.text);
+  return h('li', { 'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}` },
+    h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
+    entry.side === 'them' ? null : icon,
+    h('span', { class: 'sr-only' }, `${entry.sr} · `),
+    text,
+    entry.side === 'them' ? icon : null);
 }
 
 function renderSeason(stats) {

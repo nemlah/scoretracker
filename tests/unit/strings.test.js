@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { eventLabel, goalCountLabel, periodLabel, scoreText, t } from '../../js/strings.js';
+import { eventLabel, goalCountLabel, periodLabel, scoreText, t, timelineEntry } from '../../js/strings.js';
 
 const lineup = [
   { playerId: 'p5', name: 'Alexiou', cap: 5 },
@@ -18,6 +18,45 @@ test('eventLabel formats each event type', () => {
 test('eventLabel flags a player missing from the lineup', () => {
   assert.equal(eventLabel(goal('gone'), lineup), '#? Unknown player');
   assert.equal(eventLabel({ id: 'x', type: 'excl', period: 1, ts: 1, playerId: 'gone' }, lineup), '#? Unknown player');
+});
+
+test('timelineEntry puts an opponent goal on the right with the opponent name', () => {
+  const event = { id: 'o', type: 'oppGoal', period: 2, ts: 3 };
+  assert.deepEqual(timelineEntry(event, lineup, 'Olympiacos'),
+    { side: 'them', icon: '⚽', sr: 'Opponent goal', text: 'Olympiacos' });
+  assert.deepEqual(timelineEntry(event, lineup, '  Olympiacos '),
+    { side: 'them', icon: '⚽', sr: 'Opponent goal', text: 'Olympiacos' });
+});
+
+test('timelineEntry falls back to a generic opponent name', () => {
+  const event = { id: 'o', type: 'oppGoal', period: 2, ts: 3 };
+  const expected = { side: 'them', icon: '⚽', sr: 'Opponent goal', text: 'Opponent' };
+  assert.deepEqual(timelineEntry(event, lineup, '  '), expected);
+  assert.deepEqual(timelineEntry(event, lineup, undefined), expected);
+});
+
+test('timelineEntry labels a goal with no scorer', () => {
+  assert.deepEqual(timelineEntry(goal(), lineup, 'Olympiacos'),
+    { side: 'us', icon: '⚽', sr: 'Goal', text: 'Unknown scorer' });
+});
+
+test('timelineEntry shows cap and name for a goal', () => {
+  assert.deepEqual(timelineEntry(goal('p5'), lineup, 'Olympiacos'),
+    { side: 'us', icon: '⚽', sr: 'Goal', text: '#5 Alexiou' });
+});
+
+test('timelineEntry shows cap and name for an exclusion', () => {
+  const event = { id: 'x', type: 'excl', period: 2, ts: 2, playerId: 'p2' };
+  assert.deepEqual(timelineEntry(event, lineup, 'Olympiacos'),
+    { side: 'us', icon: '🟥', sr: 'Exclusion', text: '#2 Παπαδάκης' });
+});
+
+test('timelineEntry flags a player missing from the lineup', () => {
+  assert.deepEqual(timelineEntry(goal('gone'), lineup, 'Olympiacos'),
+    { side: 'us', icon: '⚽', sr: 'Goal', text: '#? Unknown player' });
+  const event = { id: 'x', type: 'excl', period: 1, ts: 1, playerId: 'gone' };
+  assert.deepEqual(timelineEntry(event, lineup, 'Olympiacos'),
+    { side: 'us', icon: '🟥', sr: 'Exclusion', text: '#? Unknown player' });
 });
 
 test('periodLabel', () => {

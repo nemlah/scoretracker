@@ -23,6 +23,14 @@ const STRINGS = {
   exclNamed: 'Exclusion · #{cap} {name}',
   oppGoal: 'Opponent goal',
   unknownPlayer: '#? Unknown player',
+  tlGoalIcon: '⚽',
+  tlExclIcon: '🟥',
+  tlGoalSr: 'Goal',
+  tlExclSr: 'Exclusion',
+  tlOppGoalSr: 'Opponent goal',
+  tlUnknownScorer: 'Unknown scorer',
+  tlOpponentFallback: 'Opponent',
+  tlPlayer: '#{cap} {name}',
   shootout: 'Shootout',
   shootoutScore: '({us} – {them} pen.)',
   scoreMain: '{us} – {them}',
@@ -194,6 +202,29 @@ export function eventLabel(event, lineup) {
   const player = lineup.find(entry => entry.playerId === event.playerId);
   if (!player) return t('unknownPlayer');
   return t(event.type === 'goal' ? 'goalNamed' : 'exclNamed', { cap: player.cap, name: player.name });
+}
+
+export function timelineEntry(event, lineup, opponent) {
+  if (event.type === 'oppGoal') {
+    return {
+      side: 'them',
+      icon: t('tlGoalIcon'),
+      sr: t('tlOppGoalSr'),
+      text: opponent?.trim() || t('tlOpponentFallback'),
+    };
+  }
+  const isGoal = event.type === 'goal';
+  const entry = {
+    side: 'us',
+    icon: t(isGoal ? 'tlGoalIcon' : 'tlExclIcon'),
+    sr: t(isGoal ? 'tlGoalSr' : 'tlExclSr'),
+  };
+  if (isGoal && event.playerId == null) return { ...entry, text: t('tlUnknownScorer') };
+  const player = lineup.find(candidate => candidate.playerId === event.playerId);
+  return {
+    ...entry,
+    text: player ? t('tlPlayer', { cap: player.cap, name: player.name }) : t('unknownPlayer'),
+  };
 }
 
 export function scoreText({ us, them, soUs, soThem }, shootout) {
