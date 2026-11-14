@@ -1,13 +1,20 @@
 import {
   deriveScore, hasShootout, lastEvent, nextPeriod, playerLines,
 } from '../../model.js';
-import { eventLabel, goalCountLabel, periodLabel, scoreText, t } from '../../strings.js';
+import { isTracked, replaySituations, situationCounts, SITUATION_REMIND_MS } from '../../situations.js';
+import {
+  eventLabel, goalCountLabel, periodLabel, scoreText, situationShort, t,
+} from '../../strings.js';
 import { h } from '../../ui/dom.js';
 import { createEventsSheet } from './events.js';
 
 const PIPS = 3;
 const UNDO_LOCK_MS = 1000;
 const PERIOD_LOCK_MS = 1000;
+const SITUATION_LOCK_MS = 1000;
+const SITUATION_TICK_MS = 1000;
+const SITUATION_BUTTON = { none: 'manUpButton', manUp: 'manUpEndButton', manDown: 'manDownEndButton' };
+const SITUATION_TAP = { none: 'manUp', manUp: 'manUpEnd', manDown: 'manDownEnd' };
 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
@@ -31,12 +38,17 @@ function buildTile(player, ctx) {
     'aria-label': t('exclFor', { name: player.name }),
     onclick: () => ctx.tapper.tap('excl', player.playerId),
   }, t('exclButton'));
+  const penButton = h('button', {
+    type: 'button', class: 'btn btn--pen', 'data-testid': 'tile-pen',
+    'aria-label': t('penFor', { name: player.name }),
+    onclick: () => ctx.tapper.tap('pen', player.playerId),
+  }, t('penButton'));
   const el = h('li', { class: 'tile', 'data-testid': 'tile', 'data-cap': player.cap, 'data-player-id': player.playerId },
     h('div', { class: 'tile-head' },
       badge, h('span', { class: 'tile-who' }, name, out),
       h('span', { class: 'tile-stats' },
         h('span', { class: 'tile-count' }, goals, goalsLabel), soGoals, exclCount)),
-    h('div', { class: 'tile-actions' }, goalButton, exclButton));
+    h('div', { class: 'tile-actions' }, goalButton, exclButton, penButton));
 
   return {
     el,
@@ -50,13 +62,20 @@ function buildTile(player, ctx) {
       goals.setAttribute('aria-label', t('tileGoalsAria', { n: line.goals }));
       soGoals.hidden = line.soGoals === 0;
       soGoals.textContent = line.soGoals === 0 ? '' : t('penaltyGoals', { n: line.soGoals });
-      exclCount.setAttribute('aria-label', t('tileExclAria', { n: line.excl }));
+      exclCount.setAttribute('aria-label', t('tileFoulsAria', { excl: line.excl, pens: line.pens }));
       exclCount.lastChild.textContent = line.excl;
-      pips.forEach((pip, i) => pip.classList.toggle('is-on', i < line.excl));
+      pips.forEach((pip, i) => {
+        const isExcl = i < line.excl;
+        const isPen = !isExcl && i < line.excl + line.pens;
+        pip.classList.toggle('is-on', isExcl || isPen);
+        pip.classList.toggle('is-pen', isPen);
+        pip.textContent = isPen ? t('penPip') : '';
+      });
       out.hidden = !line.out;
       el.classList.toggle('is-out', line.out);
       goalButton.disabled = !writable || line.out;
       exclButton.disabled = !writable || line.out;
+      penButton.disabled = !writable || line.out;
     },
   };
 }
@@ -69,10 +88,15 @@ export function mount(root, ctx) {
   let undoTimer = null;
   let periodLocked = false;
   let periodTimer = null;
+  let situationLocked = false;
+  let situationTimer = null;
+  let situationTick = null;
+  let openSituation = null;
 
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
   const scoreThem = h('span', { class: 'score-them', 'data-testid': 'score-them' }, '0');
   const shootout = h('p', { class: 'shootout', 'data-testid': 'shootout', hidden: true });
+  const situations = h('p', { class: 'live-situations', 'data-testid': 'live-situations', hidden: true });
   const sync = h('p', { class: 'sync', role: 'status', 'data-testid': 'sync-status' }, t('syncConnecting'));
   const periodButton = h('button', {
     type: 'button', class: 'btn btn--primary btn--period', 'data-testid': 'period-next', onclick: advancePeriod,
@@ -81,7 +105,7 @@ export function mount(root, ctx) {
     h('div', { class: 'live-head' },
       h('div', { class: 'live-score-block' },
         h('div', { class: 'live-score' }, scoreUs, h('span', { class: 'score-dash', 'aria-hidden': 'true' }, '–'), scoreThem),
-        h('div', { class: 'live-meta' }, shootout, sync)),
+        h('div', { class: 'live-meta' }, shootout, situations, sync)),
       periodButton),
     h('div', { class: 'rope', 'aria-hidden': 'true' }));
 
@@ -90,13 +114,19 @@ export function mount(root, ctx) {
   const oppGoal = h('button', {
     type: 'button', class: 'btn btn--opp', 'data-testid': 'opp-goal', onclick: () => ctx.tapper.tap('oppGoal', null),
   }, t('oppGoalButton'));
+  const situationLabel = h('span', { class: 'situation-label' }, t('manUpButton'));
+  const situationSeconds = h('span', { class: 'situation-seconds', 'data-testid': 'situation-seconds', hidden: true });
+  const situationButton = h('button', {
+    type: 'button', class: 'btn situation', 'data-testid': 'situation', 'data-state': 'none', hidden: true,
+    onclick: onSituation,
+  }, situationLabel, situationSeconds);
   const undo = h('button', {
     type: 'button', class: 'btn btn--undo', 'data-testid': 'undo', onclick: onUndo,
   }, t('undoNothing'));
   const eventsOpen = h('button', {
     type: 'button', class: 'btn btn--events', 'data-testid': 'events-open', onclick: event => sheet.open(event.currentTarget),
   }, t('eventsButton'));
-  const dock = h('div', { class: 'dock' }, h('div', { class: 'dock-inner' }, oppGoal, h('div', { class: 'dock-row' }, undo, eventsOpen)));
+  const dock = h('div', { class: 'dock' }, h('div', { class: 'dock-inner' }, h('div', { class: 'dock-top' }, situationButton, oppGoal), h('div', { class: 'dock-row' }, undo, eventsOpen)));
 
   const game = h('div', { class: 'live', hidden: true }, head, tileList, dock);
   const loading = h('p', { class: 'status-line live-status' }, t('liveLoading'));
@@ -139,6 +169,55 @@ export function mount(root, ctx) {
     } catch (err) {
       ctx.onWriteError(err);
     }
+  }
+
+  // Same guard as Undo: after a tap the button is refused for a second, so a double tap can't
+  // open and then close a situation.
+  function onSituation() {
+    if (situationLocked) return;
+    const state = situationButton.dataset.state;
+    if (!ctx.tapper.tap(SITUATION_TAP[state])) return;
+    situationLocked = true;
+    situationButton.disabled = true;
+    situationTimer = setTimeout(() => {
+      situationLocked = false;
+      situationTimer = null;
+      update(ctx.getState());
+    }, SITUATION_LOCK_MS);
+  }
+
+  function renderSituationClock() {
+    if (openSituation === null) return;
+    const elapsed = Date.now() - openSituation.startTs;
+    situationSeconds.textContent = t('situationSeconds', { s: Math.max(0, Math.floor(elapsed / 1000)) });
+    situationButton.classList.toggle('is-late', elapsed >= SITUATION_REMIND_MS);
+  }
+
+  function renderSituation(current, writable) {
+    const tracked = isTracked(current) && [1, 2, 3, 4].includes(current.period);
+    openSituation = tracked ? replaySituations(current).open : null;
+    const state = openSituation?.kind ?? 'none';
+    situations.hidden = !isTracked(current);
+    situations.textContent = isTracked(current) ? situationShort(situationCounts(current)) : '';
+    situationButton.hidden = !tracked;
+    situationButton.dataset.state = state;
+    situationLabel.textContent = t(SITUATION_BUTTON[state]);
+    situationSeconds.hidden = openSituation === null;
+    situationButton.disabled = !writable || situationLocked;
+    setTint(openSituation?.kind ?? null);
+    if (openSituation === null) {
+      situationButton.classList.remove('is-late');
+      clearInterval(situationTick);
+      situationTick = null;
+    } else {
+      renderSituationClock();
+      situationTick ??= setInterval(renderSituationClock, SITUATION_TICK_MS);
+    }
+  }
+
+  function setTint(kind) {
+    document.body.classList.toggle('sit-up', kind === 'manUp');
+    document.body.classList.toggle('sit-down', kind === 'manDown');
   }
 
   function renderGame(current, state) {
@@ -184,6 +263,14 @@ export function mount(root, ctx) {
     });
     undo.disabled = last === null || !writable || undoLocked;
     oppGoal.disabled = !writable;
+    renderSituation(current, writable);
+  }
+
+  function clearSituation() {
+    openSituation = null;
+    clearInterval(situationTick);
+    situationTick = null;
+    setTint(null);
   }
 
   function update(state) {
@@ -193,6 +280,7 @@ export function mount(root, ctx) {
     loading.hidden = state.gameLoaded;
     none.hidden = !(state.gameLoaded && !live);
     if (live) renderGame(current, state);
+    else clearSituation();
     sheet.update(live ? current : null, state);
   }
 
@@ -230,6 +318,8 @@ export function mount(root, ctx) {
       unmounted = true;
       clearTimeout(undoTimer);
       clearTimeout(periodTimer);
+      clearTimeout(situationTimer);
+      clearSituation();
       sheet.destroy();
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();

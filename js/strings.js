@@ -2,6 +2,7 @@
 const STRINGS = {
   penButton: 'Pen',
   penFor: 'Penalty foul for {name}',
+  penPip: 'P',
   penNamed: 'Penalty foul · #{cap} {name}',
   tileFoulsAria: 'Exclusions: {excl}, penalty fouls: {pens}',
   manUpButton: 'Man-up',
@@ -145,7 +146,6 @@ const STRINGS = {
   tileGoalsLabel: 'goals',
   tileGoalsOne: 'goal',
   tileGoalsAria: 'Goals: {n}',
-  tileExclAria: 'Exclusions: {n}',
   oppGoalButton: '+1 opponent goal',
   undo: 'Undo: {label} ({period})',
   undoNothing: 'Nothing to undo',
