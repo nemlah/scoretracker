@@ -23,7 +23,7 @@ const STRINGS = {
   exclNamed: 'Exclusion · #{cap} {name}',
   oppGoal: 'Opponent goal',
   unknownPlayer: '#? Unknown player',
-  tlGoalIcon: '⚽',
+  tlGoalIcon: '🏐',
   tlExclIcon: '🟥',
   tlGoalSr: 'Goal',
   tlExclSr: 'Exclusion',

@@ -73,14 +73,14 @@ test('live game', async ({ page }) => {
 
   const them = page.locator('[data-testid="timeline-item"][data-side="them"]').first();
   await expect(them).toContainText('Opponent FC');
-  await expect(them).toContainText('⚽');
+  await expect(them).toContainText('🏐');
   const listBox = await page.locator('.timeline ul').first().boundingBox();
   const iconBox = await them.locator('.tl-icon').boundingBox();
   expect(Math.abs((listBox.x + listBox.width) - (iconBox.x + iconBox.width))).toBeLessThanOrEqual(2);
   const textBox = await them.locator('.tl-text').boundingBox();
   expect(textBox.x + textBox.width).toBeLessThanOrEqual(iconBox.x);
   const us = page.locator('[data-testid="timeline-item"][data-side="us"]', { hasText: '#5' }).first();
-  await expect(us).toContainText('⚽');
+  await expect(us).toContainText('🏐');
   // The word "Goal" is only in the screen-reader prefix; the visible text is cap and name.
   await expect(us.locator('.tl-text')).toHaveText('#5 Alexiou');
   await expect(us.locator('.tl-text')).not.toContainText('Goal');

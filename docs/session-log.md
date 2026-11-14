@@ -21,7 +21,7 @@ Four issues from the final review were parked; fix them before the first real ga
 ## 14/11/2026 - Viewer timeline restyle
 - Commit 06a1de4 (sonnet implementer; Codex read-only review found no issues):
   - Period headers are 1.5rem condensed 700 with a 2px ink rule above.
-  - Events use ⚽ for goals and 🟥 for exclusions instead of words; screen readers still hear "Q2 · Goal · #5 Name".
+  - Events use 🏐 for goals (changed from ⚽ at the owner's request) and 🟥 for exclusions instead of words; screen readers still hear "Q2 · Goal · #5 Name".
   - Opponent goals are right-aligned and labelled with the opponent's name.
 - Viewer only. `eventLabel` and the tracker wording are unchanged, because Undo and the events sheet depend on them.
 - To change an emoji, edit `tlGoalIcon` or `tlExclIcon` in `js/strings.js`.
