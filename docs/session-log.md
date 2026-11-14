@@ -1,5 +1,13 @@
 # Session log
 
+## 14/11/2026 - Man-up / man-down built (branch feat/man-up, not merged)
+- All 6 plan tasks done plus one final-review fix wave; head 97cd61e. Tasks 1–3 Codex, 4–6 sonnet, Codex review per task, Opus whole-branch review ("ready to merge").
+- Tests on 97cd61e: unit 149, emulator 28, e2e 203 passed / 13 skipped / 0 failed.
+- Fixed in review: PEN narrower than EXCL on narrow phones; results rows overflowing at 360 px; Man-up goal box staying ticked after an orphan end; tiles shifting 5 px when the tint opened (now inset box-shadows).
+- Left as is: red/green tint differs mainly by hue (button text and header figures carry the state).
+- Deploy step: merge + push only when no game is live; then open track.html and index.html once on Wi-Fi on every phone and close old tracker tabs before the next game (old cached modules + new journal.js would fail to start the tracker; an old tracker tab would wipe a journal holding new tap types).
+- Next: owner decides merge/push; then the 4 parked tracker issues from 14/11 (repo.endGame first).
+
 ## 14/11/2026 - Man-up / man-down: design and plan (branch feat/man-up)
 - Spec: `docs/superpowers/specs/2026-11-14-man-up-man-down-design.md` (approved). Plan: `docs/superpowers/plans/2026-11-14-man-up-man-down.md` (6 tasks), waiting for the owner's review.
 - What it adds: MAN-UP toggle (our goal = scored, end tap or any other event = missed), man-down opened by EXCL (their goal = conceded), whole-page tint + seconds counter while open, PEN button per player (counts toward 3 fouls, no man-down), "Man-up goal" switch in the Events sheet, figures on the tracker header, the viewer game section and the season results.
