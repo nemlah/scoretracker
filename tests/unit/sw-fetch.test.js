@@ -19,6 +19,7 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
   const opened = [];
   const deleted = [];
   const warnings = [];
+  const added = [];
   const listeners = {};
   const cache = {
     put: async (key, response) => { await putImpl?.(key, response); store.set(keyOf(key), response); },
@@ -30,7 +31,7 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
       }
       return undefined;
     },
-    addAll: async () => {},
+    addAll: async requests => { added.push(...requests); },
   };
   const sandbox = {
     self: {
@@ -46,6 +47,8 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
     },
     fetch: (...args) => fetchImpl(...args),
     console: { warn: (...args) => warnings.push(args.join(' ')), error: () => {} },
+    // Relative URLs resolve against the worker's location, as in a real service worker.
+    Request: class { constructor(url, init = {}) { this.url = new URL(url, SCOPE).href; this.cache = init.cache; } },
     URL, Response, Promise, Date, setTimeout, clearTimeout,
   };
   vm.runInNewContext(source, sandbox);
@@ -61,12 +64,17 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
     assert.ok(responded, `${url} is intercepted`);
     return { response: responded, settled: () => Promise.all(waits) };
   }
+  async function install() {
+    const waits = [];
+    listeners.install({ waitUntil: promise => waits.push(promise) });
+    await Promise.all(waits);
+  }
   async function activate() {
     const waits = [];
     listeners.activate({ waitUntil: promise => waits.push(promise) });
     await Promise.all(waits);
   }
-  return { dispatch, activate, store, warnings, opened, deleted };
+  return { dispatch, activate, install, added, store, warnings, opened, deleted };
 }
 
 const page = `${ORIGIN}/track.html`;
@@ -191,4 +199,23 @@ test('a font stylesheet that answers in time is returned as it is', async () => 
   const { response, settled } = await sw.dispatch('https://fonts.googleapis.com/css2?family=Fira+Sans');
   assert.equal(await (await response).text(), 'real css');
   await settled();
+});
+
+test('install fetches every same-origin shell file past the HTTP cache', async () => {
+  const sw = boot();
+  await sw.install();
+  const block = source.match(/\/\/ SHELL-START([\s\S]*?)\/\/ SHELL-END/)[1];
+  const shell = [...block.matchAll(/'([^']+)'/g)].map(entry => entry[1]);
+  assert.ok(shell.length > 30);
+  assert.equal(sw.added.length, shell.length);
+  shell.forEach((entry, i) => {
+    const added = sw.added[i];
+    if (entry.startsWith('./')) {
+      assert.equal(added.url, new URL(entry, SCOPE).href);
+      assert.equal(added.cache, 'reload', entry);
+    } else {
+      // Pinned, immutable SDK URLs: no need to bypass the HTTP cache.
+      assert.equal(added, entry);
+    }
+  });
 });

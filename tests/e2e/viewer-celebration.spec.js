@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { closeAll, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
@@ -211,4 +212,24 @@ test('on a short landscape screen the banner never covers the score and the net 
     });
     expect(result, `at ${at} ms`).toEqual({ score: [false, false], net: true, banner: true });
   }
+});
+
+// A phone holding the previous version can pair the new viewer.js with a cached model.js that
+// lacks the exports this branch added. The page must degrade, not stay on its loading state.
+test.describe('mixed module cache', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('the viewer still shows the score when model.js is the previous version', async ({ page }) => {
+    const previousModel = execSync('git show 8e3c17b:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previousModel }));
+    await seedGame([
+      ev('goal', 1, 'p5'), ev('oppGoal', 1), ev('goal', 1, 'p2'),
+      ev('excl', 1, 'p2'), ev('excl', 2, 'p2'), ev('excl', 2, 'p2'),
+    ]);
+    await open(page);
+    await expect(page.getByTestId('score-us')).toHaveText('2');
+    await expect(page.getByTestId('score-them')).toHaveText('1');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(6);
+    await expect(celebration(page)).toBeHidden();
+  });
 });

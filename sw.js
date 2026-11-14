@@ -61,8 +61,14 @@ const CACHE_FIRST_PREFIXES = [
   'https://fonts.gstatic.com/',
 ];
 
+// Same-origin files are fetched with `reload`, bypassing the HTTP cache: GitHub Pages sends
+// max-age=600, and a shell filled from a stale HTTP-cached copy would pair old modules with new
+// ones (an import that no longer links). The pinned SDK URLs never change under one URL, so they
+// are fetched as they are; forcing them to the network made the offline viewer test flaky.
+const fresh = url => (url.startsWith('./') ? new Request(url, { cache: 'reload' }) : url);
+
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(fresh))));
 });
 
 self.addEventListener('activate', event => {

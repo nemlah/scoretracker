@@ -1,11 +1,12 @@
 import './sw-register.js';
 import { team as teamConfig } from './config.js';
-import { createCelebration } from './celebrate.js';
 import { initFirebase } from './firebase.js';
-import { createGoalWatcher } from './goalWatch.js';
 import {
-  deriveScore, foulOutIds, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
+  deriveScore, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
 } from './model.js';
+// Added after the previous release. A phone can briefly hold that release's cached model.js beside
+// this file, so these are read off the namespace and fall back instead of failing the module link.
+import * as model from './model.js';
 import { createRepo } from './repo.js';
 import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
 import {
@@ -20,9 +21,6 @@ document.title = t('viewerTitle', { team: teamConfig.name });
 
 const repo = createRepo(initFirebase().db);
 const root = document.getElementById('app');
-// Mounted on the body: the game sections are rebuilt on every change and would wipe it mid-animation.
-const celebration = createCelebration(document.body);
-const goals = createGoalWatcher();
 
 // undefined = no snapshot yet, null = document absent.
 const state = {
@@ -32,6 +30,25 @@ const state = {
   offline: !navigator.onLine,
   stale: false,
 };
+
+// The celebration is optional and loaded off the critical path: if either module fails to load
+// (a mixed old/new cache), the viewer renders without it.
+let celebration = null;
+let goals = null;
+(async () => {
+  try {
+    const [{ createCelebration }, { createGoalWatcher }] = await Promise.all([
+      import('./celebrate.js'), import('./goalWatch.js'),
+    ]);
+    // Mounted on the body: the game sections are rebuilt on every change and would wipe it mid-animation.
+    celebration = createCelebration(document.body);
+    goals = createGoalWatcher();
+    // Loaded after the first snapshot: take the baseline now so the goals already shown are not "new".
+    if (state.game) goals.next(state.game, state.gameMeta ?? {});
+  } catch (err) {
+    console.warn('Goal celebration unavailable', err);
+  }
+})();
 
 // Subscriptions keyed by what they watch, so a stale one is dropped when the key changes.
 const subs = { game: { key: null, off: null }, stats: { key: null, off: null } };
@@ -169,12 +186,21 @@ function render() {
   scoreboard.hidden = mode !== 'game';
   if (mode === 'game') {
     renderGame(state.game);
-    celebrateGoal(goals.next(state.game, state.gameMeta ?? {}));
+    celebrateIfNew();
   } else {
     clear(gameSections), signatures.delete(gameSections);
-    goals.next(null);
+    goals?.next(null);
   }
   renderSeason(state.stats);
+}
+
+// A throw here must never skip the rest of the render.
+function celebrateIfNew() {
+  try {
+    if (goals) celebrateGoal(goals.next(state.game, state.gameMeta ?? {}));
+  } catch (err) {
+    console.warn('Goal celebration failed', err);
+  }
 }
 
 function celebrateGoal(goal) {
@@ -250,7 +276,7 @@ function playersSection(lines) {
 function timelineSection(game) {
   const groups = timeline(game.events);
   const manUpGoals = manUpGoalIds(game);
-  const outIds = foulOutIds(game.events);
+  const outIds = model.foulOutIds?.(game.events) ?? new Set();
   return h('section', { class: 'section timeline' },
     h('h2', {}, t('timelineHeading')),
     groups.length ? h('div', {
