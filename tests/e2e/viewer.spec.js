@@ -299,3 +299,101 @@ test('a page restored from the back/forward cache is reloaded', async ({ page })
   // Reloading aborts the streams that were open; that is not an app error.
   dropNetworkNoise(problems);
 });
+
+// Man-up / man-down figures, penalty fouls and the season trend.
+const trackedEvents = () => [
+  { id: 's1', type: 'manUp', period: 1, ts: 1000 },
+  { id: 's2', type: 'goal', period: 1, ts: 2000, playerId: 'p5' },
+  { id: 's3', type: 'excl', period: 1, ts: 3000, playerId: 'p2' },
+];
+const seedTracked = (events = trackedEvents(), tracked = true) => Promise.all([
+  seed('team/main', { currentGameId: 'g1', roster }),
+  seed('games/g1', {
+    opponent: 'Opponent FC', date: '2026-11-08', season: '2026-27',
+    status: 'live', period: 1, lineup, events, ...(tracked ? { situations: true } : {}),
+  }),
+]);
+
+test('live man-up shows the badge and the game figures', async ({ page }) => {
+  await seedTracked();
+  await open(page);
+  await expect(page.getByTestId('situation-badge')).toHaveText('Man-down');
+  await expect(page.getByTestId('game-manup')).toHaveText('Man-up 1/1 · 100%');
+  await expect(page.getByTestId('game-mandown')).toHaveText('Man-down 0/0 stopped');
+  await update('games/g1', { events: [...trackedEvents(), { id: 's4', type: 'oppGoal', period: 1, ts: 4000 }] });
+  await expect(page.getByTestId('situation-badge')).toBeHidden();
+  await expect(page.getByTestId('game-mandown')).toHaveText('Man-down 0/1 stopped · 0%');
+});
+
+test('goals scored on a man-up are tagged; situation events are not listed; penalty fouls are', async ({ page }) => {
+  const events = [
+    ...trackedEvents(),
+    { id: 's4', type: 'oppGoal', period: 1, ts: 4000 },
+    { id: 's5', type: 'pen', period: 1, ts: 5000, playerId: 'p2' },
+    { id: 's6', type: 'manUp', period: 1, ts: 6000 },
+    { id: 's7', type: 'manUpEnd', period: 1, ts: 7000 },
+    { id: 's8', type: 'goal', period: 1, ts: 8000, playerId: 'p2' },
+  ];
+  await seedTracked(events);
+  await open(page);
+  // goals (2) + oppGoals (1) + excl (1) + pen (1)
+  await expect(page.getByTestId('timeline-item')).toHaveCount(5);
+  await expect(page.getByTestId('tl-manup')).toHaveCount(1);
+  await expect(page.getByTestId('tl-manup')).toHaveText('man-up');
+  const tagged = page.getByTestId('timeline-item').filter({ has: page.getByTestId('tl-manup') });
+  await expect(tagged).toContainText('#5 Alexiou');
+  const pen = page.getByTestId('timeline-item').filter({ hasText: '🟧' });
+  await expect(pen).toHaveCount(1);
+  await expect(pen).toContainText('#2 Papadakis');
+  await expect(page.getByTestId('player-pen')).toHaveCount(2);
+  await expect(page.locator('[data-testid="player-row"][data-cap="2"]').getByTestId('player-pen')).toHaveText('1');
+  await expect(page.locator('[data-testid="player-row"][data-cap="5"]').getByTestId('player-pen')).toHaveText('0');
+});
+
+test('untracked game shows dashes and no badge', async ({ page }) => {
+  await seedTracked([ev('goal', 1, 'p5')], false);
+  await open(page);
+  await expect(page.getByTestId('game-manup')).toHaveText('Man-up —');
+  await expect(page.getByTestId('game-mandown')).toHaveText('Man-down —');
+  await expect(page.getByTestId('situation-badge')).toBeHidden();
+});
+
+test('season line, per-game figures and Pen. columns', async ({ page }) => {
+  await Promise.all([
+    seedTracked(),
+    seed('stats/2026-27', {
+      situations: { manUp: { played: 9, scored: 4 }, manDown: { played: 8, stopped: 5 } },
+      players: {
+        p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1, pens: 2 },
+        p2: { name: 'Papadakis', games: 3, goals: 4, excl: 2, pens: 0 },
+      },
+      results: [
+        {
+          gameId: 'g0', date: '2026-11-01', opponent: 'Tracked FC', us: 9, them: 7,
+          manUp: { played: 7, scored: 3 }, manDown: { played: 6, stopped: 4 },
+        },
+        { gameId: 'gx', date: '2026-10-25', opponent: 'Untracked FC', us: 6, them: 10 },
+      ],
+    }),
+  ]);
+  await open(page);
+  await expect(page.getByTestId('season-situations')).toContainText('Man-up 4/9 · 44%');
+  await expect(page.getByTestId('season-situations')).toContainText('Man-down 5/8 stopped · 63%');
+  await expect(page.getByTestId('result-situations')).toHaveText(['MU 3/7 · MD 4/6', '—']);
+  await expect(page.getByTestId('season-pen')).toHaveText(['2', '0']);
+});
+
+test('an old stats document without the new fields still renders', async ({ page }) => {
+  await Promise.all([
+    seedTracked(),
+    seed('stats/2026-27', {
+      players: { p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1 } },
+      results: [{ gameId: 'g0', date: '2026-11-01', opponent: 'Old FC', us: 9, them: 7 }],
+    }),
+  ]);
+  await open(page);
+  await expect(page.getByTestId('result-row')).toHaveCount(1);
+  await expect(page.getByTestId('season-situations')).toHaveCount(0);
+  await expect(page.getByTestId('result-situations')).toHaveText('—');
+  await expect(page.getByTestId('season-pen')).toHaveText('0');
+});

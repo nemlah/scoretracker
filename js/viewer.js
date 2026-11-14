@@ -5,7 +5,10 @@ import {
   deriveScore, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
 } from './model.js';
 import { createRepo } from './repo.js';
-import { periodLabel, scoreText, t, timelineEntry } from './strings.js';
+import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
+import {
+  manDownText, manUpText, periodLabel, scoreText, situationShort, t, timelineEntry,
+} from './strings.js';
 import { clear, h } from './ui/dom.js';
 
 const STALE_MS = 6000;
@@ -104,15 +107,19 @@ const liveBadge = h('span', { class: 'live-badge', 'data-testid': 'live-badge', 
   h('span', { class: 'live-dot', 'aria-hidden': 'true' }), t('live'));
 const finalBadge = h('span', { 'data-testid': 'final-badge', hidden: true }, t('final'));
 const period = h('span', { class: 'period', 'data-testid': 'period', hidden: true });
+const situationBadge = h('span', { class: 'situation-badge', 'data-testid': 'situation-badge', hidden: true });
+const gameManUp = h('p', { class: 'situation-figure', 'data-testid': 'game-manup' });
+const gameManDown = h('p', { class: 'situation-figure', 'data-testid': 'game-mandown' });
 const opponent = h('p', { class: 'team-name' });
 const gameDate = h('p', { class: 'muted', 'data-testid': 'game-date' });
 const scoreboard = h('section', { class: 'scoreboard', hidden: true },
   h('div', { class: 'board-row' },
     h('h1', { class: 'team-name' }, teamConfig.name),
-    h('p', { class: 'status' }, liveBadge, finalBadge, period)),
+    h('p', { class: 'status' }, liveBadge, finalBadge, period, situationBadge)),
   h('p', { class: 'score', 'aria-live': 'polite' }, scoreUs, h('span', { class: 'dash', 'aria-hidden': 'true' }, '–'), scoreThem),
   shootout,
-  h('div', { class: 'board-row' }, opponent, gameDate));
+  h('div', { class: 'board-row' }, opponent, gameDate),
+  h('div', { class: 'situation-figures' }, gameManUp, gameManDown));
 const empty = h('section', { class: 'empty', 'data-testid': 'empty-state', hidden: true },
   h('h2', {}, t('emptyTitle')), h('p', {}, t('emptyBody')));
 const gameSections = h('div', { class: 'stack' });
@@ -175,12 +182,18 @@ function renderGame(game) {
   period.textContent = live ? periodLabel(game.period) : '';
   opponent.textContent = game.opponent;
   gameDate.textContent = formatDate(game.date);
+  const open = live ? replaySituations(game).open : null;
+  situationBadge.hidden = open === null;
+  situationBadge.textContent = open === null ? '' : t(open.kind === 'manUp' ? 'situationManUp' : 'situationManDown');
+  const counts = situationCounts(game);
+  gameManUp.textContent = manUpText(counts?.manUp ?? null);
+  gameManDown.textContent = manDownText(counts?.manDown ?? null);
 
   // Rebuilding the sections would reset the timeline box to the top; carry its scroll position over.
   const oldBox = gameSections.querySelector('.timeline-scroll');
   const scrollTop = oldBox?.scrollTop ?? 0;
   const hadFocus = oldBox?.contains(document.activeElement) ?? false;
-  renderIfChanged(gameSections, [game.lineup, game.events], () => [
+  renderIfChanged(gameSections, [game.lineup, game.events, game.situations === true], () => [
     timelineSection(game),
     playersSection(scoringLines(playerLines(game.lineup, game.events))),
   ]);
@@ -201,7 +214,8 @@ function playersSection(lines) {
       h('thead', {}, h('tr', {},
         h('th', { scope: 'col' }, t('colPlayer')),
         h('th', { scope: 'col', class: 'num' }, t('colGoals')),
-        h('th', { scope: 'col', class: 'num' }, t('colExcl')))),
+        h('th', { scope: 'col', class: 'num' }, t('colExcl')),
+        h('th', { scope: 'col', class: 'num' }, t('colPen')))),
       h('tbody', {}, lines.map(line => h('tr', { 'data-testid': 'player-row', 'data-cap': line.cap },
         h('td', {}, h('span', { class: 'who' },
           capBadge(line.cap, line.out),
@@ -210,29 +224,33 @@ function playersSection(lines) {
         h('td', { class: 'num' },
           h('span', { 'data-testid': 'player-goals' }, line.goals),
           line.soGoals ? h('span', { class: 'pen' }, t('penaltyGoals', { n: line.soGoals })) : null),
-        h('td', { class: 'num', 'data-testid': 'player-excl' }, line.excl))))));
+        h('td', { class: 'num', 'data-testid': 'player-excl' }, line.excl),
+        h('td', { class: 'num', 'data-testid': 'player-pen' }, line.pens ?? 0))))));
 }
 
 function timelineSection(game) {
   const groups = timeline(game.events);
+  const manUpGoals = manUpGoalIds(game);
   return h('section', { class: 'section timeline' },
     h('h2', {}, t('timelineHeading')),
     groups.length ? h('div', {
       class: 'timeline-scroll', tabindex: '0', role: 'region', 'aria-label': t('timelineHeading'), 'data-testid': 'timeline-scroll',
     }, groups.map(group => h('div', {},
       h('h3', {}, periodLabel(group.period)),
-      h('ul', {}, group.events.map(event => timelineItem(event, game)))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
+      h('ul', {}, group.events.map(event => timelineItem(event, game, manUpGoals)))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
 }
 
-function timelineItem(event, game) {
+function timelineItem(event, game, manUpGoals) {
   const entry = timelineEntry(event, game.lineup, game.opponent);
   const icon = h('span', { class: 'tl-icon', 'aria-hidden': 'true' }, entry.icon);
   const text = h('span', { class: 'tl-text' }, entry.text);
+  const tagged = event.type === 'goal' && manUpGoals.has(event.id);
   return h('li', { 'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}` },
     h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
     entry.side === 'them' ? null : icon,
-    h('span', { class: 'sr-only' }, `${entry.sr} · `),
+    h('span', { class: 'sr-only' }, `${entry.sr}${tagged ? ` · ${t('tlManUpTag')}` : ''} · `),
     text,
+    tagged ? h('span', { class: 'tl-tag', 'data-testid': 'tl-manup', 'aria-hidden': 'true' }, t('tlManUpTag')) : null,
     entry.side === 'them' ? icon : null);
 }
 
@@ -245,6 +263,9 @@ function renderSeason(stats) {
     if (!results.length && !players.length) return [];
     return [h('section', { class: 'section' },
       h('h2', {}, t('seasonHeading')),
+      stats?.situations ? h('p', { class: 'situation-figures', 'data-testid': 'season-situations' },
+        h('span', { class: 'situation-figure' }, manUpText(stats.situations.manUp)),
+        h('span', { class: 'situation-figure' }, manDownText(stats.situations.manDown))) : null,
       results.length ? resultsTable(results) : null,
       players.length ? totalsTable(players) : null)];
   });
@@ -257,7 +278,9 @@ function resultsTable(results) {
       h('td', { class: 'muted' }, formatDate(result.date)),
       h('td', {}, result.opponent),
       h('td', { class: 'result-score' }, text.main,
-        text.shootout ? h('span', { class: 'pen' }, text.shootout) : null));
+        text.shootout ? h('span', { class: 'pen' }, text.shootout) : null),
+      h('td', { class: 'muted result-situations', 'data-testid': 'result-situations' },
+        situationShort(result.manUp ? { manUp: result.manUp, manDown: result.manDown } : null)));
   })));
 }
 
@@ -267,12 +290,14 @@ function totalsTable(players) {
       h('th', { scope: 'col' }, t('colPlayer')),
       h('th', { scope: 'col', class: 'num' }, t('colGames')),
       h('th', { scope: 'col', class: 'num' }, t('colGoals')),
-      h('th', { scope: 'col', class: 'num' }, t('colExcl')))),
+      h('th', { scope: 'col', class: 'num' }, t('colExcl')),
+      h('th', { scope: 'col', class: 'num' }, t('colPen')))),
     h('tbody', {}, players.map(player => h('tr', { 'data-testid': 'season-row' },
       h('td', {}, player.name),
       h('td', { class: 'num' }, player.games),
       h('td', { class: 'num' }, player.goals),
-      h('td', { class: 'num' }, player.excl)))));
+      h('td', { class: 'num' }, player.excl),
+      h('td', { class: 'num', 'data-testid': 'season-pen' }, player.pens ?? 0)))));
 }
 
 render();

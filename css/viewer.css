@@ -120,3 +120,20 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
 @media (max-width: 26rem) {
   .score { font-size: 5.5rem; }
 }
+
+/* Man-up / man-down */
+.status .situation-badge::before { content: "· "; }
+.situation-badge { color: var(--water-text); }
+.situation-figures { display: flex; flex-wrap: wrap; gap: 0 1.5rem; margin-top: 0.5rem; }
+.situation-figure { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.tl-tag {
+  flex: none;
+  align-self: center;
+  padding: 0 0.4rem;
+  border: 1px solid var(--water-text);
+  border-radius: 999px;
+  color: var(--water-text);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.result-situations { text-align: right; white-space: nowrap; padding-left: 0.5rem; }
