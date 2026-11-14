@@ -406,8 +406,11 @@ body.sheet-open { overflow: hidden; }
 .ev-line { display: flex; align-items: baseline; gap: 0.75rem; }
 .ev-period { min-width: 2.5rem; font: 700 1.125rem/1 var(--font-num); font-variant-numeric: tabular-nums; }
 .ev-label { overflow-wrap: anywhere; }
-.ev-controls { display: flex; gap: 0.5rem; }
+.ev-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .ev-scorer { flex: 1; min-width: 0; width: auto; }
+.ev-manup { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding-inline: 0.25rem; }
+.ev-manup[hidden] { display: none; }
+.ev-manup-box { flex: none; width: 1.5rem; height: 1.5rem; margin: 0; accent-color: var(--accent); }
 
 /* Lineup editor */
 .lu-name { flex: 1; }

@@ -1,6 +1,7 @@
 import { prevPeriod, makeEvent, withPlayer } from '../../model.js';
 const ADD_PERIODS = [1, 2, 3, 4, 'SO'];
 const DEFAULT_ADD_PERIOD = '4';
+import { isTracked, manUpGoalIds, manUpSwitch } from '../../situations.js';
 import { eventLabel, periodLabel, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
 import { h } from '../../ui/dom.js';
@@ -103,6 +104,22 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     send(target, () => ctx.repo.removeEvent(target.id, event));
   }
 
+  // Fixes a forgotten MAN-UP tap: manUpSwitch decides which event to add or remove.
+  function onManUp(eventId, checked) {
+    const target = game;
+    const parts = rows.get(eventId);
+    if (!target || !parts?.manUpBox) return;
+    const result = ctx.getState().active ? manUpSwitch(target, eventId, checked) : null;
+    if (!result) {
+      parts.manUpBox.checked = parts.manUpShown;
+      return;
+    }
+    ctx.journal.record(target.id, result.op, result.event);
+    send(target, () => (result.op === 'add'
+      ? ctx.repo.addEvent(target.id, result.event)
+      : ctx.repo.removeEvent(target.id, result.event)));
+  }
+
   function onScorer(eventId, playerId) {
     const target = game;
     const event = target?.events?.find(entry => entry.id === eventId);
@@ -150,19 +167,38 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     const select = event.type === 'goal' ? h('select', {
       class: 'input ev-scorer', 'data-testid': 'ev-scorer', onchange: () => onScorer(event.id, select.value),
     }) : null;
+    const manUpBox = event.type === 'goal' ? h('input', {
+      type: 'checkbox', class: 'ev-manup-box', 'data-testid': 'ev-manup', onchange: () => onManUp(event.id, manUpBox.checked),
+    }) : null;
+    const manUp = manUpBox ? h('label', { class: 'ev-manup', hidden: true }, manUpBox, t('evManUpGoal')) : null;
     const li = h('li', { class: 'ev-row', 'data-testid': 'ev-row', 'data-event-id': event.id },
       h('div', { class: 'ev-line' }, period, label),
-      h('div', { class: 'ev-controls' }, select, remove));
-    return { el: li, label, period, select, remove, shown: null, lineupKey: null };
+      h('div', { class: 'ev-controls' }, select, manUp, remove));
+    return { el: li, label, period, select, manUp, manUpBox, manUpShown: false, remove, shown: null, lineupKey: null };
   }
 
-  function syncRow(parts, event, lineup, lineupKey, writable) {
+  // Like the scorer picker, the box follows what the list last showed, so a refused write puts it back.
+  function syncManUp(parts, event, text, writable, manUpIds) {
+    const available = manUpIds !== null && event.period !== 'SO';
+    parts.manUp.hidden = !available;
+    if (!available) return;
+    const wanted = manUpIds.has(event.id);
+    if (parts.manUpShown !== wanted) {
+      parts.manUpBox.checked = wanted;
+      parts.manUpShown = wanted;
+    }
+    parts.manUpBox.setAttribute('aria-label', t('evManUpGoalFor', { label: `${text} (${periodLabel(event.period)})` }));
+    parts.manUpBox.disabled = !writable;
+  }
+
+  function syncRow(parts, event, lineup, lineupKey, writable, manUpIds) {
     parts.period.textContent = periodLabel(event.period);
     const text = eventLabel(event, lineup);
     parts.label.textContent = event.type === 'goal' ? t('goalPlain') : text;
     parts.remove.setAttribute('aria-label', t('evDeleteFor', { label: `${text} (${periodLabel(event.period)})` }));
     parts.remove.disabled = !writable;
     if (parts.select === null) return;
+    syncManUp(parts, event, text, writable, manUpIds);
     const wanted = event.playerId ?? '';
     // Options are rebuilt only when the lineup changed, so a snapshot cannot close an open picker.
     if (parts.lineupKey !== lineupKey) {
@@ -186,6 +222,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     const live = current.status === 'live';
     const lineup = current.lineup ?? [];
     const key = lineupSignature(lineup);
+    const manUpIds = isTracked(current) ? manUpGoalIds(current) : null;
 
     addUnknown.disabled = !writable;
     addPeriod.hidden = live;
@@ -210,7 +247,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
         parts = buildRow(event);
         rows.set(event.id, parts);
       }
-      syncRow(parts, event, lineup, key, writable);
+      syncRow(parts, event, lineup, key, writable, manUpIds);
       if (list.children[index] !== parts.el) list.insertBefore(parts.el, list.children[index] ?? null);
     });
     lineupSheet.update(current);

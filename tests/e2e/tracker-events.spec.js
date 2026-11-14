@@ -519,3 +519,100 @@ test('the period choice is not offered while the game is live', async ({ page })
   await expect(page.getByTestId('add-unknown-goal')).toBeVisible();
   await expect(page.getByTestId('add-goal-period')).toBeHidden();
 });
+
+const evRow = (page, label) => page.getByTestId('ev-row').filter({ has: page.locator('.ev-label', { hasText: label }) });
+const manUpBox = page => sheet(page).getByTestId('ev-manup');
+const figures = page => page.getByTestId('live-situations');
+
+// A live game written straight to the server, resumed through Home so the unlock step still works.
+async function openSeeded(page, game) {
+  await seed('team/main', { roster, currentGameId: 'g1' });
+  await seed('games/g1', {
+    opponent: 'Seeded FC', date: '2026-11-01', season: '2026-27', status: 'live', period: 1,
+    lineup: roster.map(player => ({ playerId: player.id, name: player.name, cap: player.cap })), ...game,
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-resume').click();
+  await expect(page.getByTestId('score-us')).toBeVisible();
+}
+
+test('Man-up goal switch adds and removes a man-up for that goal', async ({ page }) => {
+  await startGame(page);
+  await goals(page, [5]);
+  const gameId = await currentGameId();
+  const eventsOf = async () => (await get(`games/${gameId}`)).events;
+  await expect(figures(page)).toHaveText('MU 0/0 · MD 0/0');
+  await openEvents(page);
+  await expect(manUpBox(page)).not.toBeChecked();
+  await manUpBox(page).check();
+  await expect.poll(async () => (await eventsOf()).filter(event => event.type === 'manUp').length).toBe(1);
+  const events = await eventsOf();
+  const goal = events.find(event => event.type === 'goal');
+  expect(events.find(event => event.type === 'manUp').ts).toBe(goal.ts - 1);
+  await expect(figures(page)).toHaveText('MU 1/1 · MD 0/0');
+  await expect(manUpBox(page)).toBeChecked();
+  await expect(evRow(page, 'Man-up')).toHaveCount(1);
+
+  await manUpBox(page).uncheck();
+  await expect.poll(async () => (await eventsOf()).filter(event => event.type === 'manUp').length).toBe(0);
+  await expect(figures(page)).toHaveText('MU 0/0 · MD 0/0');
+  await expect(manUpBox(page)).not.toBeChecked();
+});
+
+test('switching off a live-tapped man-up goal counts the man-up as missed', async ({ page }) => {
+  await startGame(page);
+  await page.getByTestId('situation').click();
+  await expect(page.getByTestId('situation')).toHaveAttribute('data-state', 'manUp');
+  await goals(page, [5]);
+  await expect(figures(page)).toHaveText('MU 1/1 · MD 0/0');
+  const gameId = await currentGameId();
+  await openEvents(page);
+  await expect(manUpBox(page)).toBeChecked();
+  await manUpBox(page).uncheck();
+  await expect.poll(async () => (await get(`games/${gameId}`)).events.filter(event => event.type === 'manUpEnd').length).toBe(1);
+  const events = (await get(`games/${gameId}`)).events;
+  const goal = events.find(event => event.type === 'goal');
+  expect(events.find(event => event.type === 'manUpEnd').ts).toBe(goal.ts - 1);
+  expect(events.filter(event => event.type === 'manUp')).toHaveLength(1);
+  await expect(figures(page)).toHaveText('MU 0/1 · MD 0/0');
+  await expect(manUpBox(page)).not.toBeChecked();
+});
+
+test('penalty fouls and situation events are labelled and deletable', async ({ page }) => {
+  const now = Date.now();
+  await openSeeded(page, {
+    situations: true,
+    events: [
+      { id: 'e1', type: 'pen', period: 1, ts: now - 5000, playerId: 'p2' },
+      { id: 'e2', type: 'manUp', period: 1, ts: now - 4000 },
+      { id: 'e3', type: 'manUpEnd', period: 1, ts: now - 3000 },
+    ],
+  });
+  await openEvents(page);
+  await expect(evRow(page, 'Penalty foul · #2 Papadakis')).toHaveCount(1);
+  await expect(evRow(page, /^Man-up$/)).toHaveCount(1);
+  await expect(evRow(page, 'End man-up · no goal')).toHaveCount(1);
+  await evRow(page, /^Man-up$/).getByTestId('ev-delete').click();
+  await expect(evRow(page, /^Man-up$/)).toHaveCount(0);
+  await expect.poll(async () => (await get('games/g1')).events.map(event => event.id).sort()).toEqual(['e1', 'e3']);
+});
+
+test('no Man-up goal switch on untracked games or shootout goals', async ({ page }) => {
+  await openSeeded(page, { events: [{ id: 'g', type: 'goal', period: 1, ts: Date.now() - 1000, playerId: 'p5' }] });
+  await openEvents(page);
+  await expect(page.getByTestId('ev-row')).toHaveCount(1);
+  await expect(manUpBox(page)).toBeHidden();
+  await sheet(page).getByTestId('events-close').click();
+  await update('games/g1', {
+    situations: true,
+    events: [
+      { id: 'g', type: 'goal', period: 1, ts: Date.now() - 1000, playerId: 'p5' },
+      { id: 's', type: 'goal', period: 'SO', ts: Date.now() - 500, playerId: 'p5' },
+    ],
+  });
+  await openEvents(page);
+  await expect(page.getByTestId('ev-row')).toHaveCount(2);
+  await expect(page.getByTestId('ev-row').filter({ hasText: 'Shootout' }).getByTestId('ev-manup')).toBeHidden();
+  await expect(page.getByTestId('ev-row').filter({ hasText: 'Q1' }).getByTestId('ev-manup')).toBeVisible();
+});
