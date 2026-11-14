@@ -18,6 +18,16 @@ Four issues from the final review were parked; fix them before the first real ga
 3. Auto-resume to `#/live` (app.js ~385) has the same cached-`null` cause. Same fix.
 4. The endGame repoint is best-effort while offline and nothing retries it. Retry it on reconnect, or let the viewer pick the newest live game.
 
+## 14/11/2026 - Live on Firebase
+- `js/config.js` now points at Firebase project `score-tracker-1be7c` (commit ddc69d6). `measurementId` was left out because the site doesn't load Analytics.
+- Live check in headless Chromium at https://nemlah.github.io/scoretracker/: the tracker reaches the unlock screen, the viewer shows "No game yet", and neither page logs a console error.
+- Owner's console steps so far: project created, web app registered, Anonymous enabled, authorized domain added. Firestore, the rules and `secrets/editCode` are the owner's to confirm; the code was not shared or tested here.
+- Still to do:
+  - Team name and accent, in 3 places: `js/config.js` and both `<title>` tags.
+  - Optionally, an API-key referrer restriction.
+  - The 4 parked issues listed below.
+  - A real-phone run before the first game.
+
 ## 13/11/2026 - Task 8: new game and live tracking
 - Done: `js/tracker/taps.js` (journal-first tapper, per-device duplicate guard, undo, retry/discard), New game and Live views, app-level game watcher with journal reconcile, failed-taps banner.
 - Reconcile waits while event writes are in flight (app.js `trackWrite`), so a snapshot taken before the SDK applies a fresh tap cannot mark it failed.
