@@ -1,5 +1,13 @@
 # Session log
 
+## 14/11/2026 - Man-up / man-down: design and plan (branch feat/man-up)
+- Spec: `docs/superpowers/specs/2026-11-14-man-up-man-down-design.md` (approved). Plan: `docs/superpowers/plans/2026-11-14-man-up-man-down.md` (6 tasks), waiting for the owner's review.
+- What it adds: MAN-UP toggle (our goal = scored, end tap or any other event = missed), man-down opened by EXCL (their goal = conceded), whole-page tint + seconds counter while open, PEN button per player (counts toward 3 fouls, no man-down), "Man-up goal" switch in the Events sheet, figures on the tracker header, the viewer game section and the season results.
+- Everything is derived from 4 new event types (`pen`, `manUp`, `manUpEnd`, `manDownEnd`) via `js/situations.js`; games get `situations: true` at creation.
+- The one real game so far (vs ΡΟΗ, 14/11, 19–10) has no marker: it shows "—" and is left out of season man-up figures.
+- Found: `js/journal.js` only accepts the 3 old event types and empties the whole journal on an unknown one. Task 1 fixes it; deploy only when no game is live.
+- Execution routing: Tasks 1–3 Codex (unit-only), Tasks 4–6 sonnet (e2e), Codex read-only review per task, whole-branch Claude review before merge.
+
 ## 14/11/2026 - Where we left off (handoff)
 - **Live:**
   - Viewer https://nemlah.github.io/scoretracker/, tracker `/track.html`, Firebase project `score-tracker-1be7c`, team "ANOG".
