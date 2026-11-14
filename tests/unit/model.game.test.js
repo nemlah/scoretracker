@@ -94,3 +94,34 @@ test('timeline leaves out man-up and man-down events', () => {
   const events = [ev('manUp', 1, null, 1), ev('manUpEnd', 1, null, 2), ev('manDownEnd', 2, null, 3), goal, pen];
   assert.deepEqual(m.timeline(events), [{ period: 1, events: [pen, goal] }]);
 });
+
+test('foulOutIds marks the foul that reaches 3', () => {
+  const events = [ev('excl',1,'a',1), ev('excl',1,'a',2), ev('excl',1,'b',3), ev('pen',1,'a',4), ev('excl',1,'a',5)];
+  assert.deepEqual(m.foulOutIds(events), new Set(['e4']));
+});
+test('foulOutIds counts in ts order, not array order', () => {
+  const events = Object.freeze([ev('excl',1,'a',30), ev('excl',1,'a',10), ev('excl',1,'a',20)]);
+  assert.deepEqual(m.foulOutIds(events), new Set(['e30']));
+});
+test('foulOutIds ignores fouls without a player', () => {
+  assert.deepEqual(m.foulOutIds([ev('excl',1,null,1), ev('pen',1,null,2), ev('excl',1,null,3)]), new Set());
+});
+test('foulOutIds keeps array order for timestamp ties and counts each player separately', () => {
+  assert.deepEqual(m.foulOutIds([
+    ev('excl',1,'a',1,'a1'), ev('pen',1,'a',1,'a2'), ev('excl',1,'a',1,'a3'),
+    ev('pen',1,'b',1,'b1'), ev('goal',1,'b',1,'g'), ev('excl',1,'b',1,'b2'), ev('pen',1,'b',1,'b3'),
+  ]), new Set(['a3', 'b3']));
+});
+test('latestNewGoal returns the newest new goal of ours', () => {
+  const first = ev('goal',1,'a',1);
+  const newest = ev('goal',1,'a',4);
+  assert.equal(m.latestNewGoal([first], [first, ev('oppGoal',1,null,2), newest, ev('goal',1,'a',3)]), newest);
+  assert.equal(m.latestNewGoal([first], [first, ev('oppGoal',1,null,2)]), null);
+  assert.equal(m.latestNewGoal([first], []), null);
+  assert.equal(m.latestNewGoal([first], [m.withPlayer(first, 'b')]), null);
+  assert.equal(m.latestNewGoal([], []), null);
+});
+test('latestNewGoal breaks timestamp ties with the later index, including shootout', () => {
+  const later = ev('goal','SO',null,1,'later');
+  assert.equal(m.latestNewGoal([], [ev('goal',1,'a',1,'first'), later]), later);
+});

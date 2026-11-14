@@ -101,6 +101,27 @@ export function lastEvent(events) {
   return latest === null ? null : withPlayer(latest, latest.playerId);
 }
 
+// Stable sorting preserves array order when timestamps tie, without mutating events.
+export function foulOutIds(events) {
+  const counts = new Map();
+  const ids = new Set();
+  for (const event of [...events].sort((a, b) => a.ts - b.ts)) {
+    if (event.playerId == null || !['excl', 'pen'].includes(event.type)) continue;
+    const count = (counts.get(event.playerId) ?? 0) + 1;
+    counts.set(event.playerId, count);
+    if (count === EXCL_LIMIT) ids.add(event.id);
+  }
+  return ids;
+}
+
+export function latestNewGoal(prevEvents, nextEvents) {
+  const seen = new Set(prevEvents.map(event => event.id));
+  return nextEvents.reduce((latest, event) => {
+    if (event.type !== 'goal' || seen.has(event.id)) return latest;
+    return !latest || event.ts >= latest.ts ? event : latest;
+  }, null);
+}
+
 export function timeline(events) {
   return [...PERIODS].reverse().flatMap(period => {
     const entries = events.filter(event => event.period === period && !SITUATION_TYPES.includes(event.type))

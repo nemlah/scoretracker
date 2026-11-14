@@ -21,7 +21,7 @@ const STRINGS = {
   notTracked: '—',
   situationManUp: 'Man-up',
   situationManDown: 'Man-down',
-  tlPenIcon: '🟧',
+  tlPenIcon: 'P',
   tlPenSr: 'Penalty foul',
   tlManUpTag: 'man-up',
   colPen: 'Pen.',
@@ -52,7 +52,13 @@ const STRINGS = {
   oppGoal: 'Opponent goal',
   unknownPlayer: '#? Unknown player',
   tlGoalIcon: '🏐',
-  tlExclIcon: '🟥',
+  tlExclIcon: 'E',
+  tlOutIcon: '🟥',
+  tlOutText: '{player} · out',
+  tlOutSr: '{foul} · out',
+  celebrateGoal: 'GOAL!',
+  celebrateScorer: '#{cap} {name}',
+  celebrateManUp: '{scorer} · man-up',
   tlGoalSr: 'Goal',
   tlExclSr: 'Exclusion',
   tlOppGoalSr: 'Opponent goal',
@@ -232,27 +238,30 @@ export function eventLabel(event, lineup) {
   return t(event.type === 'goal' ? 'goalNamed' : event.type === 'pen' ? 'penNamed' : 'exclNamed', { cap: player.cap, name: player.name });
 }
 
-export function timelineEntry(event, lineup, opponent) {
+export function timelineEntry(event, lineup, opponent, out = false) {
   if (event.type === 'oppGoal') {
     return {
       side: 'them',
       icon: t('tlGoalIcon'),
       sr: t('tlOppGoalSr'),
       text: opponent?.trim() || t('tlOpponentFallback'),
+      badge: false,
     };
   }
   const isGoal = event.type === 'goal';
+  const isFoul = event.type === 'excl' || event.type === 'pen';
+  const isOut = isFoul && out;
+  const foul = t(event.type === 'pen' ? 'tlPenSr' : 'tlExclSr');
   const entry = {
     side: 'us',
-    icon: t(isGoal ? 'tlGoalIcon' : event.type === 'pen' ? 'tlPenIcon' : 'tlExclIcon'),
-    sr: t(isGoal ? 'tlGoalSr' : event.type === 'pen' ? 'tlPenSr' : 'tlExclSr'),
+    icon: t(isOut ? 'tlOutIcon' : isGoal ? 'tlGoalIcon' : event.type === 'pen' ? 'tlPenIcon' : 'tlExclIcon'),
+    sr: isOut ? t('tlOutSr', { foul }) : isGoal ? t('tlGoalSr') : foul,
+    badge: isFoul && !isOut,
   };
   if (isGoal && event.playerId == null) return { ...entry, text: t('tlUnknownScorer') };
   const player = lineup.find(candidate => candidate.playerId === event.playerId);
-  return {
-    ...entry,
-    text: player ? t('tlPlayer', { cap: player.cap, name: player.name }) : t('unknownPlayer'),
-  };
+  const text = player ? t('tlPlayer', { cap: player.cap, name: player.name }) : t('unknownPlayer');
+  return { ...entry, text: isOut ? t('tlOutText', { player: text }) : text };
 }
 
 export function scoreText({ us, them, soUs, soThem }, shootout) {

@@ -15,6 +15,7 @@ const SHELL = [
   './js/firebase.js',
   './js/journal.js',
   './js/model.js',
+  './js/goalWatch.js',
   './js/repo.js',
   './js/situations.js',
   './js/strings.js',
