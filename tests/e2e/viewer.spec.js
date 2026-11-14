@@ -25,7 +25,7 @@ const seedLive = (events = liveEvents()) => Promise.all([
   seed('team/main', { currentGameId: 'g1', roster }),
   seed('games/g1', {
     opponent: 'Opponent FC', date: '2026-11-08', season: '2026-27',
-    status: 'live', period: 2, lineup, events,
+    status: 'live', period: 2, lineup: [...lineup, { playerId: 'p9', name: 'Bench', cap: 9 }], events,
   }),
 ]);
 
@@ -61,7 +61,8 @@ test('live game', async ({ page }) => {
   await expect(page.getByTestId('game-date')).toHaveText('08/11/2026');
   await expect(page.getByTestId('empty-state')).toBeHidden();
   const rows = page.getByTestId('player-row');
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(2); // the bench player in the lineup has no goals or exclusions
+  await expect(page.locator('[data-testid="player-row"][data-cap="9"]')).toHaveCount(0);
   await expect(rows.first()).toHaveAttribute('data-cap', '2');
   const papadakis = page.locator('[data-testid="player-row"][data-cap="2"]');
   await expect(papadakis.getByTestId('player-out')).toBeVisible();
@@ -86,6 +87,55 @@ test('live game', async ({ page }) => {
   await expect(us.locator('.tl-text')).not.toContainText('Goal');
   await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' }).first()).toContainText('#2 Papadakis');
   expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
+});
+
+test('sections run timeline, players, then season totals', async ({ page }) => {
+  await seedLive();
+  await seed('stats/2026-27', {
+    players: { p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1 } },
+    results: [{ gameId: 'p1', date: '2026-10-25', opponent: 'North Pool', us: 11, them: 6 }],
+  });
+  await open(page);
+  await expect(page.getByTestId('season-row').first()).toBeVisible();
+  const ys = await page.evaluate(() => ['.timeline', '[data-testid="player-row"]', '[data-testid="season-row"]']
+    .map(selector => document.querySelector(selector).getBoundingClientRect().top + scrollY));
+  expect(ys[0]).toBeLessThan(ys[1]);
+  expect(ys[1]).toBeLessThan(ys[2]);
+});
+
+const manyEvents = () => Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? ev('oppGoal', (i % 4) + 1)
+  : ev('goal', (i % 4) + 1, i % 2 ? 'p5' : 'p2')));
+
+test('the timeline scrolls inside a fixed-height region', async ({ page }) => {
+  await seedLive(manyEvents());
+  await open(page);
+  const box = page.getByTestId('timeline-scroll');
+  await expect(box).toBeVisible();
+  await expect(box).toHaveAttribute('tabindex', '0');
+  await expect(box).toHaveAttribute('role', 'region');
+  await expect(box).toHaveAttribute('aria-label', 'Game timeline');
+  expect(await box.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  expect(await box.evaluate(el => getComputedStyle(el).maxHeight)).toBe('288px');
+  expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).position)).toBe('sticky');
+});
+
+test('a short timeline is not padded to the full height', async ({ page }) => {
+  await seedLive([ev('goal', 1, 'p5')]);
+  await open(page);
+  expect(await page.getByTestId('timeline-scroll').evaluate(el => el.clientHeight)).toBeLessThan(288);
+});
+
+test('the timeline keeps its scroll position when a new event arrives', async ({ page }) => {
+  const events = manyEvents();
+  await seedLive(events);
+  await open(page);
+  const box = page.getByTestId('timeline-scroll');
+  await expect(page.getByTestId('timeline-item')).toHaveCount(30);
+  await box.evaluate(el => { el.scrollTop = 200; });
+  expect(await box.evaluate(el => el.scrollTop)).toBe(200);
+  await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
+  await expect(page.getByTestId('timeline-item')).toHaveCount(31, { timeout: 5000 });
+  expect(await page.getByTestId('timeline-scroll').evaluate(el => el.scrollTop)).toBeGreaterThan(150);
 });
 
 test('updates live without reload', async ({ page }) => {

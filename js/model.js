@@ -85,6 +85,11 @@ export function playerLines(lineup, events) {
   }).sort((a, b) => a.cap - b.cap);
 }
 
+// Lines with something to show: at least one goal (regular or shootout) or exclusion.
+export function scoringLines(lines) {
+  return lines.filter(line => line.goals + line.soGoals + line.excl > 0);
+}
+
 export function lastEvent(events) {
   const latest = events.reduce((last, event) => !last || event.ts >= last.ts ? event : last, null);
   return latest === null ? null : withPlayer(latest, latest.playerId);

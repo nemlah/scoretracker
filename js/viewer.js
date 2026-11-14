@@ -2,7 +2,7 @@ import './sw-register.js';
 import { team as teamConfig } from './config.js';
 import { initFirebase } from './firebase.js';
 import {
-  deriveScore, formatDate, hasShootout, playerLines, seasonFor, timeline, todayIso,
+  deriveScore, formatDate, hasShootout, playerLines, scoringLines, seasonFor, timeline, todayIso,
 } from './model.js';
 import { createRepo } from './repo.js';
 import { periodLabel, scoreText, t, timelineEntry } from './strings.js';
@@ -176,10 +176,14 @@ function renderGame(game) {
   opponent.textContent = game.opponent;
   gameDate.textContent = formatDate(game.date);
 
+  // Rebuilding the sections would reset the timeline box to the top; carry its scroll position over.
+  const scrollTop = gameSections.querySelector('.timeline-scroll')?.scrollTop ?? 0;
   renderIfChanged(gameSections, [game.lineup, game.events], () => [
-    playersSection(playerLines(game.lineup, game.events)),
     timelineSection(game),
+    playersSection(scoringLines(playerLines(game.lineup, game.events))),
   ]);
+  const box = gameSections.querySelector('.timeline-scroll');
+  if (box && scrollTop) box.scrollTop = scrollTop;
 }
 
 function capBadge(cap, out) {
@@ -210,9 +214,11 @@ function timelineSection(game) {
   const groups = timeline(game.events);
   return h('section', { class: 'section timeline' },
     h('h2', {}, t('timelineHeading')),
-    groups.length ? groups.map(group => h('div', {},
+    groups.length ? h('div', {
+      class: 'timeline-scroll', tabindex: '0', role: 'region', 'aria-label': t('timelineHeading'), 'data-testid': 'timeline-scroll',
+    }, groups.map(group => h('div', {},
       h('h3', {}, periodLabel(group.period)),
-      h('ul', {}, group.events.map(event => timelineItem(event, game))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
+      h('ul', {}, group.events.map(event => timelineItem(event, game)))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
 }
 
 function timelineItem(event, game) {

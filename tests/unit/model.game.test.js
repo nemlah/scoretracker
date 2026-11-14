@@ -38,6 +38,14 @@ test('playerLines: per-player counts, sorted by cap, OUT at 3 exclusions', () =>
     { playerId:'a', name:'Alexiou',   cap:5, goals:1, soGoals:1, excl:0, out:false },
   ]);
 });
+test('scoringLines keeps only players with a goal, shootout goal or exclusion, in order', () => {
+  const line = (playerId, goals, soGoals, excl) => ({ playerId, name: playerId, cap: 1, goals, soGoals, excl, out: excl >= 3 });
+  const lines = [line('a', 0, 0, 0), line('b', 1, 0, 0), line('c', 0, 0, 1), line('d', 0, 0, 0), line('e', 0, 2, 0), line('f', 0, 0, 3)];
+  assert.deepEqual(m.scoringLines(lines).map(l => l.playerId), ['b', 'c', 'e', 'f']);
+  assert.equal(m.scoringLines(lines)[3], lines[5]);
+  assert.deepEqual(m.scoringLines([line('a', 0, 0, 0)]), []);
+  assert.deepEqual(m.scoringLines([]), []);
+});
 test('lastEvent: highest ts, ties to later index', () => {
   assert.equal(m.lastEvent([]), null);
   assert.equal(m.lastEvent([ev('goal',1,'a',5,'x'), ev('goal',1,'a',3,'y')]).id, 'x');
