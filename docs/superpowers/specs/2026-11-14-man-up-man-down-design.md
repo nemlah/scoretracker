@@ -211,11 +211,14 @@ penalty fouls.
 - **"Man-up goal" switch on goal rows** (tracked games, periods 1–4 only).
   It fixes a forgotten MAN-UP tap after the fact. Switching it on adds a
   man-up start in the same period with `ts` just before that goal's `ts`,
-  so the replay counts a man-up played and scored. Switching it off removes
-  that man-up start. The switch shows on when a man-up start sits
-  immediately before the goal in the replay. A forgotten man-up that ended
-  without a goal cannot be added afterwards: there is no event to attach it
-  to.
+  so the replay counts a man-up played and scored. The switch shows on when
+  the goal closed a man-up as scored. Switching it off: if that man-up's
+  start was added by the switch (its `ts` is exactly the goal's `ts` − 1),
+  the start is removed; otherwise the man-up was tapped live, so a man-up
+  end is added just before the goal and that man-up counts as missed.
+  Switching it on again after that removes the added end. A forgotten
+  man-up that ended without a goal cannot be added afterwards: there is no
+  event to attach it to.
 - Goals added later from the sheet ("Add goal, scorer unknown") get the
   current `ts`, as today, so they land at the end of the replay. That is
   accepted.
