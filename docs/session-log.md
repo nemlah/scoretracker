@@ -1,5 +1,19 @@
 # Session log
 
+## 14/11/2026 - Where we left off (handoff)
+- **Live:**
+  - Viewer https://nemlah.github.io/scoretracker/, tracker `/track.html`, Firebase project `score-tracker-1be7c`, team "ANOG".
+  - The owner unlocked on a phone and ran a test game, then wiped the test data. `secrets/editCode` is kept.
+  - `main` = `origin/main`. Pages redeploys about 30 s after a push.
+- **Next, in order:**
+  1. Fix the 4 parked tracker issues (see "Merged to main; open follow-ups" below), `repo.endGame` first. Do it before the first real match.
+  2. Owner: make sure the edit code was changed from the temporary test value.
+  3. Owner: a real-iPhone run (unlock, tap, background/foreground, airplane mode on/off).
+  4. Owner cleanup (my run was denied by permissions): `git branch -d feat/scoretracker` and `rm -rf .superpowers` (git-ignored scratch: old SDD ledger, throwaway screenshot scripts).
+- **Workflow that worked:**
+  - Viewer changes go to a sonnet implementer with a brief file, then a Codex read-only review, then my own full run (unit + e2e), then push.
+  - E2E needs `PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH`.
+
 ## 13/11/2026 - Where we left off (whole build)
 - Built on branch `feat/scoretracker`: public viewer (`index.html`), code-locked tracker (`track.html`), Firestore rules, offline app shell, README. All 11 plan tasks done, plus one fix wave from the final reviews (Codex and Opus).
 - Tests at the end: unit 105/105, emulator 28/28, e2e 141 passed / 13 skipped (chromium-only offline specs on webkit). JDK 21 is keg-only: `export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"`.
