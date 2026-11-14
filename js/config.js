@@ -1,10 +1,10 @@
 export const firebaseConfig = {
-  apiKey: 'REPLACE_ME',
-  authDomain: 'REPLACE_ME',
-  projectId: 'REPLACE_ME',
-  storageBucket: 'REPLACE_ME',
-  messagingSenderId: 'REPLACE_ME',
-  appId: 'REPLACE_ME',
+  apiKey: 'AIzaSyBgbAfq1RMFIG6F-6pYzefZTyZdURKrOnI',
+  authDomain: 'score-tracker-1be7c.firebaseapp.com',
+  projectId: 'score-tracker-1be7c',
+  storageBucket: 'score-tracker-1be7c.firebasestorage.app',
+  messagingSenderId: '966929796388',
+  appId: '1:966929796388:web:f6b1409662c71cba9677b1',
 };
 
 export const team = { name: 'Our Team', accent: '#0057b8' };
