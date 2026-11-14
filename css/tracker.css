@@ -267,7 +267,8 @@ body.on-live .view { padding: 0; }
 }
 .pip.is-on { background: var(--rope); border-color: var(--rope); }
 
-.tile-actions { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.5rem; }
+.tile-actions { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0.5rem; }
+.btn--excl, .btn--pen { min-width: 0; overflow-wrap: anywhere; }
 .btn--goal {
   min-height: 4rem;
   background: var(--accent);

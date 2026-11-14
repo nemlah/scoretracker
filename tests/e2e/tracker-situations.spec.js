@@ -202,3 +202,22 @@ test('read-only device cannot use PEN or the situation button', async ({ page })
   await expect(tile(page, 5).getByTestId('tile-pen')).toBeDisabled();
   await expect(situation(page)).toBeDisabled();
 });
+
+test('PEN is at least as wide as EXCL and both are full-size targets on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await startGame(page);
+  for (const cap of [2, 5, 7]) {
+    const excl = await tile(page, cap).getByTestId('tile-excl').boundingBox();
+    const pen = await tile(page, cap).getByTestId('tile-pen').boundingBox();
+    const goal = await tile(page, cap).getByTestId('tile-goal').boundingBox();
+    expect(pen.width).toBeGreaterThanOrEqual(excl.width);
+    expect(pen.height).toBeGreaterThanOrEqual(48);
+    expect(excl.height).toBeGreaterThanOrEqual(48);
+    expect(goal.width).toBeGreaterThan(pen.width);
+    // The labels fit without spilling out of their buttons.
+    for (const id of ['tile-excl', 'tile-pen']) {
+      const fits = await tile(page, cap).getByTestId(id).evaluate(el => el.scrollWidth <= el.clientWidth);
+      expect(fits).toBe(true);
+    }
+  }
+});
