@@ -397,3 +397,28 @@ test('an old stats document without the new fields still renders', async ({ page
   await expect(page.getByTestId('result-situations')).toHaveText('—');
   await expect(page.getByTestId('season-pen')).toHaveText('0');
 });
+
+test('narrow screens: long opponent, shootout and figures do not cause sideways scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const figures = { manUp: { played: 17, scored: 12 }, manDown: { played: 16, stopped: 11 } };
+  await Promise.all([
+    seedTracked(),
+    seed('stats/2026-27', {
+      situations: { manUp: { played: 90, scored: 44 }, manDown: { played: 88, stopped: 55 } },
+      players: { p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1, pens: 2 } },
+      results: [
+        {
+          gameId: 'g0', date: '2026-11-01', opponent: 'Panathinaikos Athletic Club Water Polo', us: 10, them: 10, soUs: 14, soThem: 13, ...figures,
+        },
+        {
+          gameId: 'g1x', date: '2026-10-25', opponent: 'Panathinaikosathleticclubwaterpolofederation', us: 10, them: 10, soUs: 14, soThem: 13, ...figures,
+        },
+      ],
+    }),
+  ]);
+  await open(page);
+  await expect(page.getByTestId('result-situations').first()).toBeVisible();
+  await expect(page.getByTestId('result-situations').last()).toBeVisible();
+  const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+});

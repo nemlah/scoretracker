@@ -137,3 +137,25 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
   line-height: 1.4;
 }
 .result-situations { text-align: right; white-space: nowrap; padding-left: 0.5rem; }
+
+/* Narrow screens: a result row becomes date + opponent + score, with the figures on a line of their own. */
+.results td:nth-child(2) { overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  .results, .results tbody { display: block; }
+  .results tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+    align-items: baseline;
+    border-top: 1px solid var(--line);
+    padding: 0.5rem 0;
+  }
+  .results td { border-top: 0; padding: 0; min-width: 0; }
+  .results .result-score { white-space: normal; }
+  .results .result-situations {
+    grid-column: 1 / -1;
+    text-align: left;
+    padding: 0.125rem 0 0;
+    white-space: normal;
+  }
+}

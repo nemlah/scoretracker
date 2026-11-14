@@ -272,7 +272,7 @@ function renderSeason(stats) {
 }
 
 function resultsTable(results) {
-  return h('table', { 'aria-label': t('resultsHeading') }, h('tbody', {}, results.map(result => {
+  return h('table', { class: 'results', 'aria-label': t('resultsHeading') }, h('tbody', {}, results.map(result => {
     const text = scoreText(result, result.soUs != null);
     return h('tr', { 'data-testid': 'result-row' },
       h('td', { class: 'muted' }, formatDate(result.date)),
