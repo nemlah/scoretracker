@@ -1,7 +1,7 @@
 # Viewer: calmer foul icons and a water polo goal celebration — Design (short)
 
 Date: 14/11/2026
-Status: draft
+Status: approved 14/11/2026
 Extends: `2026-11-13-waterpolo-scoretracker-design.md` and
 `2026-11-14-man-up-man-down-design.md`. Viewer only; the tracker is unchanged.
 
