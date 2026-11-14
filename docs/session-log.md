@@ -18,6 +18,16 @@ Four issues from the final review were parked; fix them before the first real ga
 3. Auto-resume to `#/live` (app.js ~385) has the same cached-`null` cause. Same fix.
 4. The endGame repoint is best-effort while offline and nothing retries it. Retry it on reconnect, or let the viewer pick the newest live game.
 
+## 14/11/2026 - Viewer layout: timeline first, filtered players
+- Commits b86bc75 and d5dd0bd: sonnet implementer, Codex review, 1 fix round.
+- Viewer order is now: game timeline, then Our players, then This season.
+- Our players lists only players with a goal, shootout goal or exclusion (`model.scoringLines`). The section is hidden until someone qualifies.
+- The timeline sits in `.timeline-scroll`:
+  - `max-height: 18rem`, scrolls, with sticky period headers and a pure-CSS bottom scroll shadow (`color-mix`, so no shadow on iOS older than 16.2).
+  - It is a focusable region.
+  - Scroll position and keyboard focus survive live re-renders (`renderGame`).
+- Tests: unit 112, e2e 153 passed / 13 skipped.
+
 ## 14/11/2026 - Viewer timeline restyle
 - Commit 06a1de4 (sonnet implementer; Codex read-only review found no issues):
   - Period headers are 1.5rem condensed 700 with a 2px ink rule above.
