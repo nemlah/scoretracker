@@ -183,3 +183,32 @@ test('no sideways scroll at 360 px during a celebration', async ({ page }) => {
     expect(fits).toBe(true);
   }
 });
+
+test('on a short landscape screen the banner never covers the score and the net stays on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 740, height: 360 });
+  await seedGame();
+  await open(page);
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await update('games/g1', { events: [ev('goal', 1, 'p5')] });
+  await expect(celebration(page)).toBeVisible();
+  let elapsed = 0;
+  for (const at of [300, 1000, 2000]) {
+    await page.waitForTimeout(at - elapsed);
+    elapsed = at;
+    const result = await page.evaluate(() => {
+      const box = el => el.getBoundingClientRect();
+      const banner = box(document.querySelector('[data-testid="celebration-banner"]'));
+      const net = box(document.querySelector('.celebration-net'));
+      const overlaps = el => {
+        const b = box(el);
+        return b.left < banner.right && b.right > banner.left && b.top < banner.bottom && b.bottom > banner.top;
+      };
+      return {
+        score: ['score-us', 'score-them'].map(id => overlaps(document.querySelector(`[data-testid="${id}"]`))),
+        net: net.left >= 0 && net.top >= 0 && net.right <= innerWidth && net.bottom <= innerHeight,
+        banner: banner.left >= 0 && banner.top >= 0 && banner.right <= innerWidth && banner.bottom <= innerHeight,
+      };
+    });
+    expect(result, `at ${at} ms`).toEqual({ score: [false, false], net: true, banner: true });
+  }
+});

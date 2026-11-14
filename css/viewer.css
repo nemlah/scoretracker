@@ -326,13 +326,13 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
   100% { transform: translate(calc(var(--dx) * 1.5), 6vh) scale(0.8); opacity: 0; }
 }
 @keyframes ball-x {
-  0%, 4% { transform: translateX(-46vw); opacity: 0; }
+  0%, 4% { transform: translateX(var(--ball-from-x, -46vw)); opacity: 0; }
   5% { opacity: 1; }
   36% { transform: translateX(0); opacity: 1; }
   100% { transform: translateX(0); opacity: 1; }
 }
 @keyframes ball-y {
-  0%, 4% { transform: translateY(78vh) scale(0.55); animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1); }
+  0%, 4% { transform: translateY(var(--ball-from-y, 78vh)) scale(0.55); animation-timing-function: cubic-bezier(0.1, 0.6, 0.4, 1); }
   21% { transform: translateY(-8vh) scale(1); animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.6); }
   36% { transform: translateY(0) scale(1); animation-timing-function: ease-out; }
   42% { transform: translateY(0.9rem) scale(1); animation-timing-function: ease-in-out; }
@@ -348,6 +348,31 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
   0%, 8% { scale: 0.5; opacity: 0; }
   20% { scale: 1.08; opacity: 1; }
   28%, 100% { scale: 1; opacity: 1; }
+}
+
+/* Short landscape screens: the score fills the left of the screen, so the goal and the banner stack in the
+   right column and the wave stays below the score. */
+@media (max-height: 36rem) and (orientation: landscape) {
+  .celebration { --ball-from-x: -28vw; --ball-from-y: 60vh; }
+  .wave-back { height: 40vh; }
+  .wave-front { height: 34vh; }
+  .celebration-scene {
+    top: 1rem;
+    left: auto;
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    width: 14rem;
+    translate: none;
+  }
+  .celebration-banner {
+    top: 9rem;
+    left: auto;
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    width: 14rem;
+    margin-inline: 0;
+    padding: 1rem 0.75rem 0.75rem;
+  }
+  .celebration-goal { font-size: 3.5rem; }
+  .celebration-scorer { margin-top: 0.25rem; font-size: 1.25rem; }
 }
 
 /* Reduce motion: the banner alone, fading in and out. */
