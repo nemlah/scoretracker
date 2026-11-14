@@ -193,7 +193,7 @@ function renderGame(game) {
   const oldBox = gameSections.querySelector('.timeline-scroll');
   const scrollTop = oldBox?.scrollTop ?? 0;
   const hadFocus = oldBox?.contains(document.activeElement) ?? false;
-  renderIfChanged(gameSections, [game.lineup, game.events, game.situations === true], () => [
+  renderIfChanged(gameSections, [game.lineup, game.events, game.situations === true, game.opponent], () => [
     timelineSection(game),
     playersSection(scoringLines(playerLines(game.lineup, game.events))),
   ]);

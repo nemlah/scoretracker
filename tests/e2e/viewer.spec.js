@@ -376,6 +376,16 @@ test('fouls show E and P badges; the third foul shows a red card and out', async
   await expect(items.filter({ hasText: '🟧' })).toHaveCount(0);
 });
 
+test('an opponent-only change updates opponent-goal timeline rows', async ({ page }) => {
+  await seedLive([ev('oppGoal', 1)]);
+  await open(page);
+  const row = page.locator('[data-testid="timeline-item"][data-side="them"]');
+  await expect(row).toContainText('Opponent FC');
+  await update('games/g1', { opponent: 'New Name' });
+  await expect(row).toContainText('New Name');
+  await expect(row).not.toContainText('Opponent FC');
+});
+
 test('untracked game shows dashes and no badge', async ({ page }) => {
   await seedTracked([ev('goal', 1, 'p5')], false);
   await open(page);
