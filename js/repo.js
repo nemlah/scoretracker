@@ -124,6 +124,7 @@ export function createRepo(db) {
         date,
         season,
         status: 'live',
+        situations: true,
         period: 1,
         lineup,
         events: [],

@@ -68,15 +68,15 @@ test('aggregateSeason: final only, roster names, games played, no shootout goals
   const games = [
     { id:'g1', date:'2026-10-01', opponent:'A', status:'final', period:'SO',
       lineup:[{ playerId:'a', name:'Alex', cap:5 }, { playerId:'b', name:'Papadakis', cap:2 }, { playerId:'q', name:'Guest', cap:13 }],
-      events:[ev('goal',1,'a',1), ev('excl',1,'b',2), ev('goal','SO','a',3), ev('goal',2,null,4)] },
+      events:[ev('goal',1,'a',1), ev('excl',1,'b',2), ev('goal','SO','a',3), ev('goal',2,null,4), ev('pen',2,'b',5)] },
     { id:'g2', date:'2026-10-08', opponent:'B', status:'final', period:4, lineup:[{ playerId:'a', name:'Alexiou', cap:5 }], events:[ev('goal',3,'a',1)] },
     { id:'g3', date:'2026-10-15', opponent:'C', status:'live', period:1, lineup:[{ playerId:'a', name:'Alexiou', cap:5 }], events:[ev('goal',1,'a',1)] },
   ];
   const s = m.aggregateSeason(games, roster);
   assert.deepEqual(s.players, {
-    a: { name:'Alexiou', games:2, goals:2, excl:0 },
-    b: { name:'Papadakis', games:1, goals:0, excl:1 },
-    q: { name:'Guest', games:1, goals:0, excl:0 },
+    a: { name:'Alexiou', games:2, goals:2, excl:0, pens:0 },
+    b: { name:'Papadakis', games:1, goals:0, excl:1, pens:1 },
+    q: { name:'Guest', games:1, goals:0, excl:0, pens:0 },
   });
   assert.deepEqual(s.results.map(r => r.gameId), ['g2', 'g1']);
 });
@@ -91,4 +91,33 @@ test('isValidSeason accepts exactly YYYY-YY', () => {
   for (const bad of ['2026-2', '26-27', '2026-277', ' 2026-27', '2026/27', 'abcd-ef', '', null, undefined]) {
     assert.equal(m.isValidSeason(bad), false, String(bad));
   }
+});
+
+test('gameResult adds man-up and man-down figures only for tracked games', () => {
+  const game = { id:'g1', date:'2026-11-08', opponent:'Rivals', status:'final', period:4,
+    events:[ev('manUp',1,null,1), ev('goal',1,'a',2), ev('excl',1,'b',3), ev('oppGoal',1,null,4)] };
+  const result = m.gameResult({ ...game, situations:true });
+  assert.deepEqual(result.manUp, { played:1, scored:1 });
+  assert.deepEqual(result.manDown, { played:1, stopped:0 });
+  for (const marker of [undefined, false, 1, 'true']) {
+    const untracked = m.gameResult({ ...game, ...(marker === undefined ? {} : { situations:marker }) });
+    assert.equal('manUp' in untracked, false);
+    assert.equal('manDown' in untracked, false);
+  }
+});
+test('aggregateSeason sums situations over tracked final games only', () => {
+  const base = { date:'2026-11-08', opponent:'Rivals', status:'final', period:4, lineup:[] };
+  const untracked = { ...base, id:'old', events:[ev('excl',1,'b',1), ev('manDownEnd',1,null,2)] };
+  const first = { ...base, id:'g1', situations:true,
+    events:[ev('manUp',1,null,1), ev('goal',1,'a',2), ev('excl',1,'b',3), ev('oppGoal',1,null,4)] };
+  const second = { ...base, id:'g2', situations:true,
+    events:[ev('manUp',1,null,1), ev('manUpEnd',1,null,2), ev('excl',1,'b',3), ev('manDownEnd',1,null,4)] };
+  const live = { ...first, id:'live', status:'live' };
+  assert.deepEqual(m.aggregateSeason([untracked, first, second, live], roster).situations,
+    { manUp:{ played:2, scored:1 }, manDown:{ played:2, stopped:1 } });
+  assert.equal(m.aggregateSeason([untracked], roster).situations, null);
+  assert.equal(m.aggregateSeason([live], roster).situations, null);
+  assert.equal(m.aggregateSeason([], roster).situations, null);
+  assert.deepEqual(m.aggregateSeason([{ ...first, events:[] }], roster).situations,
+    { manUp:{ played:0, scored:0 }, manDown:{ played:0, stopped:0 } });
 });

@@ -63,6 +63,7 @@ test('createGame writes a live game, sets team.currentGameId and roster caps', a
   assert.equal(game.date, '2026-11-08');
   assert.equal(game.season, '2026-27');
   assert.equal(game.status, 'live');
+  assert.equal(game.situations, true);
   assert.equal(game.period, 1);
   assert.deepEqual(game.lineup, lineup);
   assert.deepEqual(game.events, []);

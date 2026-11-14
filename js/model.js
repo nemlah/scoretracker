@@ -1,4 +1,4 @@
-import { SITUATION_TYPES, isTracked } from './situations.js';
+import { SITUATION_TYPES, isTracked, situationCounts } from './situations.js';
 
 /**
  * @typedef {Object} Event
@@ -194,25 +194,37 @@ export function gameResult(game) {
   const { us, them, soUs, soThem } = deriveScore(game.events);
   const result = { gameId: game.id, date: game.date, opponent: game.opponent, us, them };
   if (hasShootout(game.period, game.events)) Object.assign(result, { soUs, soThem });
+  if (isTracked(game)) Object.assign(result, situationCounts(game));
   return result;
 }
 
 export function aggregateSeason(games, roster) {
   const names = new Map(roster.map(player => [player.id, player.name]));
   const players = new Map();
+  let situations = null;
   const finals = games.filter(game => game.status === 'final');
   for (const game of finals) {
+    const counts = situationCounts(game);
+    if (counts) {
+      situations ??= { manUp: { played: 0, scored: 0 }, manDown: { played: 0, stopped: 0 } };
+      situations.manUp.played += counts.manUp.played;
+      situations.manUp.scored += counts.manUp.scored;
+      situations.manDown.played += counts.manDown.played;
+      situations.manDown.stopped += counts.manDown.stopped;
+    }
     for (const line of playerLines(game.lineup, game.events)) {
       const totals = players.get(line.playerId) ?? {
-        name: names.get(line.playerId) ?? line.name, games: 0, goals: 0, excl: 0,
+        name: names.get(line.playerId) ?? line.name, games: 0, goals: 0, excl: 0, pens: 0,
       };
       players.set(line.playerId, {
         ...totals, games: totals.games + 1, goals: totals.goals + line.goals, excl: totals.excl + line.excl,
+        pens: totals.pens + line.pens,
       });
     }
   }
   return {
     players: Object.fromEntries(players),
+    situations,
     results: finals.map(gameResult).sort((a, b) => b.date.localeCompare(a.date)),
   };
 }
