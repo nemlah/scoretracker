@@ -87,7 +87,8 @@ export function mount(root, ctx) {
     });
     const error = h('p', { class: 'form-error sel-error', role: 'alert', 'data-testid': 'sel-error', hidden: true });
     const el = h('li', { class: 'sel-row', 'data-testid': 'sel-row', 'data-player-id': player.playerId },
-      h('label', { class: 'sel-label' }, check, h('span', { class: 'sel-name' }, player.name)),
+      h('label', { class: 'sel-label' }, check, h('span', { class: 'sel-name' }, player.name),
+        player.goalie === true ? h('span', { class: 'gk-badge', 'data-testid': 'sel-gk' }, t('gkBadge')) : null),
       cap, error);
     return { el, check, cap, error };
   }

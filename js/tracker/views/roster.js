@@ -16,7 +16,8 @@ export function validatePlayer(rawName, rawCap) {
 }
 
 const sameRoster = (a, b) => a.length === b.length && a.every((p, i) =>
-  p.id === b[i].id && p.name === b[i].name && p.cap === b[i].cap && p.archived === b[i].archived);
+  p.id === b[i].id && p.name === b[i].name && p.cap === b[i].cap && p.archived === b[i].archived
+  && (p.goalie === true) === (b[i].goalie === true));
 
 export function mount(root, ctx) {
   let editingId = null;
@@ -56,11 +57,15 @@ export function mount(root, ctx) {
     id: 'roster-cap', class: 'input input--cap', type: 'text', inputmode: 'numeric', maxlength: 3, autocomplete: 'off',
     'data-write': true, 'data-testid': 'roster-add-cap', oninput: () => hideError(),
   });
+  const goalieInput = h('input', {
+    id: 'roster-goalie', class: 'goalie-check', type: 'checkbox', 'data-write': true, 'data-testid': 'roster-add-goalie',
+  });
   const addError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'roster-error', hidden: true });
   const hideError = () => { addError.hidden = true; };
   const form = h('form', { class: 'add-form', novalidate: true, onsubmit: add },
     h('div', { class: 'field field--grow' }, h('label', { for: 'roster-name' }, t('rosterNameLabel')), nameInput),
     h('div', { class: 'field' }, h('label', { for: 'roster-cap' }, t('rosterCapLabel')), capInput),
+    h('label', { class: 'goalie-tick', for: 'roster-goalie' }, goalieInput, t('goalieLabel')),
     h('button', { type: 'submit', class: 'btn btn--primary', 'data-write': true, 'data-testid': 'roster-add-btn' }, t('rosterAdd')),
   );
 
@@ -73,9 +78,13 @@ export function mount(root, ctx) {
       return;
     }
     hideError();
-    save([...currentRoster(), { id: crypto.randomUUID(), name: result.name, cap: result.cap, archived: false }]);
+    save([...currentRoster(), {
+      id: crypto.randomUUID(), name: result.name, cap: result.cap, archived: false,
+      ...(goalieInput.checked ? { goalie: true } : {}),
+    }]);
     nameInput.value = '';
     capInput.value = '';
+    goalieInput.checked = false;
     nameInput.focus();
     renderList();
   }
@@ -107,9 +116,18 @@ export function mount(root, ctx) {
       'aria-label': t('rosterEditFor', { name: player.name }),
       onclick: () => { editingId = player.id; renderList(); editorRow?.querySelector('[data-testid="roster-edit-name"]')?.focus(); },
     }, t('rosterEdit'));
+    // Archived players keep their flag but can only be unarchived, so they get the badge, not the tick.
+    const goalieTick = h('label', { class: 'goalie-tick' },
+      h('input', {
+        type: 'checkbox', class: 'goalie-check', checked: player.goalie === true, 'data-write': true,
+        'data-testid': 'roster-goalie', 'aria-label': t('goalieFor', { name: player.name }),
+        onchange: event => change(player.id, { goalie: event.target.checked }),
+      }), t('goalieLabel'));
     return h('li', { class: 'roster-row', 'data-testid': 'roster-row', 'data-player-id': player.id },
       h('span', { class: isArchived ? 'cap cap--out' : 'cap' }, player.cap),
-      h('span', { class: 'roster-name' }, player.name),
+      h('span', { class: 'roster-name' }, player.name,
+        player.goalie === true ? h('span', { class: 'gk-badge', 'data-testid': 'roster-gk' }, t('gkBadge')) : null),
+      isArchived ? null : goalieTick,
       // Archived players can only be unarchived; editing happens once they are back on the roster.
       h('span', { class: 'row-actions' }, isArchived ? null : edit, action));
   }

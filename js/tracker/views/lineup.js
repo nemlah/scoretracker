@@ -58,11 +58,19 @@ export function createLineupSheet(ctx, host) {
           : assignCap(from, player.playerId, value));
       },
     });
+    const goalie = h('input', {
+      type: 'checkbox', class: 'goalie-check', 'aria-label': t('goalieFor', { name: player.name }), 'data-testid': 'lu-goalie',
+      onchange: () => {
+        base = null;
+        setDraft(draft.map(entry => (entry.playerId === player.playerId ? { ...entry, goalie: goalie.checked } : entry)));
+      },
+    });
     const error = h('p', { class: 'form-error sel-error', role: 'alert', 'data-testid': 'lu-row-error', hidden: true });
     const actions = h('span', { class: 'lu-actions' });
     const el = h('li', { class: 'sel-row', 'data-testid': 'lu-row', 'data-player-id': player.playerId },
-      h('span', { class: 'sel-name lu-name' }, player.name), cap, actions, error);
-    return { el, cap, error, actions, hasRemove: null };
+      h('span', { class: 'sel-name lu-name' }, player.name),
+      h('label', { class: 'goalie-tick' }, goalie, t('goalieLabel')), cap, actions, error);
+    return { el, cap, goalie, error, actions, hasRemove: null };
   }
 
   // A player with events stays in the lineup: those events would lose their scorer.
@@ -101,6 +109,8 @@ export function createLineupSheet(ctx, host) {
         parts.cap.value = player.cap ?? '';
       }
       parts.cap.disabled = !writable;
+      parts.goalie.checked = player.goalie === true;
+      parts.goalie.disabled = !writable;
       syncActions(parts, player, !playerHasEvents(events, player.playerId), writable);
       const reason = errors.find(error => error.playerId === player.playerId)?.reason;
       parts.error.hidden = reason === undefined;
@@ -136,7 +146,7 @@ export function createLineupSheet(ctx, host) {
     base = null;
     // The roster's own cap, unless somebody in the lineup already wears it.
     const taken = draft.some(entry => entry.cap === player.cap);
-    setDraft([...draft, { playerId: player.id, name: player.name, cap: taken ? null : player.cap, selected: true }]
+    setDraft([...draft, { playerId: player.id, name: player.name, cap: taken ? null : player.cap, selected: true, goalie: player.goalie === true }]
       .sort((a, b) => (a.cap ?? 100) - (b.cap ?? 100)));
   }
 
@@ -160,7 +170,9 @@ export function createLineupSheet(ctx, host) {
     open(current, from) {
       game = current;
       base = null;
-      draft = (current.lineup ?? []).map(({ playerId, name, cap }) => ({ playerId, name, cap, selected: true }));
+      draft = (current.lineup ?? []).map(({ playerId, name, cap, goalie }) => ({
+        playerId, name, cap, selected: true, goalie: goalie === true,
+      }));
       renderDraft();
       overlay.open(from);
     },
