@@ -100,6 +100,12 @@ body.viewer { background: var(--pool); }
 }
 .score .dash { padding: 0 0.12em; }
 .shootout { font: 600 1.5rem/1.2 var(--font-num); }
+.quarter-scores {
+  font: 600 1rem/1.4 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--ink) 75%, var(--pool));
+}
+.quarter-scores .quarter { white-space: nowrap; }
 .flash { animation: flash 600ms ease-out; }
 
 @keyframes pulse { 50% { opacity: 0.25; } }

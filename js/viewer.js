@@ -199,6 +199,7 @@ const note = h('p', { class: 'connection-note', 'data-testid': 'connection-note'
 const scoreUs = h('span', { 'data-testid': 'score-us' });
 const scoreThem = h('span', { 'data-testid': 'score-them' });
 const shootout = h('p', { class: 'shootout', 'data-testid': 'shootout', hidden: true });
+const quarterScores = h('p', { class: 'quarter-scores', 'data-testid': 'quarter-scores', hidden: true });
 const liveBadge = h('span', { class: 'live-badge', 'data-testid': 'live-badge', hidden: true },
   h('span', { class: 'live-dot', 'aria-hidden': 'true' }), t('live'));
 const finalBadge = h('span', { 'data-testid': 'final-badge', hidden: true }, t('final'));
@@ -214,6 +215,7 @@ const scoreboard = h('section', { class: 'scoreboard', hidden: true },
     h('p', { class: 'status' }, liveBadge, finalBadge, period, situationBadge)),
   h('p', { class: 'score', 'aria-live': 'polite' }, scoreUs, h('span', { class: 'dash', 'aria-hidden': 'true' }, '–'), scoreThem),
   shootout,
+  quarterScores,
   h('div', { class: 'board-row' }, opponent, gameDate),
   h('div', { class: 'situation-figures' }, gameManUp, gameManDown));
 const empty = h('section', { class: 'empty', 'data-testid': 'empty-state', hidden: true },
@@ -338,6 +340,33 @@ function celebrateGoal(goal) {
   });
 }
 
+// Goals per regular quarter, ours first. Shootout events (period 'SO') are not in any quarter.
+function quarterGoals(events) {
+  const quarters = [1, 2, 3, 4].map(() => [0, 0]);
+  for (const event of events) {
+    const slot = quarters[event.period - 1];
+    if (!slot) continue;
+    if (event.type === 'goal') slot[0] += 1;
+    else if (event.type === 'oppGoal') slot[1] += 1;
+  }
+  return quarters;
+}
+
+// One element per quarter so the line wraps only between quarters.
+function renderQuarterScores(game) {
+  const final = game.status === 'final';
+  quarterScores.hidden = !final;
+  if (!final) {
+    clear(quarterScores), signatures.delete(quarterScores);
+    return;
+  }
+  const quarters = quarterGoals(game.events);
+  renderIfChanged(quarterScores, quarters, () => quarters.flatMap(([us, them], index) => [
+    ...(index > 0 ? [' · '] : []),
+    h('span', { class: 'quarter' }, `${periodLabel(index + 1)} ${us}–${them}`),
+  ]));
+}
+
 function renderGame(game) {
   const score = deriveScore(game.events);
   const live = game.status === 'live';
@@ -348,6 +377,7 @@ function renderGame(game) {
   setScore(scoreThem, score.them);
   shootout.hidden = text.shootout === null;
   shootout.textContent = text.shootout ?? '';
+  renderQuarterScores(game);
   liveBadge.hidden = !live;
   finalBadge.hidden = live;
   period.hidden = !live;
