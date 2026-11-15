@@ -1,5 +1,13 @@
 # Session log
 
+## 15/11/2026 - Where we left off (handoff before /clear)
+- **Current work:** branch `feat/games-list` (off main 4de03d6), not pushed. Approved short design `docs/superpowers/specs/2026-11-15-viewer-games-list-design.md` and a 1-task plan `docs/superpowers/plans/2026-11-15-viewer-games-list.md`. Implementation not started.
+- **What it does:** the viewer lands on the live game when one is live, otherwise on a games list (also at `#/games`); "← All games" on every game view; live banner on the list; a watched game that ends stays on its final score as `#/game/<id>`.
+- **Next:** run superpowers:subagent-driven-development on that plan — one sonnet implementer (e2e), fresh read-only Codex task review, controller runs unit + emulator + full e2e (`--reporter=list`), sonnet whole-branch review, then the owner chooses merge/deploy.
+- **Watch out:** behaviour change by design — opening the viewer on a final current game now shows the list, so existing viewer tests that relied on that must open `#/game/<id>` (plan Step 1). Keep viewer.js mixed-cache safe (no new named imports of new model.js/strings.js functions).
+- **Release routine and the focused e2e command** are in auto-memory (release-routine, e2e-focused-command).
+- **Open follow-ups:** our players' missed penalties, compact goalie tile, older seasons in the viewer, the 4 parked tracker issues (repo.endGame first). Scratch dirs under `.superpowers/sdd/` are git-ignored and safe to delete.
+
 ## 15/11/2026 - Viewer past games live (main b5a2dd1)
 - Season results rows link to `#/game/<id>` and open that game in the normal view; open row marked; "← Back to current game"; live banner with Watch while another game is live; "That game isn't available." for deleted or malformed ids (a malformed id used to stop the viewer starting — fixed in review).
 - Tests: unit 192, emulator 28, e2e 315 / 13 skipped / 0 failed. Live check: ΡΟΗ opens from the list (19–10), back returns to Delfin, malformed link → unavailable, no console errors.
