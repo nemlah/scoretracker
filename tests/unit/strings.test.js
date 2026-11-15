@@ -146,3 +146,24 @@ test('celebration strings', () => {
   assert.equal(t('celebrateScorer', { cap: 5, name: 'Alexiou' }), '#5 Alexiou');
   assert.equal(t('celebrateManUp', { scorer: '#5 Alexiou' }), '#5 Alexiou · man-up');
 });
+
+const goalkeepers = [
+  { playerId: 'g1', cap: 1, name: 'Georgiou', goalie: true },
+  { playerId: 'g13', cap: 13, name: 'Nikolaou', goalie: true },
+];
+
+test('eventLabel names save, penSave and gkIn', () => {
+  assert.equal(eventLabel({ type: 'save', playerId: 'g1' }, goalkeepers), 'Save · #1 Georgiou');
+  assert.equal(eventLabel({ type: 'penSave', playerId: 'g1' }, goalkeepers), 'Penalty save · #1 Georgiou');
+  assert.equal(eventLabel({ type: 'gkIn', playerId: 'g13' }, goalkeepers), 'In goal · #13 Nikolaou');
+  for (const type of ['save', 'penSave', 'gkIn']) {
+    assert.equal(eventLabel({ type, playerId: 'gone' }, goalkeepers), '#? Unknown player');
+  }
+});
+
+test('timelineEntry for a penalty save', () => {
+  assert.deepEqual(timelineEntry({ type: 'penSave', playerId: 'g1' }, goalkeepers),
+    { side: 'us', icon: '✋', sr: 'Penalty saved', text: 'Penalty saved · #1 Georgiou', badge: false });
+  assert.deepEqual(timelineEntry({ type: 'penSave', playerId: 'gone' }, goalkeepers, 'X', true),
+    { side: 'us', icon: '✋', sr: 'Penalty saved', text: 'Penalty saved · #? Unknown player', badge: false });
+});

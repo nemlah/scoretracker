@@ -321,3 +321,77 @@ test('manUp is refused while a man-up or man-down is open; manUpEnd only while a
     }
   }
 });
+
+const goalieLineup = [
+  { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+  { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
+  ...lineup,
+];
+
+test('save and penSave are journaled for a goalie and refused for a field player', () => {
+  for (const type of ['save', 'penSave']) {
+    const { tapper, calls, vibrations, state } = setup({ now: () => 1234 });
+    state.game.lineup = goalieLineup;
+    for (const id of ['p2', 'ghost', null]) assert.equal(tapper.tap(type, id), null);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(vibrations, []);
+    const event = tapper.tap(type, 'g1');
+    assert.deepEqual(event, { id: event.id, type, period: 2, ts: 1234, playerId: 'g1' });
+    assert.deepEqual(calls, [['journal.record', 'g1', 'add', event], ['repo.addEvent', 'g1', event]]);
+    assert.deepEqual(vibrations, [30]);
+  }
+});
+
+test('gkIn is refused for the goalie already in goal', () => {
+  const { tapper, calls, vibrations, state } = setup();
+  state.game.lineup = goalieLineup;
+  assert.equal(tapper.tap('gkIn', 'g1'), null);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(vibrations, []);
+  const event = tapper.tap('gkIn', 'g13');
+  assert.deepEqual(event, { id: event.id, type: 'gkIn', period: 2, ts: 0, playerId: 'g13' });
+  assert.deepEqual(names(calls), ['journal.record', 'repo.addEvent']);
+  assert.deepEqual(vibrations, [30]);
+  state.game.events = [event];
+  assert.equal(tapper.tap('gkIn', 'g13'), null);
+  assert.ok(tapper.tap('gkIn', 'g1'));
+});
+
+test('save is refused in the shootout; penSave is allowed', () => {
+  const { tapper, calls, vibrations, state } = setup();
+  Object.assign(state.game, { lineup: goalieLineup, period: 'SO' });
+  assert.equal(tapper.tap('save', 'g1'), null);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(vibrations, []);
+  assert.equal(tapper.tap('penSave', 'g1').period, 'SO');
+  assert.ok(tapper.tap('gkIn', 'g13'));
+});
+
+test('goalie taps are refused for an OUT goalie', () => {
+  const { tapper, calls, vibrations, state } = setup();
+  Object.assign(state.game, { lineup: goalieLineup, events: ['excl', 'pen', 'excl'].map((type, i) => makeEvent(type, 1, 'g13', i)) });
+  for (const type of ['save', 'penSave', 'gkIn']) assert.equal(tapper.tap(type, 'g13'), null);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(vibrations, []);
+});
+
+test('goalie taps preserve duplicate protection and live-tracker guards', () => {
+  for (const type of ['save', 'penSave', 'gkIn']) {
+    let clock = 0;
+    const { tapper, calls, vibrations, state } = setup({ now: () => clock });
+    state.game.lineup = goalieLineup;
+    assert.ok(tapper.tap(type, 'g13'));
+    clock = 500;
+    assert.equal(tapper.tap(type, 'g13'), null);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(vibrations, [30]);
+    clock = 1000;
+    assert.ok(tapper.tap(type, 'g13'));
+    state.active = false;
+    assert.equal(tapper.tap(type, 'g1'), null);
+    state.active = true;
+    state.game.status = 'final';
+    assert.equal(tapper.tap(type, 'g1'), null);
+    assert.equal(calls.length, 4);
+  }
+});

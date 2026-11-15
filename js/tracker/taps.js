@@ -1,3 +1,4 @@
+import { goalieStats } from '../goalies.js';
 import { isTracked, replaySituations, SITUATION_TYPES } from '../situations.js';
 import { isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
 
@@ -43,8 +44,14 @@ export function createTapper({
       if (type === 'manUp' ? open !== null
         : open?.kind !== (type === 'manUpEnd' ? 'manUp' : 'manDown')) return null;
     }
+    const isGoalieTap = ['save', 'penSave', 'gkIn'].includes(type);
+    if (isGoalieTap) {
+      if (!game.lineup.some(player => player.playerId === playerId && player.goalie === true)) return null;
+      if (type === 'save' && game.period === 'SO') return null;
+      if (type === 'gkIn' && goalieStats({ ...game, events: game.events ?? [] })?.inGoal === playerId) return null;
+    }
     if (type === 'pen' && playerId === null) return null;
-    if (type === 'goal' || type === 'excl' || type === 'pen') {
+    if (type === 'goal' || type === 'excl' || type === 'pen' || isGoalieTap) {
       if (playerId !== null) {
         const line = playerLines(game.lineup, game.events ?? []).find(entry => entry.playerId === playerId);
         if (!line || line.out) return null;

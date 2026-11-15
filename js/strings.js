@@ -1,5 +1,15 @@
 // Every user-visible string lives here (English). A Greek translation can replace this table.
 const STRINGS = {
+  goalieLabel: 'Goalie', goalieFor: 'Goalie: {name}', gkBadge: 'GK', inGoalBadge: 'In goal',
+  saveButton: 'Save', penSaveButton: 'Pen save', inGoalButton: 'In goal',
+  saveFor: 'Save for {name}', penSaveFor: 'Penalty save for {name}', inGoalFor: 'Put {name} in goal',
+  tileSaves: '{n} saves', tileSavesOne: '1 save', tilePenSaves: '{n} pen',
+  saveNamed: 'Save · #{cap} {name}', penSaveNamed: 'Penalty save · #{cap} {name}', gkInNamed: 'In goal · #{cap} {name}',
+  evGoalie: 'Goalie', evGoalieFor: 'Goalie for {label}', evInGoal: 'In goal', evInGoalFor: 'In goal for {label}',
+  goaliesHeading: 'Goalkeepers', colSaves: 'Saves', colPenSaves: 'Pen', colGA: 'GA', colSavePct: 'Save %',
+  savePctText: '{pct}%', noShots: '—', shootoutGoalie: 'Shootout: {saved} saved, {conceded} conceded', inGoalSr: 'in goal',
+  tlPenSaveIcon: '✋', tlPenSaveSr: 'Penalty saved', tlPenSaveText: 'Penalty saved · {player}',
+
   penButton: 'Pen',
   penFor: 'Penalty foul for {name}',
   penPip: 'P',
@@ -235,6 +245,9 @@ export function eventLabel(event, lineup) {
   if (event.type === 'goal' && event.playerId == null) return t('goalUnknown');
   const player = lineup.find(entry => entry.playerId === event.playerId);
   if (!player) return t('unknownPlayer');
+  if (['save', 'penSave', 'gkIn'].includes(event.type)) {
+    return t(`${event.type}Named`, { cap: player.cap, name: player.name });
+  }
   return t(event.type === 'goal' ? 'goalNamed' : event.type === 'pen' ? 'penNamed' : 'exclNamed', { cap: player.cap, name: player.name });
 }
 
@@ -261,6 +274,10 @@ export function timelineEntry(event, lineup, opponent, out = false) {
   if (isGoal && event.playerId == null) return { ...entry, text: t('tlUnknownScorer') };
   const player = lineup.find(candidate => candidate.playerId === event.playerId);
   const text = player ? t('tlPlayer', { cap: player.cap, name: player.name }) : t('unknownPlayer');
+  if (event.type === 'penSave') {
+    return { side: 'us', icon: t('tlPenSaveIcon'), sr: t('tlPenSaveSr'),
+      text: t('tlPenSaveText', { player: text }), badge: false };
+  }
   return { ...entry, text: isOut ? t('tlOutText', { player: text }) : text };
 }
 
