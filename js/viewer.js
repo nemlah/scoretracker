@@ -89,7 +89,9 @@ function resubscribe(name, key, subscribe) {
     sub.off = subscribe((data, meta) => {
       if (sub.key !== key) return;
       // Seen before the new snapshot replaces it: the live game on the landing page has just ended.
-      const ended = name === 'game' && parseRoute(location.hash).kind === 'home'
+      // The key must be the current game: right after the hash changes to home, before hashchange has
+      // run follow(), this subscription can still be the game the visitor just left.
+      const ended = name === 'game' && parseRoute(location.hash).kind === 'home' && key === currentGameId()
         && state.game?.status === 'live' && data?.status === 'final';
       state[name] = data;
       if (name === 'game') state.gameMeta = meta;

@@ -67,7 +67,7 @@ test('home with a final current game shows the games list', async ({ page }) => 
   await expect(page.getByTestId('result-link')).toHaveCount(2);
   await expect(allGames(page)).toBeHidden();
   await expect(banner(page)).toBeHidden();
-  await expect(page.getByTestId('result-row').filter({ has: page.locator('[aria-current="page"]') })).toHaveCount(0);
+  await expect(page.locator('[data-testid="result-row"][aria-current="page"]')).toHaveCount(0);
 });
 
 test('home with a live current game shows the live game', async ({ page }) => {
@@ -181,6 +181,30 @@ test('a watched game that ends stays on its final score', async ({ page }) => {
   await expect(gamesList(page)).toBeHidden();
   // Reloading aborts the streams that were open; that is not an app error.
   dropNetworkNoise(problems);
+});
+
+// Between the hash changing and the hashchange handler running, the old game's subscription can still
+// deliver. The handler is held back here to hold that window open.
+test('a game that ends after the visitor left it for home does not pin the page to it', async ({ page }) => {
+  await Promise.all([
+    seed('team/main', { currentGameId: 'g1', roster }),
+    seed('games/g1', {
+      opponent: 'Rivals', date: '2026-11-01', season: '2026-27', status: 'final', period: 4, lineup, events: pastEvents,
+    }),
+    seed('games/g2', {
+      opponent: 'Waves', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup, events: liveEvents,
+    }),
+  ]);
+  await page.addInitScript(() => {
+    const add = window.addEventListener.bind(window);
+    window.addEventListener = (type, ...rest) => (type === 'hashchange' ? undefined : add(type, ...rest));
+  });
+  await open(page, '#/game/g2');
+  await expect(page.getByTestId('live-badge')).toBeVisible();
+  await page.evaluate(() => { location.hash = '#/'; });
+  await update('games/g2', { status: 'final' });
+  await page.waitForTimeout(1500);
+  expect(await hashOf(page)).toBe('#/');
 });
 
 test('a game starting while on the list shows the banner, and home shows it live', async ({ page }) => {
