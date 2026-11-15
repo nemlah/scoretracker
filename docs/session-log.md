@@ -1,5 +1,14 @@
 # Session log
 
+## 15/11/2026 - Goalkeeper stats live (main 7d453ac)
+- Roster/lineup Goalie tick; Live goalie tiles first with SAVE (largest), PEN SAVE, In goal; lowest cap starts in goal; save/penSave/gkIn events; opponent goals count against the goalie in goal (js/goalies.js replay). Save % = (saves + pen saves) ÷ (those + GA), periods 1–4; shootout separate.
+- Events sheet corrections: goalie picker on save rows, "In goal" picker on opponent-goal rows (adds a gkIn at goal ts − 1).
+- Viewer: Goalkeepers tables (game with in-goal dot, season), "✋ Penalty saved" in the timeline; empty "(0 – 0 pen.)" lines hidden (Delfin fixed).
+- Final-review fixes: lineup sheet writes goalie ticks back only for ticks changed there; shootout pen saves count on the tile; mixed old/new module guards (tracker refuses goalie taps the journal can't hold; viewer filters save/gkIn before timeline()).
+- Tests: unit 192, emulator 28, e2e 281 / 13 skipped / 0 failed. Live check: viewer OK (no Goalkeepers table until goalies are marked), tracker loads.
+- Before the next game: mark the goalies in Roster, open tracker + viewer once on Wi-Fi on every phone.
+- Follow-ups: more compact goalie tile (two goalie tiles fill ~500/800 px portrait); "Exclusio/n" break on field tiles at 375 px; our players' missed penalties (deferred by owner); the 4 parked tracker issues (repo.endGame first).
+
 ## 15/11/2026 - Viewer foul badges + goal celebration live (main da754d6)
 - Viewer timeline: grey E (exclusion) / P (penalty foul) badges; 🟥 + "· out" only on the foul that brings a player to 3 (`foulOutIds` in js/model.js).
 - Goal celebration (js/celebrate.js, firing rules in js/goalWatch.js): wave, droplets, yellow-and-blue ball into a net, "GOAL!" + scorer (+ "· man-up"), 2.5 s, tap to close, reduce-motion = banner only, landscape layout keeps the score clear. Never on load/reload, Undo, scorer change, opponent goals, final games.
