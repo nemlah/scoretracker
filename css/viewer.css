@@ -82,6 +82,18 @@ th.num, td.num { text-align: right; width: 4.5rem; white-space: nowrap; }
 td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middle; }
 .who { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.75rem; overflow-wrap: anywhere; }
 .pen { margin-left: 0.25rem; font-size: 0.875rem; }
+/* Goalkeepers: up to five number columns, so they get less room each than the player tables */
+table.goalies th.num, table.goalies td.num { width: auto; padding-left: 0.625rem; }
+table.goalies th { vertical-align: bottom; }
+table.goalies td:first-child { overflow-wrap: anywhere; }
+.in-goal { display: inline-flex; align-items: center; }
+.in-goal-dot {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: var(--water-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--water-text) 30%, transparent);
+}
 
 .timeline h3 {
   font: 700 1.5rem/1.1 var(--font-num);

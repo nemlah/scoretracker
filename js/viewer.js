@@ -7,6 +7,7 @@ import {
 // Added after the previous release. A phone can briefly hold that release's cached model.js beside
 // this file, so these are read off the namespace and fall back instead of failing the module link.
 import * as model from './model.js';
+import { goalieStats, savePct } from './goalies.js';
 import { createRepo } from './repo.js';
 import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
 import {
@@ -214,9 +215,10 @@ function celebrateGoal(goal) {
 
 function renderGame(game) {
   const score = deriveScore(game.events);
-  const so = hasShootout(game.period, game.events);
-  const text = scoreText(score, so);
   const live = game.status === 'live';
+  // A finished game that was merely left on the shootout period has no shootout to show.
+  const so = live ? hasShootout(game.period, game.events) : game.events.some(event => event.period === 'SO');
+  const text = scoreText(score, so);
   setScore(scoreUs, score.us);
   setScore(scoreThem, score.them);
   shootout.hidden = text.shootout === null;
@@ -238,9 +240,10 @@ function renderGame(game) {
   const oldBox = gameSections.querySelector('.timeline-scroll');
   const scrollTop = oldBox?.scrollTop ?? 0;
   const hadFocus = oldBox?.contains(document.activeElement) ?? false;
-  renderIfChanged(gameSections, [game.lineup, game.events, game.situations === true, game.opponent], () => [
+  renderIfChanged(gameSections, [game.lineup, game.events, game.situations === true, game.opponent, game.status, game.period], () => [
     timelineSection(game),
     playersSection(scoringLines(playerLines(game.lineup, game.events))),
+    goaliesSection(game),
   ]);
   const box = gameSections.querySelector('.timeline-scroll');
   if (box && scrollTop) box.scrollTop = scrollTop;
@@ -271,6 +274,42 @@ function playersSection(lines) {
           line.soGoals ? h('span', { class: 'pen' }, t('penaltyGoals', { n: line.soGoals })) : null),
         h('td', { class: 'num', 'data-testid': 'player-excl' }, line.excl),
         h('td', { class: 'num', 'data-testid': 'player-pen' }, line.pens ?? 0))))));
+}
+
+function goaliesSection(game) {
+  const stats = goalieStats(game);
+  if (stats === null) return '';
+  const live = game.status === 'live';
+  const soSaved = stats.goalies.reduce((sum, line) => sum + line.soSaves, 0);
+  const soConceded = stats.goalies.reduce((sum, line) => sum + line.soConceded, 0);
+  return h('section', { class: 'section', 'data-testid': 'game-goalies' },
+    h('h2', {}, t('goaliesHeading')),
+    h('table', { class: 'goalies', 'aria-label': t('goaliesHeading') },
+      h('thead', {}, h('tr', {},
+        h('th', { scope: 'col' }, t('colPlayer')),
+        h('th', { scope: 'col', class: 'num' }, t('colSaves')),
+        h('th', { scope: 'col', class: 'num' }, t('colPenSaves')),
+        h('th', { scope: 'col', class: 'num' }, t('colGA')),
+        h('th', { scope: 'col', class: 'num' }, t('colSavePct')))),
+      h('tbody', {}, stats.goalies.map(line => h('tr', { 'data-testid': 'goalie-row', 'data-cap': line.cap },
+        h('td', {}, h('span', { class: 'who' },
+          capBadge(line.cap, false),
+          line.name,
+          live && line.playerId === stats.inGoal ? h('span', { class: 'in-goal', 'data-testid': 'goalie-in-goal' },
+            h('span', { class: 'in-goal-dot', 'aria-hidden': 'true' }),
+            h('span', { class: 'sr-only' }, t('inGoalSr'))) : null)),
+        h('td', { class: 'num', 'data-testid': 'goalie-saves' }, line.saves),
+        h('td', { class: 'num', 'data-testid': 'goalie-pen-saves' }, line.penSaves),
+        h('td', { class: 'num', 'data-testid': 'goalie-ga' }, line.goalsAgainst),
+        h('td', { class: 'num', 'data-testid': 'goalie-pct' }, savePctCell(line)))))),
+    soSaved + soConceded > 0
+      ? h('p', { class: 'muted', 'data-testid': 'goalie-shootout' }, t('shootoutGoalie', { saved: soSaved, conceded: soConceded }))
+      : null);
+}
+
+function savePctCell(line) {
+  const pct = savePct(line);
+  return pct === null ? t('noShots') : t('savePctText', { pct });
 }
 
 function timelineSection(game) {
@@ -310,20 +349,25 @@ function renderSeason(stats) {
     const players = Object.entries(stats?.players ?? {})
       .map(([id, player]) => ({ id, ...player }))
       .sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
-    if (!results.length && !players.length) return [];
+    const goalies = Object.entries(stats?.goalies ?? {})
+      .map(([id, goalie]) => ({ id, ...goalie }))
+      .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
+    if (!results.length && !players.length && !goalies.length) return [];
     return [h('section', { class: 'section' },
       h('h2', {}, t('seasonHeading')),
       stats?.situations ? h('p', { class: 'situation-figures', 'data-testid': 'season-situations' },
         h('span', { class: 'situation-figure' }, manUpText(stats.situations.manUp)),
         h('span', { class: 'situation-figure' }, manDownText(stats.situations.manDown))) : null,
       results.length ? resultsTable(results) : null,
-      players.length ? totalsTable(players) : null)];
+      players.length ? totalsTable(players) : null,
+      goalies.length ? seasonGoaliesTable(goalies) : null)];
   });
 }
 
 function resultsTable(results) {
   return h('table', { class: 'results', 'aria-label': t('resultsHeading') }, h('tbody', {}, results.map(result => {
-    const text = scoreText(result, result.soUs != null);
+    // A 0 – 0 shootout means none was played (older games recorded it that way).
+    const text = scoreText(result, result.soUs != null && !(result.soUs === 0 && result.soThem === 0));
     return h('tr', { 'data-testid': 'result-row' },
       h('td', { class: 'muted' }, formatDate(result.date)),
       h('td', {}, result.opponent),
@@ -332,6 +376,26 @@ function resultsTable(results) {
       h('td', { class: 'muted result-situations', 'data-testid': 'result-situations' },
         situationShort(result.manUp ? { manUp: result.manUp, manDown: result.manDown } : null)));
   })));
+}
+
+function seasonGoaliesTable(goalies) {
+  return h('table', { class: 'goalies', 'aria-label': t('goaliesHeading'), 'data-testid': 'season-goalies' },
+    h('thead', {}, h('tr', {},
+      h('th', { scope: 'col' }, t('goaliesHeading')),
+      h('th', { scope: 'col', class: 'num' }, t('colGames')),
+      h('th', { scope: 'col', class: 'num' }, t('colSaves')),
+      h('th', { scope: 'col', class: 'num' }, t('colPenSaves')),
+      h('th', { scope: 'col', class: 'num' }, t('colGA')),
+      h('th', { scope: 'col', class: 'num' }, t('colSavePct')))),
+    h('tbody', {}, goalies.map(goalie => h('tr', { 'data-testid': 'season-goalie-row' },
+      h('td', {}, goalie.name),
+      h('td', { class: 'num' }, goalie.games),
+      h('td', { class: 'num' }, goalie.saves),
+      h('td', { class: 'num' }, goalie.penSaves),
+      h('td', { class: 'num' }, goalie.goalsAgainst),
+      h('td', { class: 'num' }, savePctCell({
+        saves: goalie.saves, penSaves: goalie.penSaves, goalsAgainst: goalie.goalsAgainst,
+      }))))));
 }
 
 function totalsTable(players) {

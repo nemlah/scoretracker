@@ -458,3 +458,166 @@ test('narrow screens: long opponent, shootout and figures do not cause sideways 
   const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 });
+
+// Goalkeepers
+const goalieLineup = [
+  { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+  { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
+  { playerId: 'p5', name: 'Alexiou', cap: 5 },
+];
+const seedGoalieGame = (events, { status = 'live', period = 2, lineup: gameLineup = goalieLineup } = {}) => Promise.all([
+  seed('team/main', { currentGameId: 'g1', roster }),
+  seed('games/g1', {
+    opponent: 'Opponent FC', date: '2026-11-08', season: '2026-27', status, period, lineup: gameLineup, events,
+  }),
+]);
+const goalieEvents = () => [
+  ev('save', 1, 'g1'), ev('save', 1, 'g1'), ev('oppGoal', 1), ev('penSave', 1, 'g1'),
+  ev('gkIn', 2, 'g13'), ev('oppGoal', 2), ev('save', 2, 'g13'),
+];
+const goalieRow = (page, cap) => page.locator(`[data-testid="goalie-row"][data-cap="${cap}"]`);
+
+test('the Goalkeepers table shows saves, pen saves, GA and save %, and the in-goal dot while live', async ({ page }) => {
+  await seedGoalieGame(goalieEvents());
+  await open(page);
+  const table = page.getByTestId('game-goalies');
+  await expect(table).toBeVisible();
+  await expect(table).toContainText('Goalkeepers');
+  await expect(page.getByTestId('goalie-row')).toHaveCount(2);
+  const georgiou = goalieRow(page, 1);
+  await expect(georgiou).toContainText('Georgiou');
+  await expect(georgiou.getByTestId('goalie-saves')).toHaveText('2');
+  await expect(georgiou.getByTestId('goalie-pen-saves')).toHaveText('1');
+  await expect(georgiou.getByTestId('goalie-ga')).toHaveText('1');
+  await expect(georgiou.getByTestId('goalie-pct')).toHaveText('75%');
+  const nikolaou = goalieRow(page, 13);
+  await expect(nikolaou.getByTestId('goalie-saves')).toHaveText('1');
+  await expect(nikolaou.getByTestId('goalie-pen-saves')).toHaveText('0');
+  await expect(nikolaou.getByTestId('goalie-ga')).toHaveText('1');
+  await expect(nikolaou.getByTestId('goalie-pct')).toHaveText('50%');
+  await expect(page.getByTestId('goalie-in-goal')).toHaveCount(1);
+  await expect(nikolaou.getByTestId('goalie-in-goal')).toHaveCount(1);
+  await expect(nikolaou.getByTestId('goalie-in-goal')).toContainText('in goal');
+  await expect(georgiou.getByTestId('goalie-in-goal')).toHaveCount(0);
+  await expect(page.getByTestId('goalie-shootout')).toHaveCount(0);
+
+  // A switch of the goalie in goal moves the dot; a goalie without shots shows a dash.
+  await update('games/g1', { events: [...goalieEvents(), ev('gkIn', 2, 'g1')] });
+  await expect(georgiou.getByTestId('goalie-in-goal')).toHaveCount(1);
+  await expect(nikolaou.getByTestId('goalie-in-goal')).toHaveCount(0);
+
+  // Once the game is final nobody is in goal any more.
+  await update('games/g1', { status: 'final' });
+  await expect(page.getByTestId('final-badge')).toBeVisible();
+  await expect(page.getByTestId('goalie-in-goal')).toHaveCount(0);
+  await expect(page.getByTestId('goalie-row')).toHaveCount(2);
+});
+
+test('a goalie with no shots faced shows a dash for save %', async ({ page }) => {
+  await seedGoalieGame([ev('save', 1, 'g1')]);
+  await open(page);
+  await expect(goalieRow(page, 1).getByTestId('goalie-pct')).toHaveText('100%');
+  await expect(goalieRow(page, 13).getByTestId('goalie-pct')).toHaveText('—');
+});
+
+test('penalty saves appear in the timeline; saves and In goal do not', async ({ page }) => {
+  await seedGoalieGame(goalieEvents());
+  await open(page);
+  // oppGoal x2 and the one penSave
+  await expect(page.getByTestId('timeline-item')).toHaveCount(3);
+  const penSave = page.locator('[data-testid="timeline-item"]', { hasText: 'Penalty saved' });
+  await expect(penSave).toHaveCount(1);
+  await expect(penSave).toContainText('✋');
+  await expect(penSave).toContainText('#1 Georgiou');
+  await expect(page.locator('[data-testid="timeline-item"]', { hasText: 'Nikolaou' })).toHaveCount(0);
+});
+
+test('the goalie shootout line', async ({ page }) => {
+  const so = [ev('penSave', 'SO', 'g1'), ev('oppGoal', 'SO'), ev('penSave', 'SO', 'g1'), ev('oppGoal', 'SO'), ev('oppGoal', 'SO')];
+  await seedGoalieGame([ev('save', 1, 'g1'), ev('oppGoal', 1), ...so], { period: 'SO' });
+  await open(page);
+  await expect(page.getByTestId('goalie-shootout')).toHaveText('Shootout: 2 saved, 3 conceded');
+  // Shootout events stay out of the regular columns.
+  const georgiou = goalieRow(page, 1);
+  await expect(georgiou.getByTestId('goalie-saves')).toHaveText('1');
+  await expect(georgiou.getByTestId('goalie-pen-saves')).toHaveText('0');
+  await expect(georgiou.getByTestId('goalie-ga')).toHaveText('1');
+  await expect(page.getByTestId('shootout')).toHaveText('(0 – 3 pen.)');
+});
+
+test('the season Goalkeepers table', async ({ page }) => {
+  await Promise.all([
+    seedGoalieGame(goalieEvents()),
+    seed('stats/2026-27', {
+      players: { p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1 } },
+      goalies: {
+        g1: { name: 'Georgiou', games: 3, saves: 20, penSaves: 2, goalsAgainst: 10 },
+        g13: { name: 'Nikolaou', games: 1, saves: 0, penSaves: 0, goalsAgainst: 0 },
+      },
+    }),
+  ]);
+  await open(page);
+  await expect(page.getByTestId('season-goalies')).toBeVisible();
+  await expect(page.getByTestId('season-goalie-row')).toHaveCount(2);
+  const georgiou = page.locator('[data-testid="season-goalie-row"]', { hasText: 'Georgiou' });
+  await expect(georgiou.locator('td')).toHaveText(['Georgiou', '3', '20', '2', '10', '69%']);
+  const nikolaou = page.locator('[data-testid="season-goalie-row"]', { hasText: 'Nikolaou' });
+  await expect(nikolaou.locator('td')).toHaveText(['Nikolaou', '1', '0', '0', '0', '—']);
+  await expect(page.getByTestId('season-row')).toHaveCount(1);
+});
+
+test('games and stats without goalies render as before', async ({ page }) => {
+  await Promise.all([
+    seedLive(),
+    seed('stats/2026-27', {
+      players: { p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1 } },
+      goalies: {},
+    }),
+  ]);
+  await open(page);
+  await expect(page.getByTestId('season-row')).toHaveCount(1);
+  await expect(page.getByTestId('game-goalies')).toHaveCount(0);
+  await expect(page.getByTestId('season-goalies')).toHaveCount(0);
+  await expect(page.getByTestId('goalie-row')).toHaveCount(0);
+});
+
+test('no shootout line on a final game without shootout events', async ({ page }) => {
+  await Promise.all([
+    seedGoalieGame([ev('goal', 1, 'p5'), ev('oppGoal', 1)], { status: 'final', period: 'SO' }),
+    seed('stats/2026-27', {
+      players: { p5: { name: 'Alexiou', games: 1, goals: 1, excl: 0 } },
+      results: [{ gameId: 'g0', date: '2026-11-01', opponent: 'Delfin', us: 9, them: 9, soUs: 0, soThem: 0 }],
+    }),
+  ]);
+  await open(page);
+  await expect(page.getByTestId('final-badge')).toBeVisible();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page.getByTestId('shootout')).toBeHidden();
+  await expect(page.getByTestId('result-row')).toHaveCount(1);
+  await expect(page.getByTestId('result-row')).not.toContainText('pen.');
+  await expect(page.getByTestId('result-row')).toContainText('9 – 9');
+});
+
+test('a live game in the shootout with no shootout events still shows 0 – 0 pen.', async ({ page }) => {
+  await seedGoalieGame([ev('goal', 1, 'p5')], { period: 'SO' });
+  await open(page);
+  await expect(page.getByTestId('shootout')).toHaveText('(0 – 0 pen.)');
+});
+
+test('the Goalkeepers table does not cause sideways scrolling at 360px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await seedGoalieGame(goalieEvents(), {
+    lineup: [
+      { playerId: 'g1', name: 'Konstantinopoulos-Papadimitriou', cap: 1, goalie: true },
+      { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
+    ],
+  });
+  await seed('stats/2026-27', {
+    goalies: { g1: { name: 'Konstantinopoulos-Papadimitriou', games: 12, saves: 120, penSaves: 12, goalsAgainst: 100 } },
+  });
+  await open(page);
+  await expect(page.getByTestId('season-goalie-row')).toHaveCount(1);
+  await expect(page.getByTestId('goalie-row')).toHaveCount(2);
+  const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+});

@@ -95,6 +95,13 @@ test('timeline leaves out man-up and man-down events', () => {
   assert.deepEqual(m.timeline(events), [{ period: 1, events: [pen, goal] }]);
 });
 
+test('timeline leaves out save and gkIn', () => {
+  const goal = ev('goal', 1, 'p1', 4);
+  const penSave = ev('penSave', 1, 'g1', 5);
+  const events = [ev('save', 1, 'g1', 1), ev('gkIn', 1, 'g2', 2), goal, penSave];
+  assert.deepEqual(m.timeline(events), [{ period: 1, events: [penSave, goal] }]);
+});
+
 test('foulOutIds marks the foul that reaches 3', () => {
   const events = [ev('excl',1,'a',1), ev('excl',1,'a',2), ev('excl',1,'b',3), ev('pen',1,'a',4), ev('excl',1,'a',5)];
   assert.deepEqual(m.foulOutIds(events), new Set(['e4']));

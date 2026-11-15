@@ -128,7 +128,8 @@ export function latestNewGoal(prevEvents, nextEvents) {
 
 export function timeline(events) {
   return [...PERIODS].reverse().flatMap(period => {
-    const entries = events.filter(event => event.period === period && !SITUATION_TYPES.includes(event.type))
+    const entries = events.filter(event => event.period === period
+      && !SITUATION_TYPES.includes(event.type) && event.type !== 'save' && event.type !== 'gkIn')
       .map(event => withPlayer(event, event.playerId))
       .reverse().sort((a, b) => b.ts - a.ts);
     return entries.length ? [{ period, events: entries }] : [];
