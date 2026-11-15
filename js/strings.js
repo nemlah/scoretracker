@@ -223,7 +223,7 @@ const STRINGS = {
   addGoalPeriodLabel: 'Period for the added goal',
   gameLiveNote: 'This game is live. Use the live screen to track it.',
   gameLiveOpen: 'Open the live screen',
-  backToCurrent: '← Back to current game',
+  allGames: '← All games',
   liveBanner: 'Live: {opponent} {us}–{them} · {period}',
   watchLive: 'Watch',
   gameUnavailable: 'That game isn\'t available.',

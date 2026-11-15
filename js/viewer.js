@@ -27,7 +27,7 @@ const root = document.getElementById('app');
 const state = {
   team: undefined, teamMeta: null,
   game: undefined, gameMeta: null,
-  live: undefined, // the current game, watched only for the banner while a past game is open
+  live: undefined, // the current game, watched only for the banner while another game is open
   stats: undefined,
   offline: !navigator.onLine,
   stale: false,
@@ -88,10 +88,14 @@ function resubscribe(name, key, subscribe) {
   try {
     sub.off = subscribe((data, meta) => {
       if (sub.key !== key) return;
+      // Seen before the new snapshot replaces it: the live game on the landing page has just ended.
+      const ended = name === 'game' && parseRoute(location.hash).kind === 'home'
+        && state.game?.status === 'live' && data?.status === 'final';
       state[name] = data;
       if (name === 'game') state.gameMeta = meta;
       if (name !== 'live') trackConnection(name, meta);
       if (name === 'game') followSeason();
+      if (ended) stayOnGame(key);
       render();
     });
   } catch (err) {
@@ -105,44 +109,58 @@ function followSeason() {
   resubscribe('stats', season, cb => repo.watchStats(season, cb));
 }
 
-// '#/game/<id>' opens that game; anything else means the current game. A route whose id could not be
-// a Firestore document id comes back as INVALID_ROUTE ('/' can never be an id): it is shown as
-// unavailable and never reaches Firestore.
-const INVALID_ROUTE = '/';
-
+// '#/game/<id>' opens that game and '#/games' the games list; any other hash is the landing page,
+// which shows the live game, or the list when no game is live. A game route whose id could not be a
+// Firestore document id is 'invalid' ('/' can never be an id): it is shown as unavailable and never
+// reaches Firestore.
 function validDocId(id) {
   return id !== '' && !id.includes('/') && id !== '.' && id !== '..'
     && !/^__.*__$/.test(id) && new TextEncoder().encode(id).length <= 1500;
 }
 
-function routeGameId(hash) {
+function parseRoute(hash) {
+  if (hash === '#/games') return { kind: 'games' };
   const match = /^#\/game\/(.*)$/.exec(hash);
-  if (!match) return null;
+  if (!match) return { kind: 'home' };
   try {
     const id = decodeURIComponent(match[1]);
-    return validDocId(id) ? id : INVALID_ROUTE;
+    return validDocId(id) ? { kind: 'game', id } : { kind: 'invalid' };
   } catch {
-    return INVALID_ROUTE;
+    return { kind: 'invalid' };
   }
 }
 
-// The routed game when it is not the current one; a route to the current game counts as no route.
-// Unknown until the team document has arrived.
-function pastGameId() {
-  const routed = routeGameId(location.hash);
-  if (routed === null || state.team === undefined) return null;
-  return routed === (state.team?.currentGameId ?? null) ? null : routed;
+const currentGameId = () => state.team?.currentGameId ?? null;
+
+// The game being read: the routed one, else the current game (on the landing page and the list, where
+// it decides between the two). Null for an invalid route.
+function followedGameId() {
+  const route = parseRoute(location.hash);
+  if (route.kind === 'game') return route.id;
+  return route.kind === 'invalid' ? null : currentGameId();
 }
 
-const followedGameId = () => routeGameId(location.hash) ?? state.team?.currentGameId ?? null;
+// The current game, as far as it is known: the open one when that is it, else the banner's own watch.
+function currentGame() {
+  const id = currentGameId();
+  if (id === null) return null;
+  return followedGameId() === id ? state.game : state.live;
+}
 
 function follow() {
-  const followed = followedGameId();
-  const gameId = followed === INVALID_ROUTE ? null : followed;
+  const gameId = followedGameId();
   resubscribe('game', gameId, cb => repo.watchGame(gameId, cb));
   if (gameId === null) followSeason();
-  const liveId = pastGameId() === null ? null : state.team?.currentGameId ?? null;
+  // The banner watches the current game only while the open game is another one.
+  const liveId = currentGameId() === gameId ? null : currentGameId();
   resubscribe('live', liveId, cb => repo.watchGame(liveId, cb));
+}
+
+// The live game on the landing page has ended: keep showing it, at an address that survives a reload.
+// replaceState fires no hashchange, so the follow-up is done here.
+function stayOnGame(gameId) {
+  history.replaceState(null, '', `#/game/${encodeURIComponent(gameId)}`);
+  follow();
 }
 
 repo.watchTeam((data, meta) => {
@@ -159,7 +177,7 @@ window.addEventListener('hashchange', () => {
   render();
 });
 // A shared link starts reading the game without waiting for the team document.
-if (routeGameId(location.hash) !== null) follow();
+if (parseRoute(location.hash).kind === 'game') follow();
 
 window.addEventListener('online', () => { state.offline = false; render(); });
 window.addEventListener('offline', () => { state.offline = true; render(); });
@@ -200,11 +218,13 @@ const liveBanner = h('div', { class: 'live-banner', 'data-testid': 'live-banner'
   h('span', { class: 'live-dot', 'aria-hidden': 'true' }),
   bannerText,
   h('a', { class: 'watch-live', href: '#/', 'data-testid': 'watch-live' }, t('watchLive')));
-const backLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'back-to-current' }, t('backToCurrent'));
-const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, backLink);
+const allGamesLink = h('a', { class: 'back-link', href: '#/games', 'data-testid': 'all-games' }, t('allGames'));
+const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, allGamesLink);
+const gamesList = h('header', { class: 'games-list', 'data-testid': 'games-list', hidden: true },
+  h('h1', { class: 'team-name' }, teamConfig.name));
 const gameSections = h('div', { class: 'stack' });
 const seasonSection = h('div', { class: 'stack' });
-root.append(note, pastNav, scoreboard, empty, unavailable, gameSections, seasonSection);
+root.append(note, pastNav, gamesList, scoreboard, empty, unavailable, gameSections, seasonSection);
 
 function setScore(el, value) {
   const next = String(value);
@@ -226,18 +246,29 @@ function renderIfChanged(container, input, build) {
   clear(container).append(...build());
 }
 
+// 'loading' | 'list' | 'game' | 'unavailable' | 'empty'. The landing page shows the live game; with no
+// live game it is the list, which is also '#/games'. The list gives way to the empty state only when
+// there is no game to follow and the season has no results.
 function viewMode() {
   const settled = (data, meta) => data !== undefined && (data !== null || !meta?.fromCache || isOffline());
   if (state.team === undefined) return 'loading';
-  const past = pastGameId() !== null;
-  if (pastGameId() === INVALID_ROUTE) return 'unavailable';
-  if (!past && (state.team === null || state.team.currentGameId == null)) return settled(state.team, state.teamMeta) ? 'empty' : 'loading';
-  if (state.game === undefined) return 'loading';
-  if (state.game === null) {
-    if (!settled(state.game, state.gameMeta)) return 'loading';
-    return past ? 'unavailable' : 'empty';
+  const route = parseRoute(location.hash);
+  if (route.kind === 'invalid') return 'unavailable';
+  if (route.kind === 'game') {
+    if (state.game === undefined) return 'loading';
+    if (state.game === null) return settled(state.game, state.gameMeta) ? 'unavailable' : 'loading';
+    return 'game';
   }
-  return 'game';
+  if (currentGameId() === null) {
+    if (!settled(state.team, state.teamMeta)) return 'loading';
+  } else {
+    if (state.game === undefined) return 'loading';
+    if (state.game === null && !settled(state.game, state.gameMeta)) return 'loading';
+    if (state.game !== null) return route.kind === 'home' && state.game.status === 'live' ? 'game' : 'list';
+  }
+  // No current game, or it no longer exists.
+  if (state.stats === undefined) return 'loading';
+  return state.stats?.results?.length ? 'list' : 'empty';
 }
 
 const isOffline = () => state.offline || state.stale;
@@ -247,8 +278,9 @@ function render() {
   note.hidden = !isOffline();
   empty.hidden = mode !== 'empty';
   unavailable.hidden = mode !== 'unavailable';
+  gamesList.hidden = mode !== 'list';
   scoreboard.hidden = mode !== 'game';
-  renderPastNav();
+  renderPastNav(mode);
   if (mode === 'game') {
     renderGame(state.game);
     celebrateIfNew();
@@ -256,14 +288,18 @@ function render() {
     clear(gameSections), signatures.delete(gameSections);
     goals?.next(null);
   }
-  renderSeason(state.stats);
+  renderSeason(state.stats, mode === 'game' ? followedGameId() : null);
 }
 
-function renderPastNav() {
-  const past = pastGameId() !== null;
-  pastNav.hidden = !past;
-  const live = past && state.live?.status === 'live' ? state.live : null;
+function renderPastNav(mode) {
+  const withLink = mode === 'game' || mode === 'unavailable';
+  allGamesLink.hidden = !withLink;
+  // The banner is for a live game the screen is not showing.
+  const current = currentGame();
+  const showing = mode === 'game' && followedGameId() === currentGameId();
+  const live = mode !== 'loading' && !showing && current?.status === 'live' ? current : null;
   liveBanner.hidden = live === null;
+  pastNav.hidden = !withLink && live === null;
   if (live === null) return;
   const { us, them } = deriveScore(live.events);
   bannerText.textContent = t('liveBanner', {
@@ -420,8 +456,7 @@ function timelineItem(event, game, manUpGoals, out) {
     entry.side === 'them' ? icon : null);
 }
 
-function renderSeason(stats) {
-  const openId = followedGameId();
+function renderSeason(stats, openId) {
   renderIfChanged(seasonSection, [stats ?? null, openId], () => {
     const results = stats?.results ?? [];
     const players = Object.entries(stats?.players ?? {})

@@ -71,12 +71,12 @@ async function endGameFromSheet(page) {
   await armThenConfirm(page, 'end-game');
 }
 
-async function withViewer(browser, fn) {
+async function withViewer(browser, fn, hash = '') {
   const context = await browser.newContext({ baseURL: ORIGIN });
   try {
     const viewer = await context.newPage();
     collectProblems(viewer, problems);
-    await viewer.goto('/index.html?emulator=1');
+    await viewer.goto(`/index.html?emulator=1${hash}`);
     await fn(viewer);
   } finally {
     await context.close();
@@ -245,11 +245,12 @@ test('end game needs a second tap; viewer shows Final and season stats', async (
   expect(stats.results[0]).toMatchObject({ us: 2, them: 1, opponent: 'Opponent FC' });
   expect(stats.players.p5).toMatchObject({ games: 1, goals: 1 });
   await expect.poll(() => dirtyOf(page)).toBe('[]');
+  const endedId = await currentGameId();
   await withViewer(browser, async viewer => {
     await expect(viewer.getByTestId('final-badge')).toBeVisible();
     await expect(viewer.getByTestId('result-row')).toHaveCount(1);
     await expect(viewer.getByTestId('season-row')).toHaveCount(3);
-  });
+  }, `#/game/${encodeURIComponent(endedId)}`);
 });
 
 test('past games: reopen then delete', async ({ page, browser }) => {

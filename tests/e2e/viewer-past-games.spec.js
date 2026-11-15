@@ -54,24 +54,28 @@ const hashOf = page => page.evaluate(() => location.hash);
 const opponentName = page => page.locator('p.team-name');
 const resultLink = (page, id) => page.locator(`[data-testid="result-link"][href="#/game/${id}"]`);
 
-test('a results row opens that past game and the back link returns', async ({ page }) => {
+test('a results row opens that past game and the All games link goes to the list', async ({ page }) => {
   await seedBoth();
   await open(page);
   await expect(opponentName(page)).toHaveText('Waves');
-  await expect(page.getByTestId('back-to-current')).toBeHidden();
+  await expect(page.getByTestId('all-games')).toBeVisible();
   await resultLink(page, 'g1').click();
   await expect.poll(() => hashOf(page)).toBe('#/game/g1');
   await expect(opponentName(page)).toHaveText('Rivals');
   await expect(page.getByTestId('final-badge')).toBeVisible();
   await expect(page.getByTestId('score-us')).toHaveText('2');
   await expect(page.getByTestId('score-them')).toHaveText('1');
-  await expect(page.getByTestId('back-to-current')).toBeVisible();
-  await expect(page.getByTestId('back-to-current')).toHaveText('← Back to current game');
-  await page.getByTestId('back-to-current').click();
+  await expect(page.getByTestId('all-games')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toHaveText('← All games');
+  await expect(page.getByTestId('all-games')).toHaveAttribute('href', '#/games');
+  await page.getByTestId('all-games').click();
+  await expect.poll(() => hashOf(page)).toBe('#/games');
+  await expect(page.getByTestId('games-list')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeHidden();
+  await page.getByTestId('watch-live').click();
   await expect.poll(() => hashOf(page)).toBe('#/');
   await expect(opponentName(page)).toHaveText('Waves');
   await expect(page.getByTestId('score-us')).toHaveText('1');
-  await expect(page.getByTestId('back-to-current')).toBeHidden();
 });
 
 test('result links are real links with a descriptive label', async ({ page }) => {
@@ -89,7 +93,7 @@ test('a shared #/game link opens that game directly', async ({ page }) => {
   await expect(opponentName(page)).toHaveText('Rivals');
   await expect(page.getByTestId('final-badge')).toBeVisible();
   await expect(page.getByTestId('timeline-item')).toHaveCount(3);
-  await expect(page.getByTestId('back-to-current')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeVisible();
 });
 
 test('the open game is marked in the results list', async ({ page }) => {
@@ -107,7 +111,7 @@ test('the open game is marked in the results list', async ({ page }) => {
   await expect(marked).not.toHaveAttribute('aria-current', 'page');
 });
 
-test('browser back returns to the current game', async ({ page }) => {
+test('browser back returns to the live game', async ({ page }) => {
   await seedBoth();
   await open(page);
   await expect(opponentName(page)).toHaveText('Waves');
@@ -115,7 +119,7 @@ test('browser back returns to the current game', async ({ page }) => {
   await expect(opponentName(page)).toHaveText('Rivals');
   await page.goBack();
   await expect(opponentName(page)).toHaveText('Waves');
-  await expect(page.getByTestId('back-to-current')).toBeHidden();
+  await expect(page.getByTestId('all-games')).toBeVisible();
   await expect(page.getByTestId('live-badge')).toBeVisible();
 });
 
@@ -131,7 +135,7 @@ test('the live banner appears, updates, and leaves when the live game ends', asy
   await update('games/g2', { status: 'final' });
   await expect(banner).toBeHidden({ timeout: 5000 });
   await expect(opponentName(page)).toHaveText('Rivals');
-  await expect(page.getByTestId('back-to-current')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeVisible();
 });
 
 test('the banner does not cover the scoreboard', async ({ page }) => {
@@ -154,23 +158,23 @@ test('Watch opens the live game', async ({ page }) => {
   await expect(opponentName(page)).toHaveText('Waves');
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(page.getByTestId('live-banner')).toBeHidden();
-  await expect(page.getByTestId('back-to-current')).toBeHidden();
+  await expect(page.getByTestId('all-games')).toBeVisible();
 });
 
 test('no banner when the current game is not live', async ({ page }) => {
   await seedBoth({ currentStatus: 'final' });
   await open(page, '#/game/g1');
   await expect(opponentName(page)).toHaveText('Rivals');
-  await expect(page.getByTestId('back-to-current')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeVisible();
   await expect(page.getByTestId('live-banner')).toBeHidden();
 });
 
-test('a route to the current game shows no back link or banner', async ({ page }) => {
+test('a route to the current game shows it with the All games link and no banner', async ({ page }) => {
   await seedBoth();
   await open(page, '#/game/g2');
   await expect(opponentName(page)).toHaveText('Waves');
   await expect(page.getByTestId('live-badge')).toBeVisible();
-  await expect(page.getByTestId('back-to-current')).toBeHidden();
+  await expect(page.getByTestId('all-games')).toBeVisible();
   await expect(page.getByTestId('live-banner')).toBeHidden();
 });
 
@@ -179,11 +183,13 @@ test('a link to a deleted game says it isn\'t available', async ({ page }) => {
   await open(page, '#/game/nope');
   await expect(page.getByTestId('game-unavailable')).toBeVisible();
   await expect(page.getByTestId('game-unavailable')).toContainText('That game isn\'t available.');
-  await expect(page.getByTestId('back-to-current')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeVisible();
   await expect(page.getByTestId('empty-state')).toBeHidden();
-  await page.getByTestId('back-to-current').click();
-  await expect(opponentName(page)).toHaveText('Waves');
+  await page.getByTestId('all-games').click();
+  await expect(page.getByTestId('games-list')).toBeVisible();
   await expect(page.getByTestId('game-unavailable')).toBeHidden();
+  await page.getByTestId('watch-live').click();
+  await expect(opponentName(page)).toHaveText('Waves');
 });
 
 for (const hash of ['#/game/a%2Fb', '#/game/%E0%A4%A']) {
@@ -191,10 +197,12 @@ for (const hash of ['#/game/a%2Fb', '#/game/%E0%A4%A']) {
     await seedBoth();
     await open(page, hash);
     await expect(page.getByTestId('game-unavailable')).toBeVisible();
-    await expect(page.getByTestId('back-to-current')).toBeVisible();
+    await expect(page.getByTestId('all-games')).toBeVisible();
     await expect(page.getByTestId('empty-state')).toBeHidden();
     await expect(page.getByTestId('result-link')).toHaveCount(2);
-    await page.getByTestId('back-to-current').click();
+    await page.getByTestId('all-games').click();
+    await expect(page.getByTestId('games-list')).toBeVisible();
+    await page.getByTestId('watch-live').click();
     await expect(opponentName(page)).toHaveText('Waves');
   });
 }
@@ -245,7 +253,7 @@ test('no sideways scroll at 360 px with the banner and back link showing', async
   await seedBoth({ liveOpponent: 'Panathinaikos Athletic Club Water Polo Federation' });
   await open(page, '#/game/g1');
   await expect(page.getByTestId('live-banner')).toBeVisible();
-  await expect(page.getByTestId('back-to-current')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeVisible();
   await expect(page.getByTestId('result-link')).toHaveCount(2);
   const { scrollWidth, innerWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth,

@@ -43,7 +43,7 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = page => page.goto('/index.html?emulator=1');
+const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 
 test('empty state when there is no team or game', async ({ page }) => {
   await open(page);
@@ -199,7 +199,7 @@ test('final with shootout and season tables', async ({ page }) => {
       ],
     }),
   ]);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('final-badge')).toBeVisible();
   await expect(page.getByTestId('live-badge')).toBeHidden();
   await expect(page.getByTestId('score-us')).toHaveText('9');
@@ -237,10 +237,9 @@ test('the viewer follows currentGameId from last week\'s final to a new live gam
     }),
   ]);
   await open(page);
-  await expect(page.getByTestId('final-badge')).toBeVisible();
-  await expect(page.locator('p.team-name')).toHaveText('Last Week FC');
-  await expect(page.getByTestId('score-us')).toHaveText('2');
-  await expect(page.getByTestId('score-them')).toHaveText('1');
+  // Between games the landing page is the list, not last week's final.
+  await expect(page.getByTestId('games-list')).toBeVisible();
+  await expect(page.getByTestId('score-us')).toBeHidden();
 
   await update('team/main', { currentGameId: 'g2' });
   await expect(page.getByTestId('live-badge')).toBeVisible();
@@ -589,7 +588,7 @@ test('no shootout line on a final game without shootout events', async ({ page }
       results: [{ gameId: 'g0', date: '2026-11-01', opponent: 'Delfin', us: 9, them: 9, soUs: 0, soThem: 0 }],
     }),
   ]);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('final-badge')).toBeVisible();
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('shootout')).toBeHidden();
