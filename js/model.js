@@ -1,9 +1,10 @@
 import { SITUATION_TYPES, isTracked, situationCounts } from './situations.js';
+import { goalieStats } from './goalies.js';
 
 /**
  * @typedef {Object} Event
  * @property {string} id
- * @property {'goal'|'excl'|'oppGoal'|'pen'|'manUp'|'manUpEnd'|'manDownEnd'} type
+ * @property {'goal'|'excl'|'oppGoal'|'pen'|'manUp'|'manUpEnd'|'manDownEnd'|'save'|'penSave'|'gkIn'} type
  * @property {1|2|3|4|'SO'} period
  * @property {number} ts
  * @property {string} [playerId]
@@ -12,18 +13,21 @@ import { SITUATION_TYPES, isTracked, situationCounts } from './situations.js';
  * @property {string} playerId
  * @property {string} name
  * @property {number} cap
+ * @property {boolean} [goalie]
  *
  * @typedef {Object} RosterPlayer
  * @property {string} id
  * @property {string} name
  * @property {number} cap
  * @property {boolean} archived
+ * @property {boolean} [goalie]
  *
  * @typedef {Object} Selection
  * @property {string} playerId
  * @property {string} name
  * @property {number|null} cap
  * @property {boolean} selected
+ * @property {boolean} goalie
  *
  * @typedef {Object} Game
  * @property {string} id
@@ -37,7 +41,7 @@ import { SITUATION_TYPES, isTracked, situationCounts } from './situations.js';
  * @property {boolean} [situations]
  */
 
-export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES]);
+export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES, 'save', 'penSave', 'gkIn']);
 export const PERIODS = Object.freeze([1, 2, 3, 4, 'SO']);
 export const EXCL_LIMIT = 3;
 export const DUPLICATE_TAP_MS = 1000;
@@ -152,6 +156,7 @@ export function defaultSelection(roster, previousGame) {
     name: player.name,
     cap: player.cap,
     selected: previousPlayers === null || previousPlayers.has(player.id),
+    goalie: player.goalie === true,
   })).sort((a, b) => a.cap - b.cap || a.name.localeCompare(b.name));
 }
 
@@ -190,13 +195,16 @@ export function validateLineup(selection) {
 
 export function lineupFrom(selection) {
   return selection.filter(player => player.selected)
-    .map(({ playerId, name, cap }) => ({ playerId, name, cap }))
+    .map(({ playerId, name, cap, goalie }) => ({ playerId, name, cap, ...(goalie === true ? { goalie: true } : {}) }))
     .sort((a, b) => a.cap - b.cap);
 }
 
 export function rosterWithCaps(roster, lineup) {
-  const caps = new Map(lineup.map(player => [player.playerId, player.cap]));
-  return roster.map(player => ({ ...player, cap: caps.has(player.id) ? caps.get(player.id) : player.cap }));
+  const entries = new Map(lineup.map(player => [player.playerId, player]));
+  return roster.map(player => {
+    const entry = entries.get(player.id);
+    return entry ? { ...player, cap: entry.cap, goalie: entry.goalie === true } : { ...player };
+  });
 }
 
 export function seasonFor(isoDate) {
@@ -221,9 +229,25 @@ export function gameResult(game) {
 export function aggregateSeason(games, roster) {
   const names = new Map(roster.map(player => [player.id, player.name]));
   const players = new Map();
+  const goalies = new Map();
   let situations = null;
   const finals = games.filter(game => game.status === 'final');
   for (const game of finals) {
+    const stats = goalieStats(game);
+    if (stats) {
+      const lineupGoalies = new Set(game.lineup.filter(player => player.goalie === true)
+        .map(player => player.playerId));
+      for (const line of stats.goalies) {
+        const totals = goalies.get(line.playerId) ?? {
+          name: names.get(line.playerId) ?? line.name, games: 0, saves: 0, penSaves: 0, goalsAgainst: 0,
+        };
+        goalies.set(line.playerId, {
+          ...totals, games: totals.games + (lineupGoalies.has(line.playerId) ? 1 : 0),
+          saves: totals.saves + line.saves, penSaves: totals.penSaves + line.penSaves,
+          goalsAgainst: totals.goalsAgainst + line.goalsAgainst,
+        });
+      }
+    }
     const counts = situationCounts(game);
     if (counts) {
       situations ??= { manUp: { played: 0, scored: 0 }, manDown: { played: 0, stopped: 0 } };
@@ -244,6 +268,7 @@ export function aggregateSeason(games, roster) {
   }
   return {
     players: Object.fromEntries(players),
+    goalies: Object.fromEntries(goalies),
     situations,
     results: finals.map(gameResult).sort((a, b) => b.date.localeCompare(a.date)),
   };

@@ -10,9 +10,9 @@ const caps = sel => sel.map(s => [s.playerId, s.cap]);
 
 test('defaultSelection: no previous game → all active ticked, by cap', () => {
   assert.deepEqual(m.defaultSelection(roster, null), [
-    { playerId:'b', name:'Papadakis', cap:2, selected:true },
-    { playerId:'a', name:'Alexiou', cap:5, selected:true },
-    { playerId:'c', name:'Georgiou', cap:7, selected:true },
+    { playerId:'b', name:'Papadakis', cap:2, selected:true, goalie:false },
+    { playerId:'a', name:'Alexiou', cap:5, selected:true, goalie:false },
+    { playerId:'c', name:'Georgiou', cap:7, selected:true, goalie:false },
   ]);
 });
 test('defaultSelection: previous game → only its lineup ticked', () => {
@@ -31,7 +31,7 @@ test('assignCap does not swap with an unselected holder', () => {
 test('toggleSelected: ticking into a collision clears the ticked cap', () => {
   let sel = m.toggleSelected(m.defaultSelection(roster, null), 'b');
   sel = m.toggleSelected(m.assignCap(sel, 'a', 2), 'b');
-  assert.deepEqual(sel[0], { playerId:'b', name:'Papadakis', cap:null, selected:true });
+  assert.deepEqual(sel[0], { playerId:'b', name:'Papadakis', cap:null, selected:true, goalie:false });
   assert.deepEqual(m.validateLineup(sel), [{ playerId:'b', reason:'missingCap' }]);
 });
 test('validateLineup: ok, empty, bad, duplicate', () => {
@@ -73,12 +73,71 @@ test('aggregateSeason: final only, roster names, games played, no shootout goals
     { id:'g3', date:'2026-10-15', opponent:'C', status:'live', period:1, lineup:[{ playerId:'a', name:'Alexiou', cap:5 }], events:[ev('goal',1,'a',1)] },
   ];
   const s = m.aggregateSeason(games, roster);
+  assert.deepEqual(s.goalies, {});
   assert.deepEqual(s.players, {
     a: { name:'Alexiou', games:2, goals:2, excl:0, pens:0 },
     b: { name:'Papadakis', games:1, goals:0, excl:1, pens:1 },
     q: { name:'Guest', games:1, goals:0, excl:0, pens:0 },
   });
   assert.deepEqual(s.results.map(r => r.gameId), ['g2', 'g1']);
+});
+
+test('defaultSelection and lineupFrom carry the goalie flag', () => {
+  const players = [
+    { id: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+    { id: 'p5', name: 'Field', cap: 5, goalie: false },
+    { id: 'g13', name: 'Nikolaou', cap: 13, goalie: 1 },
+  ];
+  const selection = m.defaultSelection(players, null);
+  assert.deepEqual(selection.map(player => player.goalie), [true, false, false]);
+  assert.deepEqual(m.lineupFrom(selection), [
+    { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+    { playerId: 'p5', name: 'Field', cap: 5 },
+    { playerId: 'g13', name: 'Nikolaou', cap: 13 },
+  ]);
+  const previous = { lineup: [{ playerId: 'p5', goalie: true }] };
+  assert.equal(m.defaultSelection(players, previous).find(player => player.playerId === 'p5').goalie, false);
+});
+
+test('rosterWithCaps writes goalie back', () => {
+  const players = Object.freeze([
+    Object.freeze({ id: 'g1', name: 'Georgiou', cap: 1, goalie: true }),
+    Object.freeze({ id: 'p5', name: 'Field', cap: 5 }),
+    Object.freeze({ id: 'g13', name: 'Nikolaou', cap: 13, goalie: true }),
+  ]);
+  assert.deepEqual(m.rosterWithCaps(players, [
+    { playerId: 'g1', name: 'Georgiou', cap: 2 },
+    { playerId: 'p5', name: 'Field', cap: 1, goalie: true },
+  ]), [
+    { id: 'g1', name: 'Georgiou', cap: 2, goalie: false },
+    { id: 'p5', name: 'Field', cap: 1, goalie: true },
+    { id: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
+  ]);
+});
+
+test('aggregateSeason sums goalie totals over final games with goalies', () => {
+  const lineup = [
+    { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+    { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
+    { playerId: 'p5', name: 'Field', cap: 5 },
+  ];
+  const first = { id: 'g1', date: '2026-11-08', opponent: 'A', status: 'final', period: 'SO', lineup,
+    events: [ev('save', 1, 'g1', 1), ev('penSave', 1, 'g1', 2), ev('oppGoal', 1, null, 3),
+      ev('save', 2, 'g13', 4), ev('oppGoal', 2, null, 5), ev('penSave', 'SO', 'g13', 6),
+      ev('oppGoal', 'SO', null, 7), ev('save', 3, 'p5', 8), ev('oppGoal', 3, null, 9)] };
+  const second = { ...first, id: 'g2', lineup: lineup.map(player => player.playerId === 'g13'
+    ? { ...player, goalie: false } : player),
+    events: [ev('save', 1, 'g13', 1), ev('oppGoal', 1, null, 2)] };
+  const live = { ...first, id: 'live', status: 'live' };
+  const old = { ...first, id: 'old', lineup: lineup.map(({ goalie, ...player }) => player) };
+  const names = [{ id: 'g1', name: 'Current name' }];
+  assert.deepEqual(m.aggregateSeason([first, second, live, old], names).goalies, {
+    g1: { name: 'Current name', games: 2, saves: 1, penSaves: 1, goalsAgainst: 1 },
+    g13: { name: 'Nikolaou', games: 1, saves: 2, penSaves: 0, goalsAgainst: 2 },
+    p5: { name: 'Field', games: 0, saves: 1, penSaves: 0, goalsAgainst: 1 },
+  });
+  assert.deepEqual(m.aggregateSeason([live, old], names).goalies, {});
+  assert.deepEqual(m.aggregateSeason([], names), { players: {}, goalies: {}, situations: null, results: [] });
 });
 test('formatDate and todayIso', () => {
   assert.equal(m.formatDate('2026-11-08'), '08/11/2026');

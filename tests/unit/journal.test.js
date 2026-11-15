@@ -16,6 +16,7 @@ const e1 = makeEvent('goal', 1, 'p1', 1000, 'e1');
 const stored = storage => JSON.parse(storage.getItem('wp-journal'));
 
 test('entries of every event type load; an unknown type still empties the journal', () => {
+  for (const type of ['save', 'penSave', 'gkIn']) assert.ok(m.EVENT_TYPES.includes(type));
   const storage = fakeStorage();
   const entries = m.EVENT_TYPES.map((type, index) => ({
     id: `j${index}`, gameId: 'g', op: 'add',

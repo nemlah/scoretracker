@@ -69,8 +69,8 @@ test('playerHasEvents', () => {
   assert.equal(m.playerHasEvents([ev('goal',1,null,1)], 'a'), false);
 });
 
-test('EVENT_TYPES contains all seven event types and is frozen', () => {
-  assert.deepEqual(m.EVENT_TYPES, ['goal', 'excl', 'oppGoal', 'pen', 'manUp', 'manUpEnd', 'manDownEnd']);
+test('EVENT_TYPES contains all ten event types and is frozen', () => {
+  assert.deepEqual(m.EVENT_TYPES, ['goal', 'excl', 'oppGoal', 'pen', 'manUp', 'manUpEnd', 'manDownEnd', 'save', 'penSave', 'gkIn']);
   assert.equal(Object.isFrozen(m.EVENT_TYPES), true);
 });
 test('playerLines counts penalty fouls toward OUT', () => {
