@@ -616,3 +616,74 @@ test('no Man-up goal switch on untracked games or shootout goals', async ({ page
   await expect(page.getByTestId('ev-row').filter({ hasText: 'Shootout' }).getByTestId('ev-manup')).toBeHidden();
   await expect(page.getByTestId('ev-row').filter({ hasText: 'Q1' }).getByTestId('ev-manup')).toBeVisible();
 });
+
+const goalieRoster = [
+  { id: 'g1', name: 'Nikolaou', cap: 1, archived: false, goalie: true },
+  { id: 'g13', name: 'Georgiou', cap: 13, archived: false, goalie: true },
+  { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
+];
+
+async function startGoalieGame(page) {
+  await seed('team/main', { roster: goalieRoster });
+  await startGame(page);
+}
+
+test('a save row\'s goalie picker moves the save to the other goalie', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 1).getByTestId('tile-save').click();
+  const gameId = await currentGameId();
+  await expect.poll(async () => (await get(`games/${gameId}`)).events.length).toBe(1);
+  const before = (await get(`games/${gameId}`)).events[0];
+  expect(before).toMatchObject({ type: 'save', playerId: 'g1' });
+
+  await openEvents(page);
+  const picker = sheet(page).getByTestId('ev-goalie');
+  await expect(picker).toHaveValue('g1');
+  await expect(picker.locator('option')).toHaveCount(2);
+  await picker.selectOption('g13');
+  await expect.poll(async () => (await get(`games/${gameId}`)).events[0].playerId).toBe('g13');
+  const after = (await get(`games/${gameId}`)).events;
+  expect(after).toHaveLength(1);
+  expect(after[0]).toMatchObject({ id: before.id, ts: before.ts, type: 'save', playerId: 'g13' });
+  await expect(picker).toHaveValue('g13');
+});
+
+test('an opponent-goal row shows who was in goal and can change it', async ({ page }) => {
+  await startGoalieGame(page);
+  await page.getByTestId('opp-goal').click();
+  const gameId = await currentGameId();
+  await expect.poll(async () => (await get(`games/${gameId}`)).events.length).toBe(1);
+  const oppGoal = (await get(`games/${gameId}`)).events[0];
+  expect(oppGoal.type).toBe('oppGoal');
+  const gkIns = async () => (await get(`games/${gameId}`)).events.filter(event => event.type === 'gkIn');
+
+  await openEvents(page);
+  const picker = sheet(page).getByTestId('ev-in-goal');
+  await expect(picker).toHaveValue('g1');
+  await picker.selectOption('g13');
+  await expect.poll(async () => (await gkIns()).length).toBe(1);
+  expect((await gkIns())[0]).toMatchObject({ playerId: 'g13', ts: oppGoal.ts - 1, period: oppGoal.period });
+  await expect(picker).toHaveValue('g13');
+  await sheet(page).getByTestId('events-close').click();
+  await expect(tile(page, 13)).toHaveAttribute('data-in-goal', 'true');
+
+  await openEvents(page);
+  await expect(sheet(page).locator('[data-testid="ev-row"]:has(.ev-label:text-is("Opponent goal")) [data-testid="ev-in-goal"]')).toHaveValue('g13');
+  await sheet(page).getByTestId('ev-in-goal').selectOption('g1');
+  await expect.poll(async () => (await gkIns()).length).toBe(0);
+  await expect(sheet(page).getByTestId('ev-in-goal')).toHaveValue('g1');
+});
+
+test('no goalie pickers in games without goalies', async ({ page }) => {
+  const now = Date.now();
+  await openSeeded(page, {
+    events: [
+      { id: 's', type: 'save', period: 1, ts: now - 2000, playerId: 'p5' },
+      { id: 'o', type: 'oppGoal', period: 1, ts: now - 1000 },
+    ],
+  });
+  await openEvents(page);
+  await expect(page.getByTestId('ev-row')).toHaveCount(2);
+  await expect(sheet(page).getByTestId('ev-goalie')).toBeHidden();
+  await expect(sheet(page).getByTestId('ev-in-goal')).toBeHidden();
+});

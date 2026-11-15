@@ -1,6 +1,7 @@
 import { prevPeriod, makeEvent, withPlayer } from '../../model.js';
 const ADD_PERIODS = [1, 2, 3, 4, 'SO'];
 const DEFAULT_ADD_PERIOD = '4';
+import { inGoalAt, inGoalSwitch } from '../../goalies.js';
 import { isTracked, manUpGoalIds, manUpSwitch } from '../../situations.js';
 import { eventLabel, periodLabel, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
@@ -19,7 +20,7 @@ function newestFirst(events) {
 }
 
 function lineupSignature(lineup) {
-  return JSON.stringify(lineup.map(({ playerId, name, cap }) => [playerId, name, cap]));
+  return JSON.stringify(lineup.map(({ playerId, name, cap, goalie }) => [playerId, name, cap, goalie === true]));
 }
 
 function scorerOptions(event, lineup) {
@@ -32,6 +33,20 @@ function scorerOptions(event, lineup) {
     options.push(h('option', { value: event.playerId }, t('unknownPlayer')));
   }
   return options;
+}
+
+// The lineup's goalies by cap; a goalie no longer marked in the lineup keeps showing as "unknown".
+function goalieOptions(event, lineup, current) {
+  const goalies = lineup.filter(player => player.goalie === true).sort((a, b) => a.cap - b.cap);
+  const options = goalies.map(player => h('option', { value: player.playerId }, t('scorerOption', { cap: player.cap, name: player.name })));
+  if (current != null && !goalies.some(player => player.playerId === current)) {
+    options.push(h('option', { value: current }, t('unknownPlayer')));
+  }
+  return options;
+}
+
+function hasOption(select, value) {
+  return Array.from(select.options).some(option => option.value === value);
 }
 
 /**
@@ -120,6 +135,38 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
       : ctx.repo.removeEvent(target.id, result.event)));
   }
 
+  function onGoalie(eventId, goalieId) {
+    const target = game;
+    const parts = rows.get(eventId);
+    const event = target?.events?.find(entry => entry.id === eventId);
+    if (!event || !parts) return;
+    if (!ctx.getState().active || event.playerId === goalieId) {
+      parts.goalie.value = parts.goalieShown ?? '';
+      return;
+    }
+    const changed = withPlayer(event, goalieId);
+    ctx.journal.record(target.id, 'replace', changed);
+    send(target, () => ctx.repo.replaceEvent(target.id, event, changed));
+  }
+
+  // Fixes a goalie swap that was never tapped: inGoalSwitch decides which gkIn to add, remove or move.
+  function onInGoal(eventId, goalieId) {
+    const target = game;
+    const parts = rows.get(eventId);
+    if (!target || !parts?.inGoal) return;
+    const result = ctx.getState().active ? inGoalSwitch(target, eventId, goalieId) : null;
+    if (!result) {
+      parts.inGoal.value = parts.inGoalShown ?? '';
+      return;
+    }
+    ctx.journal.record(target.id, result.op, result.op === 'replace' ? result.newEvent : result.event);
+    send(target, () => {
+      if (result.op === 'add') return ctx.repo.addEvent(target.id, result.event);
+      if (result.op === 'remove') return ctx.repo.removeEvent(target.id, result.event);
+      return ctx.repo.replaceEvent(target.id, result.event, result.newEvent);
+    });
+  }
+
   function onScorer(eventId, playerId) {
     const target = game;
     const event = target?.events?.find(entry => entry.id === eventId);
@@ -170,11 +217,21 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     const manUpBox = event.type === 'goal' ? h('input', {
       type: 'checkbox', class: 'ev-manup-box', 'data-testid': 'ev-manup', onchange: () => onManUp(event.id, manUpBox.checked),
     }) : null;
+    const saveType = event.type === 'save' || event.type === 'penSave';
+    const goalie = saveType ? h('select', {
+      class: 'input ev-goalie', 'data-testid': 'ev-goalie', hidden: true, onchange: () => onGoalie(event.id, goalie.value),
+    }) : null;
+    const inGoal = event.type === 'oppGoal' ? h('select', {
+      class: 'input ev-in-goal', 'data-testid': 'ev-in-goal', hidden: true, onchange: () => onInGoal(event.id, inGoal.value),
+    }) : null;
     const manUp = manUpBox ? h('label', { class: 'ev-manup', hidden: true }, manUpBox, t('evManUpGoal')) : null;
     const li = h('li', { class: 'ev-row', 'data-testid': 'ev-row', 'data-event-id': event.id },
       h('div', { class: 'ev-line' }, period, label),
-      h('div', { class: 'ev-controls' }, select, manUp, remove));
-    return { el: li, label, period, select, manUp, manUpBox, manUpShown: false, remove, shown: null, lineupKey: null };
+      h('div', { class: 'ev-controls' }, select, goalie, inGoal, manUp, remove));
+    return {
+      el: li, label, period, select, manUp, manUpBox, manUpShown: false, remove, shown: null, lineupKey: null,
+      goalie, goalieShown: null, goalieKey: null, inGoal, inGoalShown: null, inGoalKey: null,
+    };
   }
 
   // The box always follows the figures, so a refused or no-op write puts it back.
@@ -190,12 +247,56 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     parts.manUpBox.disabled = !writable;
   }
 
+  // Like the scorer picker: options only change with the lineup, and the value follows what the
+  // list last showed, so a refused write puts the picker back.
+  function syncGoalie(parts, event, lineup, lineupKey, writable, text) {
+    if (!parts.goalie) return;
+    const hasGoalies = lineup.some(player => player.goalie === true);
+    parts.goalie.hidden = !hasGoalies;
+    if (!hasGoalies) return;
+    if (parts.goalieKey !== lineupKey) {
+      parts.goalie.replaceChildren(...goalieOptions(event, lineup, event.playerId));
+      parts.goalieKey = lineupKey;
+      parts.goalieShown = null;
+    }
+    const wanted = event.playerId ?? '';
+    if (parts.goalieShown !== wanted) {
+      // A goalie who left the lineup's goalies keeps showing, rather than a blank picker.
+      if (wanted !== '' && !hasOption(parts.goalie, wanted)) parts.goalie.replaceChildren(...goalieOptions(event, lineup, wanted));
+      parts.goalie.value = wanted;
+      parts.goalieShown = wanted;
+    }
+    parts.goalie.setAttribute('aria-label', t('evGoalieFor', { label: `${text} (${periodLabel(event.period)})` }));
+    parts.goalie.disabled = !writable;
+  }
+
+  function syncInGoal(parts, event, lineup, lineupKey, writable, text) {
+    if (!parts.inGoal) return;
+    const wanted = game ? inGoalAt(game, event.id) : null;
+    parts.inGoal.hidden = wanted === null;
+    if (wanted === null) return;
+    if (parts.inGoalKey !== lineupKey) {
+      parts.inGoal.replaceChildren(...goalieOptions(event, lineup, wanted));
+      parts.inGoalKey = lineupKey;
+      parts.inGoalShown = null;
+    }
+    if (parts.inGoalShown !== wanted) {
+      if (!hasOption(parts.inGoal, wanted)) parts.inGoal.replaceChildren(...goalieOptions(event, lineup, wanted));
+      parts.inGoal.value = wanted;
+      parts.inGoalShown = wanted;
+    }
+    parts.inGoal.setAttribute('aria-label', t('evInGoalFor', { label: `${text} (${periodLabel(event.period)})` }));
+    parts.inGoal.disabled = !writable;
+  }
+
   function syncRow(parts, event, lineup, lineupKey, writable, manUpIds) {
     parts.period.textContent = periodLabel(event.period);
     const text = eventLabel(event, lineup);
     parts.label.textContent = event.type === 'goal' ? t('goalPlain') : text;
     parts.remove.setAttribute('aria-label', t('evDeleteFor', { label: `${text} (${periodLabel(event.period)})` }));
     parts.remove.disabled = !writable;
+    syncGoalie(parts, event, lineup, lineupKey, writable, text);
+    syncInGoal(parts, event, lineup, lineupKey, writable, text);
     if (parts.select === null) return;
     syncManUp(parts, event, text, writable, manUpIds);
     const wanted = event.playerId ?? '';
