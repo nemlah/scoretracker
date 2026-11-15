@@ -232,4 +232,19 @@ test.describe('mixed module cache', () => {
     await expect(page.getByTestId('timeline-item')).toHaveCount(6);
     await expect(celebration(page)).toBeHidden();
   });
+
+  test('saves and In goal stay out of the timeline when model.js is the previous version', async ({ page }) => {
+    const previousModel = execSync('git show 8e3c17b:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previousModel }));
+    await seedGame([ev('save', 1, 'g1'), ev('gkIn', 1, 'g13'), ev('oppGoal', 1)], {
+      lineup: [
+        { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+        { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
+        ...lineup,
+      ],
+    });
+    await open(page);
+    await expect(page.getByTestId('score-them')).toHaveText('1');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(1);
+  });
 });

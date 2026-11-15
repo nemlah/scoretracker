@@ -110,7 +110,7 @@ function buildTile(player, ctx) {
       exclButton.disabled = !writable || line.out;
       penButton.disabled = !writable || line.out;
       if (goalie === null) return;
-      const penSaves = goalieLine?.penSaves ?? 0;
+      const penSaves = (goalieLine?.penSaves ?? 0) + (goalieLine?.soSaves ?? 0);
       const saveCount = goalieLine?.saves ?? 0;
       const savesText = saveCount === 1 ? t('tileSavesOne') : t('tileSaves', { n: saveCount });
       goalie.saves.textContent = penSaves > 0

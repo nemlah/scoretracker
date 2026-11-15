@@ -9,7 +9,7 @@ const lineup = [
 ];
 
 // Fakes record every call, in order, in one shared log.
-function setup({ game, active = true, now = () => 0 } = {}) {
+function setup({ game, active = true, now = () => 0, eventTypes } = {}) {
   const calls = [];
   const errors = [];
   const vibrations = [];
@@ -37,6 +37,7 @@ function setup({ game, active = true, now = () => 0 } = {}) {
     onError: err => errors.push(err),
     now: () => now(),
     vibrate: ms => vibrations.push(ms),
+    ...(eventTypes ? { eventTypes } : {}),
   });
   return { tapper, calls, errors, vibrations, state, failedEntries };
 }
@@ -340,6 +341,22 @@ test('save and penSave are journaled for a goalie and refused for a field player
     assert.deepEqual(calls, [['journal.record', 'g1', 'add', event], ['repo.addEvent', 'g1', event]]);
     assert.deepEqual(vibrations, [30]);
   }
+});
+
+test('a goalie tap is refused when the type is not a known event type', () => {
+  // An old cached model.js lists no goalie types; the journal would drop the whole journal on load.
+  const oldTypes = ['goal', 'excl', 'oppGoal', 'pen', 'manUp', 'manUpEnd', 'manDown', 'manDownEnd'];
+  for (const type of ['save', 'penSave', 'gkIn']) {
+    const { tapper, calls, vibrations, state } = setup({ eventTypes: oldTypes });
+    state.game.lineup = goalieLineup;
+    assert.equal(tapper.tap(type, 'g1'), null);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(vibrations, []);
+  }
+  const { tapper, calls, state } = setup({ eventTypes: oldTypes });
+  state.game.lineup = goalieLineup;
+  assert.ok(tapper.tap('goal', 'p5'));
+  assert.equal(calls.length, 2);
 });
 
 test('gkIn is refused for the goalie already in goal', () => {

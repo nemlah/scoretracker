@@ -200,11 +200,19 @@ export function lineupFrom(selection) {
     .sort((a, b) => a.cap - b.cap);
 }
 
-export function rosterWithCaps(roster, lineup) {
+/**
+ * Caps are written back for everyone in the lineup. The goalie flag is written for everyone when
+ * changedGoalieIds is null (a new game takes its flags from the roster), otherwise only for the
+ * players whose tick the caller changed; everybody else keeps the roster's flag.
+ */
+export function rosterWithCaps(roster, lineup, changedGoalieIds = null) {
   const entries = new Map(lineup.map(player => [player.playerId, player]));
   return roster.map(player => {
     const entry = entries.get(player.id);
-    return entry ? { ...player, cap: entry.cap, goalie: entry.goalie === true } : { ...player };
+    if (!entry) return { ...player };
+    const written = { ...player, cap: entry.cap };
+    if (changedGoalieIds === null || changedGoalieIds.has(player.id)) written.goalie = entry.goalie === true;
+    return written;
   });
 }
 

@@ -1,6 +1,6 @@
 import { goalieStats } from '../goalies.js';
 import { isTracked, replaySituations, SITUATION_TYPES } from '../situations.js';
-import { isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
+import { EVENT_TYPES, isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
 
 /**
  * Every tap goes through here: journal first, then the write. The write is never awaited, so
@@ -10,11 +10,13 @@ import { isDuplicateTap, lastEvent, makeEvent, playerLines } from '../model.js';
  * @param {{record: Function, failed: Function, markRetried: Function, discard: Function}} deps.journal
  * @param {() => (import('../model.js').Game|null)} deps.getGame
  * @param {() => boolean} deps.isActive
+ * @param {readonly string[]} [deps.eventTypes] the event types the journal accepts
  * @param {(err: unknown) => void} deps.onError
  */
 export function createTapper({
   repo, journal, getGame, isActive, onError,
   now = Date.now,
+  eventTypes = EVENT_TYPES,
   vibrate = ms => globalThis.navigator?.vibrate?.(ms),
 }) {
   // Duplicate protection is per device: the last tap this tapper accepted, not any event in the game.
@@ -46,6 +48,8 @@ export function createTapper({
     }
     const isGoalieTap = ['save', 'penSave', 'gkIn'].includes(type);
     if (isGoalieTap) {
+      // A cached older model.js does not know these types; the journal would drop everything on its next load.
+      if (!eventTypes.includes(type)) return null;
       if (!game.lineup.some(player => player.playerId === playerId && player.goalie === true)) return null;
       if (type === 'save' && game.period === 'SO') return null;
       if (type === 'gkIn' && goalieStats({ ...game, events: game.events ?? [] })?.inGoal === playerId) return null;

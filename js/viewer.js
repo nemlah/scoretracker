@@ -313,7 +313,8 @@ function savePctCell(line) {
 }
 
 function timelineSection(game) {
-  const groups = timeline(game.events);
+  // An older cached timeline() would list these as exclusions.
+  const groups = timeline(game.events.filter(event => event.type !== 'save' && event.type !== 'gkIn'));
   const manUpGoals = manUpGoalIds(game);
   const outIds = model.foulOutIds?.(game.events) ?? new Set();
   return h('section', { class: 'section timeline' },

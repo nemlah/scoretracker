@@ -227,6 +227,38 @@ test('the shootout hides Save and keeps Pen save', async ({ page }) => {
   before.forEach((box, i) => box.forEach((value, j) => expect(Math.abs(value - after[i][j])).toBeLessThanOrEqual(0.5)));
 });
 
+test('a shootout penalty save shows on the goalie tile', async ({ page }) => {
+  await openSeeded(page, { period: 'SO' });
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('0 saves');
+  await tile(page, 1).getByTestId('tile-pen-save').click();
+  await expect(tile(page, 1).getByTestId('tile-saves')).toContainText('1 pen');
+});
+
+test('editing a cap on a game without goalies keeps the roster goalie ticks', async ({ page }) => {
+  await seed('team/main', { roster: goalieRoster });
+  await seed('games/g-old', {
+    opponent: 'Old FC', date: '2026-10-01', season: '2026-27', status: 'final', period: 4, events: [],
+    lineup: [
+      { playerId: 'g1', name: 'Nikolaou', cap: 1 },
+      { playerId: 'p5', name: 'Alexiou', cap: 5 },
+    ],
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-games').click();
+  await page.getByTestId('game-row').click();
+  await page.getByTestId('open-lineup').click();
+  await expect(page.getByTestId('lineup-sheet')).toBeVisible();
+  await expect(luRow(page, 'g1').getByTestId('lu-goalie')).not.toBeChecked();
+  await luRow(page, 'p5').getByTestId('lu-cap').fill('6');
+  await page.getByTestId('lu-save').click();
+  await expect(page.getByTestId('lineup-sheet')).toBeHidden();
+  await expect.poll(async () => (await get('games/g-old')).lineup.map(p => [p.playerId, p.cap]))
+    .toEqual([['g1', 1], ['p5', 6]]);
+  await expect.poll(async () => (await get('team/main')).roster.find(p => p.id === 'p5').cap).toBe(6);
+  expect((await get('team/main')).roster.filter(p => p.goalie === true).map(p => p.id).sort()).toEqual(['g1', 'g13']);
+});
+
 test('an OUT goalie has every button disabled', async ({ page }) => {
   const now = Date.now();
   await openSeeded(page, {

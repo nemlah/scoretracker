@@ -157,10 +157,11 @@ export function createRepo(db) {
       return updateDoc(gameRef(gameId), updated({ period }));
     },
 
-    setLineup(gameId, lineup, roster) {
+    /** changedGoalieIds: the players whose Goalie tick changed; only those flags reach the roster. */
+    setLineup(gameId, lineup, roster, changedGoalieIds = new Set()) {
       const batch = writeBatch(db);
       batch.update(gameRef(gameId), updated({ lineup }));
-      batch.set(teamRef, updated({ roster: rosterWithCaps(roster, lineup) }), { merge: true });
+      batch.set(teamRef, updated({ roster: rosterWithCaps(roster, lineup, changedGoalieIds) }), { merge: true });
       return batch.commit();
     },
 

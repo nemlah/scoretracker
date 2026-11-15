@@ -115,6 +115,29 @@ test('rosterWithCaps writes goalie back', () => {
   ]);
 });
 
+test('rosterWithCaps only writes goalie for the given changed ids', () => {
+  const players = [
+    { id: 'g1', name: 'Georgiou', cap: 1, goalie: true },
+    { id: 'p5', name: 'Field', cap: 5 },
+    { id: 'p7', name: 'Other', cap: 7, goalie: true },
+  ];
+  const lineup = [
+    { playerId: 'g1', name: 'Georgiou', cap: 2 },
+    { playerId: 'p5', name: 'Field', cap: 6, goalie: true },
+    { playerId: 'p7', name: 'Other', cap: 8 },
+  ];
+  // Caps are written for everyone; goalie only for p5 (changed). g1 and p7 keep the roster flag.
+  assert.deepEqual(m.rosterWithCaps(players, lineup, new Set(['p5'])), [
+    { id: 'g1', name: 'Georgiou', cap: 2, goalie: true },
+    { id: 'p5', name: 'Field', cap: 6, goalie: true },
+    { id: 'p7', name: 'Other', cap: 8, goalie: true },
+  ]);
+  // A changed id with no flag in the lineup unticks the roster goalie.
+  assert.equal(m.rosterWithCaps(players, lineup, new Set(['g1'])).find(p => p.id === 'g1').goalie, false);
+  // An empty set writes no goalie at all (p5 gets no flag).
+  assert.equal('goalie' in m.rosterWithCaps(players, lineup, new Set()).find(p => p.id === 'p5'), false);
+});
+
 test('aggregateSeason sums goalie totals over final games with goalies', () => {
   const lineup = [
     { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },

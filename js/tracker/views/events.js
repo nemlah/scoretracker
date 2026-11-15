@@ -1,4 +1,4 @@
-import { prevPeriod, makeEvent, withPlayer } from '../../model.js';
+import { EVENT_TYPES, prevPeriod, makeEvent, withPlayer } from '../../model.js';
 const ADD_PERIODS = [1, 2, 3, 4, 'SO'];
 const DEFAULT_ADD_PERIOD = '4';
 import { inGoalAt, inGoalSwitch } from '../../goalies.js';
@@ -140,7 +140,8 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     const parts = rows.get(eventId);
     const event = target?.events?.find(entry => entry.id === eventId);
     if (!event || !parts) return;
-    if (!ctx.getState().active || event.playerId === goalieId) {
+    // An older cached model.js would not accept a goalie event type (see taps.js).
+    if (!ctx.getState().active || event.playerId === goalieId || !EVENT_TYPES.includes(event.type)) {
       parts.goalie.value = parts.goalieShown ?? '';
       return;
     }
@@ -154,7 +155,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     const target = game;
     const parts = rows.get(eventId);
     if (!target || !parts?.inGoal) return;
-    const result = ctx.getState().active ? inGoalSwitch(target, eventId, goalieId) : null;
+    const result = ctx.getState().active && EVENT_TYPES.includes('gkIn') ? inGoalSwitch(target, eventId, goalieId) : null;
     if (!result) {
       parts.inGoal.value = parts.inGoalShown ?? '';
       return;

@@ -22,6 +22,7 @@ export function createLineupSheet(ctx, host) {
   // The draft when a cap field got focus; every keystroke is applied to this base, so typing
   // "12" does not leave a swap behind from the stray "1".
   let base = null;
+  let opened = new Map(); // playerId -> goalie flag in the game's lineup when the sheet opened
   let saving = false;
   let optionsSignature = null;
 
@@ -150,13 +151,23 @@ export function createLineupSheet(ctx, host) {
       .sort((a, b) => (a.cap ?? 100) - (b.cap ?? 100)));
   }
 
+  // The roster's goalie flag moves only for players whose tick differs from where this sheet started:
+  // the game's lineup when it opened, or the roster's flag for a player added since.
+  function changedGoalies(roster) {
+    const rosterFlags = new Map(roster.map(player => [player.id, player.goalie === true]));
+    return new Set(draft.filter(entry => entry.selected
+      && entry.goalie !== (opened.has(entry.playerId) ? opened.get(entry.playerId) : rosterFlags.get(entry.playerId) === true))
+      .map(entry => entry.playerId));
+  }
+
   function onSave() {
     const state = ctx.getState();
     if (saving || !state.active || game === null || validateLineup(draft).length > 0) return;
     saving = true;
     const target = game;
     try {
-      const write = ctx.repo.setLineup(target.id, lineupFrom(draft), state.team?.roster ?? []);
+      const roster = state.team?.roster ?? [];
+      const write = ctx.repo.setLineup(target.id, lineupFrom(draft), roster, changedGoalies(roster));
       const done = target.status === 'final' ? recountAfter(ctx, target.season, write) : Promise.resolve(write);
       done.catch(ctx.onWriteError);
     } catch (err) {
@@ -170,6 +181,7 @@ export function createLineupSheet(ctx, host) {
     open(current, from) {
       game = current;
       base = null;
+      opened = new Map((current.lineup ?? []).map(player => [player.playerId, player.goalie === true]));
       draft = (current.lineup ?? []).map(({ playerId, name, cap, goalie }) => ({
         playerId, name, cap, selected: true, goalie: goalie === true,
       }));
