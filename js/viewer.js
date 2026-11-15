@@ -85,14 +85,19 @@ function resubscribe(name, key, subscribe) {
   awaitingServer.delete(name);
   state[name] = undefined;
   if (key === null) { syncStaleTimer(); return; }
-  sub.off = subscribe((data, meta) => {
-    if (sub.key !== key) return;
-    state[name] = data;
-    if (name === 'game') state.gameMeta = meta;
-    if (name !== 'live') trackConnection(name, meta);
-    if (name === 'game') followSeason();
-    render();
-  });
+  try {
+    sub.off = subscribe((data, meta) => {
+      if (sub.key !== key) return;
+      state[name] = data;
+      if (name === 'game') state.gameMeta = meta;
+      if (name !== 'live') trackConnection(name, meta);
+      if (name === 'game') followSeason();
+      render();
+    });
+  } catch (err) {
+    // A subscription that cannot start must not stop the rest of the viewer.
+    console.warn(`Could not watch ${name}`, err);
+  }
 }
 
 function followSeason() {
@@ -100,14 +105,24 @@ function followSeason() {
   resubscribe('stats', season, cb => repo.watchStats(season, cb));
 }
 
-// '#/game/<id>' opens that game; anything else means the current game.
+// '#/game/<id>' opens that game; anything else means the current game. A route whose id could not be
+// a Firestore document id comes back as INVALID_ROUTE ('/' can never be an id): it is shown as
+// unavailable and never reaches Firestore.
+const INVALID_ROUTE = '/';
+
+function validDocId(id) {
+  return id !== '' && !id.includes('/') && id !== '.' && id !== '..'
+    && !/^__.*__$/.test(id) && new TextEncoder().encode(id).length <= 1500;
+}
+
 function routeGameId(hash) {
-  const match = /^#\/game\/([^/]+)$/.exec(hash);
+  const match = /^#\/game\/(.*)$/.exec(hash);
   if (!match) return null;
   try {
-    return decodeURIComponent(match[1]);
+    const id = decodeURIComponent(match[1]);
+    return validDocId(id) ? id : INVALID_ROUTE;
   } catch {
-    return null;
+    return INVALID_ROUTE;
   }
 }
 
@@ -122,7 +137,8 @@ function pastGameId() {
 const followedGameId = () => routeGameId(location.hash) ?? state.team?.currentGameId ?? null;
 
 function follow() {
-  const gameId = followedGameId();
+  const followed = followedGameId();
+  const gameId = followed === INVALID_ROUTE ? null : followed;
   resubscribe('game', gameId, cb => repo.watchGame(gameId, cb));
   if (gameId === null) followSeason();
   const liveId = pastGameId() === null ? null : state.team?.currentGameId ?? null;
@@ -214,6 +230,7 @@ function viewMode() {
   const settled = (data, meta) => data !== undefined && (data !== null || !meta?.fromCache || isOffline());
   if (state.team === undefined) return 'loading';
   const past = pastGameId() !== null;
+  if (pastGameId() === INVALID_ROUTE) return 'unavailable';
   if (!past && (state.team === null || state.team.currentGameId == null)) return settled(state.team, state.teamMeta) ? 'empty' : 'loading';
   if (state.game === undefined) return 'loading';
   if (state.game === null) {

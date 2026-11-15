@@ -186,6 +186,19 @@ test('a link to a deleted game says it isn\'t available', async ({ page }) => {
   await expect(page.getByTestId('game-unavailable')).toBeHidden();
 });
 
+for (const hash of ['#/game/a%2Fb', '#/game/%E0%A4%A']) {
+  test(`a malformed game link shows the unavailable message (${hash})`, async ({ page }) => {
+    await seedBoth();
+    await open(page, hash);
+    await expect(page.getByTestId('game-unavailable')).toBeVisible();
+    await expect(page.getByTestId('back-to-current')).toBeVisible();
+    await expect(page.getByTestId('empty-state')).toBeHidden();
+    await expect(page.getByTestId('result-link')).toHaveCount(2);
+    await page.getByTestId('back-to-current').click();
+    await expect(opponentName(page)).toHaveText('Waves');
+  });
+}
+
 test('returning to the live game does not celebrate old goals', async ({ page }) => {
   await seedBoth();
   await open(page);
