@@ -4,6 +4,7 @@ const STRINGS = {
   saveButton: 'Save', penSaveButton: 'Pen save', inGoalButton: 'In goal',
   saveFor: 'Save for {name}', penSaveFor: 'Penalty save for {name}', inGoalFor: 'Put {name} in goal',
   tileSaves: '{n} saves', tileSavesOne: '1 save', tilePenSaves: '{n} pen',
+  tileSavesWithPen: '{saves} · {pens}',
   saveNamed: 'Save · #{cap} {name}', penSaveNamed: 'Penalty save · #{cap} {name}', gkInNamed: 'In goal · #{cap} {name}',
   evGoalie: 'Goalie', evGoalieFor: 'Goalie for {label}', evInGoal: 'In goal', evInGoalFor: 'In goal for {label}',
   goaliesHeading: 'Goalkeepers', colSaves: 'Saves', colPenSaves: 'Pen', colGA: 'GA', colSavePct: 'Save %',

@@ -112,8 +112,10 @@ function buildTile(player, ctx) {
       if (goalie === null) return;
       const penSaves = goalieLine?.penSaves ?? 0;
       const saveCount = goalieLine?.saves ?? 0;
-      goalie.saves.textContent = (saveCount === 1 ? t('tileSavesOne') : t('tileSaves', { n: saveCount }))
-        + (penSaves > 0 ? ` · ${t('tilePenSaves', { n: penSaves })}` : '');
+      const savesText = saveCount === 1 ? t('tileSavesOne') : t('tileSaves', { n: saveCount });
+      goalie.saves.textContent = penSaves > 0
+        ? t('tileSavesWithPen', { saves: savesText, pens: t('tilePenSaves', { n: penSaves }) })
+        : savesText;
       el.classList.toggle('is-in-goal', inGoal);
       if (inGoal) el.dataset.inGoal = 'true'; else delete el.dataset.inGoal;
       goalie.inGoalBadge.style.visibility = inGoal ? 'visible' : 'hidden';
