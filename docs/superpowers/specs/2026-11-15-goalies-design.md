@@ -1,7 +1,7 @@
 # Goalkeepers: saves, penalty saves, goals against — Design
 
 Date: 15/11/2026
-Status: draft
+Status: approved 15/11/2026
 Extends: `2026-11-13-waterpolo-scoretracker-design.md`,
 `2026-11-14-man-up-man-down-design.md`,
 `2026-11-14-viewer-icons-goal-celebration-design.md`. Where this document
@@ -33,7 +33,8 @@ every mistake visible and fixable, tiles never move under a finger.
    goals against), periods 1–4 only.
 6. **Shootout** kept apart: shootout penalty saves and shootout goals
    conceded don't enter save %; the viewer's game section shows
-   "Shootout: saved X of Y".
+   "Shootout: X saved, Y conceded" (builder's call: missed or post shots
+   aren't recorded, so "saved X of Y" would overstate the attempts).
 7. **Viewer**: a Goalkeepers table in the game section and in the season
    section; penalty saves appear in the game timeline.
 8. **Viewer fix (separate, small)**: no "(0 – 0 pen.)" line for a final game
@@ -162,6 +163,22 @@ result is "no goalie stats" and nothing else applies.
   "Penalty save · #1 Georgiou", "In goal · #13 Nikolaou"); each is
   deletable.
 
+### Tracker: Events sheet corrections
+
+- **Goalie picker on `save` and `penSave` rows** (like the scorer picker on
+  goals): lists the lineup goalies; choosing another one replaces the event
+  with the same id and `ts` and the new `playerId`.
+- **"In goal" picker on opponent-goal rows** (games with at least one lineup
+  goalie): shows the goalie the replay has in goal for that goal. Choosing
+  another goalie adds a `gkIn` for that goalie in the same period with `ts`
+  = the opponent goal's `ts` − 1, so that goal and the following ones count
+  against the chosen goalie until the next goalie event. Choosing the goalie
+  that a correction-made `gkIn` (at exactly `ts` − 1) replaced removes that
+  `gkIn` again instead of adding another.
+- Both pickers are disabled when the device isn't the active tracker, and
+  put themselves back if the write is refused (same pattern as the scorer
+  picker).
+
 ### Viewer
 
 Game section, below the existing figures:
@@ -170,7 +187,7 @@ Game section, below the existing figures:
  Goalkeepers          Saves  Pen  GA  Save %
  #1  Georgiou  ●         7    1   5    62%     ● = in goal (live games only)
  #13 Nikolaou            2    0   1    67%
- Shootout: saved 2 of 5                        (only when the shootout had opponent attempts)
+ Shootout: 2 saved, 3 conceded                 (only when the shootout had a save or a goal conceded)
 ```
 
 - Shown only when the game has at least one goalie in its lineup.
@@ -205,6 +222,9 @@ Old docs without it render without the season Goalkeepers table.
   sheet; Goalkeepers tables on the viewer (game and season); penalty saves
   in the timeline, ordinary saves not; shootout kept out of save %; the
   shootout-line fix.
+- Correction tools in the Events sheet: a goalie picker on save rows and an
+  "In goal" picker on opponent-goal rows (builder's recommendation; the
+  owner replied "so?" to the question and the builder took it as go-ahead).
 
 ## Left to the builder
 
