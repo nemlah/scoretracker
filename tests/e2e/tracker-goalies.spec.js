@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { closeAll, get, resetAll, seed } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -113,4 +113,140 @@ test('the lineup sheet can mark a goalie and writes it back to the roster', asyn
   await expect(page.getByTestId('lu-add')).toBeVisible();
   await page.getByTestId('lu-add').selectOption('p7');
   await expect(luRow(page, 'p7').getByTestId('lu-goalie')).toBeChecked();
+});
+
+const goalieRoster = [
+  { id: 'g1', name: 'Nikolaou', cap: 1, archived: false, goalie: true },
+  { id: 'g13', name: 'Georgiou', cap: 13, archived: false, goalie: true },
+  { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
+];
+const tile = (page, cap) => page.locator(`[data-testid="tile"][data-cap="${cap}"]`);
+const tileCaps = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el => el.dataset.cap));
+const boxes = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el => {
+  const rect = el.getBoundingClientRect();
+  return [rect.x + scrollX, rect.y + scrollY, rect.width, rect.height]; // page coordinates: a tap may scroll
+}));
+
+async function startGoalieGame(page) {
+  await seed('team/main', { roster: goalieRoster });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+}
+
+// A game written straight to the server, opened through Home.
+async function openSeeded(page, game) {
+  const lineup = goalieRoster.map(({ id, name, cap, goalie }) => ({
+    playerId: id, name, cap, ...(goalie ? { goalie: true } : {}),
+  }));
+  await seed('team/main', { roster: goalieRoster, currentGameId: 'g-seed' });
+  await seed('games/g-seed', {
+    opponent: 'Seeded FC', date: '2026-11-01', season: '2026-27', status: 'live', period: 1, lineup, events: [], ...game,
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-resume').click();
+  await expect(page.getByTestId('score-us')).toBeVisible();
+}
+
+test('goalie tiles come first and the lowest cap starts in goal', async ({ page }) => {
+  await startGoalieGame(page);
+  await expect(page.getByTestId('tile')).toHaveCount(3);
+  expect(await tileCaps(page)).toEqual(['1', '13', '5']);
+  await expect(tile(page, 1)).toHaveAttribute('data-goalie', 'true');
+  await expect(tile(page, 13)).toHaveAttribute('data-goalie', 'true');
+  await expect(tile(page, 5)).not.toHaveAttribute('data-goalie', 'true');
+  await expect(tile(page, 1)).toHaveAttribute('data-in-goal', 'true');
+  await expect(tile(page, 1)).toHaveClass(/is-in-goal/);
+  await expect(tile(page, 1)).toContainText('In goal');
+  await expect(tile(page, 1).getByTestId('tile-in-goal')).toBeHidden();
+  await expect(tile(page, 13)).not.toHaveAttribute('data-in-goal', 'true');
+  await expect(tile(page, 13).getByTestId('tile-in-goal')).toBeVisible();
+  await expect(tile(page, 13).locator('.in-goal-badge')).toBeHidden();
+  await expect(tile(page, 13).getByTestId('tile-save')).toBeVisible();
+  await expect(tile(page, 13).getByTestId('tile-pen-save')).toBeVisible();
+  await expect(tile(page, 5).getByTestId('tile-save')).toHaveCount(0);
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('0 saves');
+});
+
+test('Save records a save on that goalie', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 1).getByTestId('tile-save').click();
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('1 save');
+  const id = await currentGameId();
+  await expect.poll(async () => (await get(`games/${id}`)).events.map(e => [e.type, e.playerId])).toEqual([['save', 'g1']]);
+  await expect(page.getByTestId('undo')).toContainText('Save · #1');
+});
+
+test('Pen save shows the pen count next to the saves', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 1).getByTestId('tile-save').click();
+  await tile(page, 1).getByTestId('tile-pen-save').click();
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('1 save · 1 pen');
+  const id = await currentGameId();
+  await expect.poll(async () => (await get(`games/${id}`)).events.map(e => e.type)).toEqual(['save', 'penSave']);
+});
+
+test('Save on the bench goalie moves the highlight without moving any tile', async ({ page }) => {
+  await startGoalieGame(page);
+  const before = await boxes(page);
+  await tile(page, 13).getByTestId('tile-save').click();
+  await expect(tile(page, 13)).toHaveAttribute('data-in-goal', 'true');
+  await expect(tile(page, 1)).not.toHaveAttribute('data-in-goal', 'true');
+  await expect(tile(page, 1).getByTestId('tile-in-goal')).toBeVisible();
+  await expect(tile(page, 13).getByTestId('tile-in-goal')).toBeHidden();
+  const after = await boxes(page);
+  expect(after).toHaveLength(before.length);
+  before.forEach((box, i) => box.forEach((value, j) => expect(Math.abs(value - after[i][j])).toBeLessThanOrEqual(0.5)));
+  expect(await tileCaps(page)).toEqual(['1', '13', '5']);
+});
+
+test('In goal switches the goalie in goal', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  await expect(tile(page, 13)).toHaveAttribute('data-in-goal', 'true');
+  await expect(tile(page, 1)).not.toHaveAttribute('data-in-goal', 'true');
+  const id = await currentGameId();
+  await expect.poll(async () => (await get(`games/${id}`)).events.map(e => [e.type, e.playerId])).toEqual([['gkIn', 'g13']]);
+  await expect(page.getByTestId('undo')).toContainText('In goal · #13');
+});
+
+test('the shootout hides Save and keeps Pen save', async ({ page }) => {
+  await openSeeded(page, { period: 'SO' });
+  const before = await boxes(page);
+  await expect(tile(page, 1).getByTestId('tile-save')).toBeHidden();
+  await expect(tile(page, 13).getByTestId('tile-save')).toBeHidden();
+  await expect(tile(page, 1).getByTestId('tile-pen-save')).toBeVisible();
+  await expect(tile(page, 13).getByTestId('tile-in-goal')).toBeVisible();
+  await tile(page, 1).getByTestId('tile-pen-save').click();
+  await expect.poll(async () => (await get('games/g-seed')).events.map(e => [e.type, e.period])).toEqual([['penSave', 'SO']]);
+  const after = await boxes(page);
+  before.forEach((box, i) => box.forEach((value, j) => expect(Math.abs(value - after[i][j])).toBeLessThanOrEqual(0.5)));
+});
+
+test('an OUT goalie has every button disabled', async ({ page }) => {
+  const now = Date.now();
+  await openSeeded(page, {
+    events: [1, 2, 3].map(n => ({ id: `x${n}`, type: 'excl', period: 1, ts: now - 10000 + n, playerId: 'g13' })),
+  });
+  for (const id of ['tile-save', 'tile-pen-save', 'tile-in-goal', 'tile-goal', 'tile-excl', 'tile-pen']) {
+    await expect(tile(page, 13).getByTestId(id)).toBeDisabled();
+    await expect(tile(page, 1).getByTestId(id)).toBeEnabled();
+  }
+});
+
+test('a game without goalies looks as before', async ({ page }) => {
+  await seed('team/main', { roster: goalieRoster.map(({ goalie, ...rest }) => rest) });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.locator('[data-goalie]')).toHaveCount(0);
+  await expect(page.getByTestId('tile-save')).toHaveCount(0);
+  await expect(page.getByTestId('tile-in-goal')).toHaveCount(0);
+  expect(await tileCaps(page)).toEqual(['1', '5', '13']);
 });

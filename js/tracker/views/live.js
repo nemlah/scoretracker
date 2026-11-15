@@ -1,3 +1,4 @@
+import { goalieStats } from '../../goalies.js';
 import {
   deriveScore, hasShootout, lastEvent, nextPeriod, playerLines,
 } from '../../model.js';
@@ -19,6 +20,7 @@ const SITUATION_TAP = { none: 'manUp', manUp: 'manUpEnd', manDown: 'manDownEnd' 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
 function buildTile(player, ctx) {
+  const isGoalie = player.goalie === true;
   const badge = h('span', { class: 'cap cap--tile' }, player.cap);
   const name = h('span', { class: 'tile-name' }, player.name);
   const out = h('span', { class: 'out-label', 'data-testid': 'tile-out', hidden: true }, t('out'));
@@ -43,16 +45,47 @@ function buildTile(player, ctx) {
     'aria-label': t('penFor', { name: player.name }),
     onclick: () => ctx.tapper.tap('pen', player.playerId),
   }, t('penButton'));
-  const el = h('li', { class: 'tile', 'data-testid': 'tile', 'data-cap': player.cap, 'data-player-id': player.playerId },
-    h('div', { class: 'tile-head' },
-      badge, h('span', { class: 'tile-who' }, name, out),
-      h('span', { class: 'tile-stats' },
-        h('span', { class: 'tile-count' }, goals, goalsLabel), soGoals, exclCount)),
-    h('div', { class: 'tile-actions' }, goalButton, exclButton, penButton));
+  const head = h('div', { class: 'tile-head' },
+    badge, h('span', { class: 'tile-who' }, name, isGoalie ? h('span', { class: 'gk-badge' }, t('gkBadge')) : null, out),
+    h('span', { class: 'tile-stats' },
+      h('span', { class: 'tile-count' }, goals, goalsLabel), soGoals, exclCount));
+  const el = h('li', { class: 'tile', 'data-testid': 'tile', 'data-cap': player.cap, 'data-player-id': player.playerId });
+  let goalie = null;
+  if (isGoalie) {
+    // A fixed line under the head: the badge keeps its space when hidden and the counts share a
+    // line of their own, so a changing count can never wrap the head or move a button.
+    const inGoalBadge = h('span', { class: 'in-goal-badge' }, t('inGoalBadge'));
+    const saves = h('span', { class: 'tile-saves', 'data-testid': 'tile-saves' });
+    const saveButton = h('button', {
+      type: 'button', class: 'btn btn--save', 'data-testid': 'tile-save',
+      'aria-label': t('saveFor', { name: player.name }),
+      onclick: () => ctx.tapper.tap('save', player.playerId),
+    }, t('saveButton'));
+    const penSaveButton = h('button', {
+      type: 'button', class: 'btn btn--pen-save', 'data-testid': 'tile-pen-save',
+      'aria-label': t('penSaveFor', { name: player.name }),
+      onclick: () => ctx.tapper.tap('penSave', player.playerId),
+    }, t('penSaveButton'));
+    const inGoalButton = h('button', {
+      type: 'button', class: 'btn btn--in-goal', 'data-testid': 'tile-in-goal',
+      'aria-label': t('inGoalFor', { name: player.name }),
+      onclick: () => ctx.tapper.tap('gkIn', player.playerId),
+    }, t('inGoalButton'));
+    el.dataset.goalie = 'true';
+    el.classList.add('tile--goalie');
+    el.append(head,
+      h('div', { class: 'tile-goalie-line' }, inGoalBadge, saves),
+      h('div', { class: 'tile-actions tile-actions--goalie' },
+        saveButton, penSaveButton, inGoalButton, goalButton, exclButton, penButton));
+    goalie = { inGoalBadge, saves, saveButton, penSaveButton, inGoalButton };
+  } else {
+    el.append(head, h('div', { class: 'tile-actions' }, goalButton, exclButton, penButton));
+  }
 
   return {
     el,
-    update(line, writable) {
+    isGoalie,
+    update(line, writable, goalieLine = null, inGoal = false, shootout = false) {
       el.dataset.cap = line.cap;
       badge.textContent = line.cap;
       badge.classList.toggle('cap--out', line.out);
@@ -76,6 +109,20 @@ function buildTile(player, ctx) {
       goalButton.disabled = !writable || line.out;
       exclButton.disabled = !writable || line.out;
       penButton.disabled = !writable || line.out;
+      if (goalie === null) return;
+      const penSaves = goalieLine?.penSaves ?? 0;
+      const saveCount = goalieLine?.saves ?? 0;
+      goalie.saves.textContent = (saveCount === 1 ? t('tileSavesOne') : t('tileSaves', { n: saveCount }))
+        + (penSaves > 0 ? ` · ${t('tilePenSaves', { n: penSaves })}` : '');
+      el.classList.toggle('is-in-goal', inGoal);
+      if (inGoal) el.dataset.inGoal = 'true'; else delete el.dataset.inGoal;
+      goalie.inGoalBadge.style.visibility = inGoal ? 'visible' : 'hidden';
+      goalie.saveButton.disabled = !writable || line.out;
+      goalie.penSaveButton.disabled = !writable || line.out;
+      goalie.inGoalButton.disabled = !writable || line.out;
+      // Hidden, not removed: the button keeps its space, so nothing moves under a finger.
+      goalie.saveButton.style.visibility = shootout ? 'hidden' : 'visible';
+      goalie.inGoalButton.style.visibility = inGoal ? 'hidden' : 'visible';
     },
   };
 }
@@ -240,10 +287,15 @@ export function mount(root, ctx) {
       : t('periodAria', { label: periodLabel(current.period), next: periodLabel(next) }));
     periodButton.disabled = !writable || next === null || periodLocked;
 
-    const lines = playerLines(current.lineup ?? [], events);
+    // Goalie tiles first, then field players, each by cap. Who is in goal never reorders anything.
+    const all = playerLines(current.lineup ?? [], events);
+    const lines = [...all.filter(line => line.goalie === true), ...all.filter(line => line.goalie !== true)];
+    const stats = goalieStats({ ...current, lineup: current.lineup ?? [], events });
     const keep = new Set(lines.map(line => line.playerId));
     for (const [id, tile] of tiles) {
-      if (!keep.has(id)) { tile.el.remove(); tiles.delete(id); }
+      // A tile whose goalie flag changed (lineup edit) has a different layout, so it is rebuilt.
+      const flagChanged = tile.isGoalie !== (lines.find(line => line.playerId === id)?.goalie === true);
+      if (!keep.has(id) || flagChanged) { tile.el.remove(); tiles.delete(id); }
     }
     lines.forEach((line, index) => {
       let tile = tiles.get(line.playerId);
@@ -251,7 +303,8 @@ export function mount(root, ctx) {
         tile = buildTile(line, ctx);
         tiles.set(line.playerId, tile);
       }
-      tile.update(line, writable);
+      tile.update(line, writable, stats?.goalies.find(entry => entry.playerId === line.playerId),
+        stats?.inGoal === line.playerId, current.period === 'SO');
       // Only move a tile that is out of place, so unchanged tiles keep their DOM identity.
       if (tileList.children[index] !== tile.el) tileList.insertBefore(tile.el, tileList.children[index] ?? null);
     });
