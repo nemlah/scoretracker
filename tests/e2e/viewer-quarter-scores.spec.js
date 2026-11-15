@@ -84,22 +84,18 @@ test('quarter scores wrap between quarters, never inside one', async ({ page }) 
   await expect(line(page)).toHaveText('Q1 10–11 · Q2 12–10 · Q3 11–12 · Q4 10–10');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
-  // Narrow further until the line really spans more than one row.
-  await page.setViewportSize({ width: 300, height: 740 });
+  // Narrow further: at 360 px and even 300 px the condensed font keeps the line on one row.
+  await page.setViewportSize({ width: 240, height: 740 });
   const quarters = line(page).locator('span');
   await expect(quarters).toHaveCount(4);
   const measure = () => page.evaluate(() => {
-    const box = document.querySelector('[data-testid="quarter-scores"]');
-    const items = [...box.children];
+    const items = [...document.querySelector('[data-testid="quarter-scores"]').children];
     return {
-      lineHeight: box.getBoundingClientRect().height,
-      oneQuarterHeight: items[0].getBoundingClientRect().height,
       rects: items.map(item => item.getClientRects().length),
+      tops: items.map(item => Math.round(item.getBoundingClientRect().top)),
     };
   });
-  await expect.poll(async () => {
-    const { lineHeight, oneQuarterHeight } = await measure();
-    return lineHeight > oneQuarterHeight;
-  }).toBe(true);
+  // The quarters sit on at least two distinct rows, and none is split across rows.
+  await expect.poll(async () => new Set((await measure()).tops).size).toBeGreaterThan(1);
   expect((await measure()).rects).toEqual([1, 1, 1, 1]);
 });
