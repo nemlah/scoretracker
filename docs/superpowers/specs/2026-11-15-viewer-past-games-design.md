@@ -33,8 +33,9 @@ current game.
 
 ## Constraints
 
-- Opening a past game costs one Firestore read plus updates while open; the
-  viewer still never queries the `games` collection.
+- Opening a past game costs one Firestore read plus updates while open; while
+  another game is live, the banner also watches that one game. The viewer
+  still never queries the `games` collection.
 - The goal celebration never fires for a past (final) game, nor when moving
   between games (the existing watcher already resets on a game switch).
 - The season section follows the open game's season (existing behaviour).

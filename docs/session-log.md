@@ -1,5 +1,11 @@
 # Session log
 
+## 15/11/2026 - Viewer past games live (main b5a2dd1)
+- Season results rows link to `#/game/<id>` and open that game in the normal view; open row marked; "← Back to current game"; live banner with Watch while another game is live; "That game isn't available." for deleted or malformed ids (a malformed id used to stop the viewer starting — fixed in review).
+- Tests: unit 192, emulator 28, e2e 315 / 13 skipped / 0 failed. Live check: ΡΟΗ opens from the list (19–10), back returns to Delfin, malformed link → unavailable, no console errors.
+- Left as is (final review minors): stale live banner while offline (like the scoreboard), offline + never-cached shared link says "isn't available", focus drops to body after a result link, raw string keys briefly on a mixed old/new cache.
+- Next: our players' missed penalties (deferred), compact goalie tile, older seasons in the viewer, the 4 parked tracker issues (repo.endGame first).
+
 ## 15/11/2026 - Goalkeeper stats live (main 7d453ac)
 - Roster/lineup Goalie tick; Live goalie tiles first with SAVE (largest), PEN SAVE, In goal; lowest cap starts in goal; save/penSave/gkIn events; opponent goals count against the goalie in goal (js/goalies.js replay). Save % = (saves + pen saves) ÷ (those + GA), periods 1–4; shootout separate.
 - Events sheet corrections: goalie picker on save rows, "In goal" picker on opponent-goal rows (adds a gkIn at goal ts − 1).
