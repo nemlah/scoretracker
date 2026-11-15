@@ -31,6 +31,46 @@ body.viewer { background: var(--pool); }
   font-size: 0.875rem;
 }
 
+/* Past games: back link and the live banner sit above the scoreboard, in the flow. */
+.past-nav > * + * { margin-top: 0.5rem; }
+.page > .past-nav + * { margin-top: 1rem; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--water-text);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+.live-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0.5rem 0.5rem 0.875rem;
+  border-radius: 0.5rem;
+  background: var(--ink);
+  color: var(--pool);
+  font-weight: 600;
+}
+.live-banner .live-dot { flex: none; background: var(--pool); }
+.live-banner-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.watch-live {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  border-radius: 999px;
+  background: var(--pool);
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
 /* Scoreboard */
 .scoreboard > * + * { margin-top: 0.25rem; }
 .board-row {
@@ -138,6 +178,17 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 .tl-text { overflow-wrap: anywhere; }
 
+.results a.result-link {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--water-text);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+.results tr.is-open { background: var(--paper); }
+.results tr.is-open td:first-child { box-shadow: inset 4px 0 0 var(--accent); padding-left: 0.75rem; }
+
 .result-score { font: 600 1.25rem/1.2 var(--font-num); white-space: nowrap; text-align: right; }
 .result-score .pen { font-family: var(--font-body); }
 .muted { font-size: 0.875rem; }
@@ -176,6 +227,8 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
     padding: 0.5rem 0;
   }
   .results td { border-top: 0; padding: 0; min-width: 0; }
+  .results tr.is-open { box-shadow: inset 4px 0 0 var(--accent); padding-inline: 0.75rem 0.5rem; }
+  .results tr.is-open td:first-child { box-shadow: none; padding-left: 0; }
   .results .result-score { white-space: normal; }
   .results .result-situations {
     grid-column: 1 / -1;

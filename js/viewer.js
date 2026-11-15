@@ -27,6 +27,7 @@ const root = document.getElementById('app');
 const state = {
   team: undefined, teamMeta: null,
   game: undefined, gameMeta: null,
+  live: undefined, // the current game, watched only for the banner while a past game is open
   stats: undefined,
   offline: !navigator.onLine,
   stale: false,
@@ -52,7 +53,7 @@ let goals = null;
 })();
 
 // Subscriptions keyed by what they watch, so a stale one is dropped when the key changes.
-const subs = { game: { key: null, off: null }, stats: { key: null, off: null } };
+const subs = { game: { key: null, off: null }, stats: { key: null, off: null }, live: { key: null, off: null } };
 const awaitingServer = new Set();
 let staleTimer = null;
 
@@ -88,7 +89,7 @@ function resubscribe(name, key, subscribe) {
     if (sub.key !== key) return;
     state[name] = data;
     if (name === 'game') state.gameMeta = meta;
-    trackConnection(name, meta);
+    if (name !== 'live') trackConnection(name, meta);
     if (name === 'game') followSeason();
     render();
   });
@@ -99,19 +100,50 @@ function followSeason() {
   resubscribe('stats', season, cb => repo.watchStats(season, cb));
 }
 
-function followTeam() {
-  const gameId = state.team?.currentGameId ?? null;
+// '#/game/<id>' opens that game; anything else means the current game.
+function routeGameId(hash) {
+  const match = /^#\/game\/([^/]+)$/.exec(hash);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+// The routed game when it is not the current one; a route to the current game counts as no route.
+// Unknown until the team document has arrived.
+function pastGameId() {
+  const routed = routeGameId(location.hash);
+  if (routed === null || state.team === undefined) return null;
+  return routed === (state.team?.currentGameId ?? null) ? null : routed;
+}
+
+const followedGameId = () => routeGameId(location.hash) ?? state.team?.currentGameId ?? null;
+
+function follow() {
+  const gameId = followedGameId();
   resubscribe('game', gameId, cb => repo.watchGame(gameId, cb));
   if (gameId === null) followSeason();
+  const liveId = pastGameId() === null ? null : state.team?.currentGameId ?? null;
+  resubscribe('live', liveId, cb => repo.watchGame(liveId, cb));
 }
 
 repo.watchTeam((data, meta) => {
   state.team = data;
   state.teamMeta = meta;
   trackConnection('team', meta);
-  followTeam();
+  follow();
   render();
 });
+
+window.addEventListener('hashchange', () => {
+  window.scrollTo(0, 0);
+  follow();
+  render();
+});
+// A shared link starts reading the game without waiting for the team document.
+if (routeGameId(location.hash) !== null) follow();
 
 window.addEventListener('online', () => { state.offline = false; render(); });
 window.addEventListener('offline', () => { state.offline = true; render(); });
@@ -145,9 +177,18 @@ const scoreboard = h('section', { class: 'scoreboard', hidden: true },
   h('div', { class: 'situation-figures' }, gameManUp, gameManDown));
 const empty = h('section', { class: 'empty', 'data-testid': 'empty-state', hidden: true },
   h('h2', {}, t('emptyTitle')), h('p', {}, t('emptyBody')));
+const unavailable = h('section', { class: 'empty', 'data-testid': 'game-unavailable', hidden: true },
+  h('p', {}, t('gameUnavailable')));
+const bannerText = h('span', { class: 'live-banner-text', 'data-testid': 'live-banner-text' });
+const liveBanner = h('div', { class: 'live-banner', 'data-testid': 'live-banner', hidden: true },
+  h('span', { class: 'live-dot', 'aria-hidden': 'true' }),
+  bannerText,
+  h('a', { class: 'watch-live', href: '#/', 'data-testid': 'watch-live' }, t('watchLive')));
+const backLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'back-to-current' }, t('backToCurrent'));
+const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, backLink);
 const gameSections = h('div', { class: 'stack' });
 const seasonSection = h('div', { class: 'stack' });
-root.append(note, scoreboard, empty, gameSections, seasonSection);
+root.append(note, pastNav, scoreboard, empty, unavailable, gameSections, seasonSection);
 
 function setScore(el, value) {
   const next = String(value);
@@ -172,9 +213,13 @@ function renderIfChanged(container, input, build) {
 function viewMode() {
   const settled = (data, meta) => data !== undefined && (data !== null || !meta?.fromCache || isOffline());
   if (state.team === undefined) return 'loading';
-  if (state.team === null || state.team.currentGameId == null) return settled(state.team, state.teamMeta) ? 'empty' : 'loading';
+  const past = pastGameId() !== null;
+  if (!past && (state.team === null || state.team.currentGameId == null)) return settled(state.team, state.teamMeta) ? 'empty' : 'loading';
   if (state.game === undefined) return 'loading';
-  if (state.game === null) return settled(state.game, state.gameMeta) ? 'empty' : 'loading';
+  if (state.game === null) {
+    if (!settled(state.game, state.gameMeta)) return 'loading';
+    return past ? 'unavailable' : 'empty';
+  }
   return 'game';
 }
 
@@ -184,7 +229,9 @@ function render() {
   const mode = viewMode();
   note.hidden = !isOffline();
   empty.hidden = mode !== 'empty';
+  unavailable.hidden = mode !== 'unavailable';
   scoreboard.hidden = mode !== 'game';
+  renderPastNav();
   if (mode === 'game') {
     renderGame(state.game);
     celebrateIfNew();
@@ -193,6 +240,18 @@ function render() {
     goals?.next(null);
   }
   renderSeason(state.stats);
+}
+
+function renderPastNav() {
+  const past = pastGameId() !== null;
+  pastNav.hidden = !past;
+  const live = past && state.live?.status === 'live' ? state.live : null;
+  liveBanner.hidden = live === null;
+  if (live === null) return;
+  const { us, them } = deriveScore(live.events);
+  bannerText.textContent = t('liveBanner', {
+    opponent: live.opponent, us, them, period: periodLabel(live.period),
+  });
 }
 
 // A throw here must never skip the rest of the render.
@@ -345,7 +404,8 @@ function timelineItem(event, game, manUpGoals, out) {
 }
 
 function renderSeason(stats) {
-  renderIfChanged(seasonSection, stats ?? null, () => {
+  const openId = followedGameId();
+  renderIfChanged(seasonSection, [stats ?? null, openId], () => {
     const results = stats?.results ?? [];
     const players = Object.entries(stats?.players ?? {})
       .map(([id, player]) => ({ id, ...player }))
@@ -359,19 +419,27 @@ function renderSeason(stats) {
       stats?.situations ? h('p', { class: 'situation-figures', 'data-testid': 'season-situations' },
         h('span', { class: 'situation-figure' }, manUpText(stats.situations.manUp)),
         h('span', { class: 'situation-figure' }, manDownText(stats.situations.manDown))) : null,
-      results.length ? resultsTable(results) : null,
+      results.length ? resultsTable(results, openId) : null,
       players.length ? totalsTable(players) : null,
       goalies.length ? seasonGoaliesTable(goalies) : null)];
   });
 }
 
-function resultsTable(results) {
+function resultsTable(results, openId) {
   return h('table', { class: 'results', 'aria-label': t('resultsHeading') }, h('tbody', {}, results.map(result => {
     // A 0 – 0 shootout means none was played (older games recorded it that way).
     const text = scoreText(result, result.soUs != null && !(result.soUs === 0 && result.soThem === 0));
-    return h('tr', { 'data-testid': 'result-row' },
+    const isOpen = result.gameId != null && result.gameId === openId;
+    return h('tr', {
+      'data-testid': 'result-row', class: isOpen ? 'is-open' : null, 'aria-current': isOpen ? 'page' : null,
+    },
       h('td', { class: 'muted' }, formatDate(result.date)),
-      h('td', {}, result.opponent),
+      h('td', {}, result.gameId == null ? result.opponent : h('a', {
+        class: 'result-link',
+        href: `#/game/${encodeURIComponent(result.gameId)}`,
+        'data-testid': 'result-link',
+        'aria-label': t('openGameFor', { opponent: result.opponent, date: formatDate(result.date) }),
+      }, result.opponent)),
       h('td', { class: 'result-score' }, text.main,
         text.shootout ? h('span', { class: 'pen' }, text.shootout) : null),
       h('td', { class: 'muted result-situations', 'data-testid': 'result-situations' },
