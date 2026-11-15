@@ -1,5 +1,12 @@
 # Session log
 
+## 15/11/2026 - Viewer quarter scores (branch feat/quarter-scores, not merged)
+- Done: a final game's scoreboard shows `Q1 2–3 · Q2 1–4 · Q3 3–3 · Q4 2–3` under the score (our goals first, `0–0` for an empty quarter, shootout goals left to the shootout line); hidden on live games; appears when a watched game ends. Commits 0f30e4a, 7522fb8, 38f6679.
+- Guard: the line is hidden if its quarters don't add up to the score shown (goals with a period outside 1–4; none exist in production — 138 events, all 1–4).
+- Wrapping: each " ·" stays with the quarter before it, so a wrapped row never starts with a dot; the line fits one row down to ~300 px, the wrap test uses 240 px.
+- Tests at 38f6679: unit 192, e2e 361 passed / 13 skipped / 0 failed.
+- Next: owner chooses merge/deploy; still open: the shared-cache tracker hang and the parked pin key check (entry below).
+
 ## 15/11/2026 - Viewer games list live (main 0948338)
 - Done: the viewer lands on the live game when one is live, otherwise on the games list (also `#/games`); "← All games" on every game view and the unavailable message; live banner on the list; a watched game that ends stays on its final score as `#/game/<id>` (history replace). Commits 1abb7f6, 84bf044, d69a048.
 - Review fixes: a non-current game ending no longer pins the page; ending a reopened older game (team pointer moves in the same batch) keeps its final score in either snapshot order; leaving the game ends a running celebration.
