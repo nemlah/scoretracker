@@ -98,4 +98,22 @@ test('quarter scores wrap between quarters, never inside one', async ({ page }) 
   // The quarters sit on at least two distinct rows, and none is split across rows.
   await expect.poll(async () => new Set((await measure()).tops).size).toBeGreaterThan(1);
   expect((await measure()).rects).toEqual([1, 1, 1, 1]);
+  // A separator is bound to the quarter before it: no loose text between the quarters, so a row
+  // can end with the dot but never starts with one.
+  const loose = await page.evaluate(() => [...document.querySelector('[data-testid="quarter-scores"]').childNodes]
+    .filter(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== '').length);
+  expect(loose).toBe(0);
+  const texts = await page.evaluate(() => [...document.querySelector('[data-testid="quarter-scores"]').children].map(item => item.textContent));
+  expect(texts).toEqual(['Q1 10–11 ·', 'Q2 12–10 ·', 'Q3 11–12 ·', 'Q4 10–10']);
+});
+
+test('no quarter line when the quarters do not add up to the score', async ({ page }) => {
+  // A goal in a period outside Q1-Q4 still counts in the score but belongs to no quarter.
+  await seedGame([...quarter(1, 1, 1), ev('goal', 5)]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('final-badge')).toBeVisible();
+  await expect(page.getByTestId('score-us')).toHaveText('2');
+  await expect(page.getByTestId('score-them')).toHaveText('1');
+  await expect(line(page)).toBeHidden();
+  await expect(line(page)).toHaveText('');
 });

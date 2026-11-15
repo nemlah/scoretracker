@@ -352,18 +352,22 @@ function quarterGoals(events) {
   return quarters;
 }
 
-// One element per quarter so the line wraps only between quarters.
-function renderQuarterScores(game) {
-  const final = game.status === 'final';
-  quarterScores.hidden = !final;
-  if (!final) {
+// One element per quarter so the line wraps only between quarters; each quarter but the last carries
+// the separator after it, so a wrapped row may end with the dot but never starts with it. The line
+// is shown only for a final game whose quarters add up to the score on screen.
+function renderQuarterScores(game, score) {
+  const quarters = quarterGoals(game.events);
+  const addsUp = quarters.reduce((sum, [us]) => sum + us, 0) === score.us
+    && quarters.reduce((sum, [, them]) => sum + them, 0) === score.them;
+  const show = game.status === 'final' && addsUp;
+  quarterScores.hidden = !show;
+  if (!show) {
     clear(quarterScores), signatures.delete(quarterScores);
     return;
   }
-  const quarters = quarterGoals(game.events);
   renderIfChanged(quarterScores, quarters, () => quarters.flatMap(([us, them], index) => [
-    ...(index > 0 ? [' · '] : []),
-    h('span', { class: 'quarter' }, `${periodLabel(index + 1)} ${us}–${them}`),
+    ...(index > 0 ? [' '] : []),
+    h('span', { class: 'quarter' }, `${periodLabel(index + 1)} ${us}–${them}${index < quarters.length - 1 ? ' ·' : ''}`),
   ]));
 }
 
@@ -377,7 +381,7 @@ function renderGame(game) {
   setScore(scoreThem, score.them);
   shootout.hidden = text.shootout === null;
   shootout.textContent = text.shootout ?? '';
-  renderQuarterScores(game);
+  renderQuarterScores(game, score);
   liveBadge.hidden = !live;
   finalBadge.hidden = live;
   period.hidden = !live;
