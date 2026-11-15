@@ -203,9 +203,55 @@ test('a game that ends after the visitor left it for home does not pin the page 
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await page.evaluate(() => { location.hash = '#/'; });
   await update('games/g2', { status: 'final' });
-  await page.waitForTimeout(1500);
+  // With the handler held back, the final snapshot is shown as home's list: proof it was delivered.
+  await expect(gamesList(page)).toBeVisible({ timeout: 5000 });
   expect(await hashOf(page)).toBe('#/');
 });
+
+// Ending a reopened older game also moves currentGameId to the newer game, in one batch; the viewer's
+// team and game listeners can fire in either order. Two sequential writes pin each order.
+for (const order of ['the team first', 'the game first']) {
+  test(`ending the watched game and moving the current game on (${order}) stays on its final score`, async ({ page }) => {
+    await Promise.all([
+      seed('team/main', { currentGameId: 'g1', roster }),
+      seed('games/g1', {
+        opponent: 'Rivals', date: '2026-11-01', season: '2026-27', status: 'live', period: 4, lineup, events: pastEvents,
+      }),
+      seed('games/g2', {
+        opponent: 'Waves', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup, events: liveEvents,
+      }),
+    ]);
+    await page.addInitScript(() => {
+      window.__listShown = false;
+      setInterval(() => {
+        const list = document.querySelector('[data-testid="games-list"]');
+        if (list && !list.hidden) window.__listShown = true;
+      }, 50);
+    });
+    await open(page);
+    await expect(opponentName(page)).toHaveText('Rivals');
+    await expect(page.getByTestId('live-badge')).toBeVisible();
+    const before = await page.evaluate(() => history.length);
+    const moveOn = () => update('team/main', { currentGameId: 'g2' });
+    const end = () => update('games/g1', { status: 'final' });
+    if (order === 'the team first') {
+      await moveOn();
+      // The team snapshot has arrived once the banner shows the newer game.
+      await expect(banner(page)).toContainText('Waves', { timeout: 5000 });
+      await end();
+    } else {
+      await end();
+      await expect(page.getByTestId('final-badge')).toBeVisible({ timeout: 5000 });
+      await moveOn();
+      await expect(banner(page)).toContainText('Waves', { timeout: 5000 });
+    }
+    await expect(page.getByTestId('final-badge')).toBeVisible({ timeout: 5000 });
+    await expect(opponentName(page)).toHaveText('Rivals');
+    expect(await hashOf(page)).toBe('#/game/g1');
+    expect(await page.evaluate(() => history.length)).toBe(before);
+    expect(await page.evaluate(() => window.__listShown)).toBe(false);
+  });
+}
 
 test('a game starting while on the list shows the banner, and home shows it live', async ({ page }) => {
   await Promise.all([
@@ -247,6 +293,17 @@ test('no celebration on the list; celebrations still fire on the live game', asy
   await expect(page.getByTestId('celebration')).toBeHidden();
   await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2'), ev('goal', 2, 'p5')] });
   await expect(page.getByTestId('celebration')).toBeVisible();
+});
+
+test('opening All games during a celebration ends it', async ({ page }) => {
+  await seedGames();
+  await open(page);
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2')] });
+  await expect(page.getByTestId('celebration')).toBeVisible();
+  await allGames(page).click();
+  await expect(gamesList(page)).toBeVisible();
+  await expect(page.getByTestId('celebration')).toBeHidden({ timeout: 500 });
 });
 
 test('no games at all shows the empty state', async ({ page }) => {

@@ -37,6 +37,7 @@ const state = {
 // (a mixed old/new cache), the viewer renders without it.
 let celebration = null;
 let goals = null;
+let celebratingId = null; // the game whose goal is being celebrated
 (async () => {
   try {
     const [{ createCelebration }, { createGoalWatcher }] = await Promise.all([
@@ -166,10 +167,14 @@ function stayOnGame(gameId) {
 }
 
 repo.watchTeam((data, meta) => {
+  // Ending a reopened older game also moves the current game on, and its team and game snapshots can
+  // arrive in either order: keep the live game on screen until its own final snapshot shows.
+  const onLive = parseRoute(location.hash).kind === 'home' && state.game?.status === 'live' ? followedGameId() : null;
   state.team = data;
   state.teamMeta = meta;
   trackConnection('team', meta);
-  follow();
+  if (onLive !== null && currentGameId() !== onLive) stayOnGame(onLive);
+  else follow();
   render();
 });
 
@@ -290,6 +295,11 @@ function render() {
     clear(gameSections), signatures.delete(gameSections);
     goals?.next(null);
   }
+  // A celebration belongs to the live game on screen: leaving that game ends it.
+  if (celebratingId !== null && (mode !== 'game' || state.game.id !== celebratingId)) {
+    celebration?.hide();
+    celebratingId = null;
+  }
   renderSeason(state.stats, mode === 'game' ? followedGameId() : null);
 }
 
@@ -320,6 +330,7 @@ function celebrateIfNew() {
 
 function celebrateGoal(goal) {
   if (!goal) return;
+  celebratingId = state.game.id;
   const player = state.game.lineup.find(entry => entry.playerId === goal.playerId);
   celebration.show({
     scorer: player ? t('celebrateScorer', { cap: player.cap, name: player.name }) : null,
