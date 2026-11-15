@@ -1,12 +1,14 @@
 # Session log
 
-## 15/11/2026 - Viewer games list (branch feat/games-list, not merged)
+## 15/11/2026 - Viewer games list live (main 0948338)
 - Done: the viewer lands on the live game when one is live, otherwise on the games list (also `#/games`); "← All games" on every game view and the unavailable message; live banner on the list; a watched game that ends stays on its final score as `#/game/<id>` (history replace). Commits 1abb7f6, 84bf044, d69a048.
 - Review fixes: a non-current game ending no longer pins the page; ending a reopened older game (team pointer moves in the same batch) keeps its final score in either snapshot order; leaving the game ends a running celebration.
 - Behaviour change: a final current game no longer lands on the game; existing tests open `#/game/<id>` instead (viewer.spec, tracker-events).
 - Tests at d69a048: unit 192, e2e 349 passed / 13 skipped / 0 failed. One webkit flake seen once: tracker-situations "tint is removed when leaving the live screen" (90/90 on re-run).
 - Parked: the team-snapshot pin should also check that the game on screen is the old current game (one condition; only reachable in the tick between a hash change and its hashchange).
-- Next: owner chooses merge/deploy (release routine in memory).
+- Live check (headless, 360 px): landing shows the list (ANOG, 3 results, no sideways scroll); a result opens Steaua 8–13 with "← All games" (#/games) back to the list; malformed link → unavailable with All games; no viewer console errors. Tracker reaches the unlock screen in a fresh browser.
+- Found during the live check, pre-existing since the first commit (same on 4de03d6): a browser that has never signed in to the tracker, with a viewer tab open, gets a tracker stuck on "Loading…" (permission-denied). Cause: both pages share the multi-tab Firestore cache; the viewer tab, with no auth user, is the primary tab and runs the tracker's listeners. Recovery: close the viewer tab and reload the tracker. Once a browser has signed in to the tracker, it's unaffected.
+- Next: decide the fix for the shared-cache tracker hang; the parked pin key check; open follow-ups from the handoff entry below.
 
 ## 15/11/2026 - Where we left off (handoff before /clear)
 - **Current work:** branch `feat/games-list` (off main 4de03d6), not pushed. Approved short design `docs/superpowers/specs/2026-11-15-viewer-games-list-design.md` and a 1-task plan `docs/superpowers/plans/2026-11-15-viewer-games-list.md`. Implementation not started.
