@@ -519,16 +519,26 @@ test('a goalie with no shots faced shows a dash for save %', async ({ page }) =>
   await expect(goalieRow(page, 13).getByTestId('goalie-pct')).toHaveText('—');
 });
 
-test('penalty saves appear in the timeline; saves and In goal do not', async ({ page }) => {
+test('saves and penalty saves appear in the timeline; In goal does not', async ({ page }) => {
   await seedGoalieGame(goalieEvents());
   await open(page);
-  // oppGoal x2 and the one penSave
-  await expect(page.getByTestId('timeline-item')).toHaveCount(3);
+  // 3 saves, oppGoal x2 and the one penSave; gkIn stays out
+  const items = page.getByTestId('timeline-item');
+  await expect(items).toHaveCount(6);
+  // "Penalty saved" also contains "save", and hasText is a case-insensitive substring match: select on the text span.
+  const saves = items.filter({ has: page.locator('.tl-text', { hasText: /^Save · / }) });
+  await expect(saves).toHaveCount(3);
+  for (let i = 0; i < 3; i++) {
+    await expect(saves.nth(i)).toContainText('✋');
+    await expect(saves.nth(i)).toHaveClass(/tl-minor/);
+  }
+  await expect(items.filter({ hasText: '#13 Nikolaou' })).toHaveCount(1);
   const penSave = page.locator('[data-testid="timeline-item"]', { hasText: 'Penalty saved' });
   await expect(penSave).toHaveCount(1);
   await expect(penSave).toContainText('✋');
   await expect(penSave).toContainText('#1 Georgiou');
-  await expect(page.locator('[data-testid="timeline-item"]', { hasText: 'Nikolaou' })).toHaveCount(0);
+  await expect(penSave).not.toHaveClass(/tl-minor/);
+  await expect(page.locator('[data-testid="timeline-item"]', { hasText: 'In goal' })).toHaveCount(0);
 });
 
 test('the goalie shootout line', async ({ page }) => {

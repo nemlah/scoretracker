@@ -7,6 +7,7 @@ import {
 // Added after the previous release. A phone can briefly hold that release's cached model.js beside
 // this file, so these are read off the namespace and fall back instead of failing the module link.
 import * as model from './model.js';
+import * as strings from './strings.js';
 import { goalieStats, savePct } from './goalies.js';
 import { createRepo } from './repo.js';
 import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
@@ -474,8 +475,11 @@ function savePctCell(line) {
 }
 
 function timelineSection(game) {
-  // An older cached timeline() would list these as exclusions.
-  const groups = timeline(game.events.filter(event => event.type !== 'save' && event.type !== 'gkIn'));
+  // Saves get their own, lighter rows, but only when both loaded modules know about them: a cached
+  // previous strings.js would draw one as an exclusion, a pre-goalie model.js would list it itself.
+  // In goal switches never get a row, and an older cached timeline() would list them as exclusions.
+  const savesShown = model.TIMELINE_SAVES === true && strings.TIMELINE_SAVES === true;
+  const groups = timeline(game.events.filter(event => event.type !== 'gkIn' && (savesShown || event.type !== 'save')));
   const manUpGoals = manUpGoalIds(game);
   const outIds = model.foulOutIds?.(game.events) ?? new Set();
   return h('section', { class: 'section timeline' },
@@ -495,7 +499,7 @@ function timelineItem(event, game, manUpGoals, out) {
   const text = h('span', { class: 'tl-text' }, entry.text);
   const tagged = event.type === 'goal' && manUpGoals.has(event.id);
   return h('li', {
-    'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}`, 'data-out': out ? 'true' : null,
+    'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}${entry.minor ? ' tl-minor' : ''}`, 'data-out': out ? 'true' : null,
   },
     h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
     entry.side === 'them' ? null : icon,

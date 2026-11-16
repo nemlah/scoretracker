@@ -183,6 +183,8 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   align-self: center;
 }
 .tl-text { overflow-wrap: anywhere; }
+/* Ordinary saves read lighter than goals and exclusions: the same softer ink as .quarter-scores. */
+.tl-minor { color: color-mix(in srgb, var(--ink) 75%, var(--pool)); }
 
 .results a.result-link {
   color: var(--ink);
