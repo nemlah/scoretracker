@@ -303,49 +303,56 @@ body.on-live .view { padding: 0; }
   font: 700 0.75rem/1 var(--font-num);
 }
 
-/* Goalie tiles. Same footprint whatever the state: hidden buttons keep their space (visibility). */
-.tile--goalie { grid-template-rows: auto 1.5rem auto; }
-/* One line in the head, whatever the name or OUT: both goalie tiles keep the same height, so a goalie
-   swap never moves a field tile. A long name is cut with an ellipsis; the badges stay visible. */
-.tile--goalie .tile-who { flex-wrap: nowrap; }
-.tile--goalie .tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile--goalie .gk-badge, .tile--goalie .out-label { flex: none; }
+/* Goalie tiles: the same head row and one button row as a player tile. The head holds the name over
+   the saves, one line each, so a long name or a changing count never changes the tile's height. */
+.tile--goalie .tile-head { gap: 0.5rem; }
+.tile--goalie .tile-who { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0; }
+.tile-name-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.tile--goalie .tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.25; }
+.tile--goalie .out-label { flex: none; }
+.tile-saves {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tile--goalie.is-in-goal {
   border-color: var(--accent);
   background: #E4EEFB; /* --ink on it is 14:1; the page tint is green or red, never blue */
   box-shadow: inset 0 0 0 3px var(--accent);
 }
 .tile--goalie.is-out { background: var(--pool); }
-.tile-goalie-line { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 1.5rem; }
+/* The IN GOAL badge and the In goal button share one slot, so the head never changes. */
+.in-goal-slot { display: grid; flex: none; width: 4.75rem; }
+.in-goal-slot > * { grid-area: 1 / 1; }
 .in-goal-badge {
-  padding: 0.0625rem 0.5rem;
+  align-self: center;
+  padding: 0.0625rem 0.25rem;
   border-radius: 0.375rem;
   background: var(--accent);
   color: #FFFFFF;
   font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+  text-align: center;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.tile-saves { margin-inline-start: auto; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
-.tile-actions--goalie { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 4.5rem 2.25rem; }
-.tile-actions--goalie .btn { min-width: 0; padding-inline: 0.25rem; overflow-wrap: anywhere; }
+.btn--in-goal { min-height: 2.75rem; padding-inline: 0.25rem; font-size: 0.875rem; }
+.tile--goalie .tile-actions .btn { min-height: 4rem; min-width: 0; padding-inline: 0.25rem; overflow-wrap: anywhere; }
 /* SAVE is tapped 8-15 times a game: the biggest target on the tile. */
 .btn--save {
-  min-height: 4.5rem;
   background: var(--water-text);
   border-color: var(--water-text);
   color: #FFFFFF; /* 5.9:1 */
   font-size: 1.75rem;
   text-transform: uppercase;
 }
-.btn--pen-save, .btn--in-goal { min-height: 4.5rem; font-size: 1rem; }
-.btn--pen-save { border-color: var(--water-text); color: var(--water-text); }
-.tile-actions--goalie .btn--goal, .tile-actions--goalie .btn--excl, .tile-actions--goalie .btn--pen { min-height: 2.25rem; padding-block: 0; }
-.tile-actions--goalie .btn--goal { font-size: 1.125rem; }
-.tile-actions--goalie .btn--excl, .tile-actions--goalie .btn--pen { font-size: 0.8125rem; line-height: 1.1; }
-.btn--pen-save { font-size: 0.875rem; }
+.btn--pen-save { border-color: var(--water-text); color: var(--water-text); font-size: 0.875rem; }
+.btn--more { font-size: 1.75rem; line-height: 1; }
 
 .dock {
   position: fixed;

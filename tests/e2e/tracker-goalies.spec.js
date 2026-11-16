@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { closeAll, get, resetAll, seed } from './helpers.js';
+import { closeAll, get, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 let problems;
@@ -225,8 +225,8 @@ test('after a goalie change the goalie buttons pause for a second', async ({ pag
   await startGoalieGame(page);
   await tile(page, 13).getByTestId('tile-in-goal').click();
   const locked = [
-    ...goalieButtons(page, 1, ['tile-in-goal', 'tile-save']),
-    ...goalieButtons(page, 13, ['tile-save', 'tile-pen-save']),
+    ...goalieButtons(page, 1, ['tile-in-goal', 'tile-save', 'tile-pen-save']),
+    ...goalieButtons(page, 13, ['tile-in-goal', 'tile-save', 'tile-pen-save']),
   ];
   for (const button of locked) await expect(button).toBeDisabled({ timeout: 300 });
   await tile(page, 1).getByTestId('tile-in-goal').click({ force: true });
@@ -277,64 +277,153 @@ test('with three goalies the two not in goal come last by cap', async ({ page })
 });
 
 const near = (a, b) => Math.abs(a - b) <= 0.5;
-const pageBox = (page, cap) => tile(page, cap).evaluate(el => {
-  const rect = el.getBoundingClientRect();
-  return { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height };
+const moreSheet = page => page.getByTestId('goalie-more-sheet');
+
+const heights = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el => [el.dataset.cap, el.getBoundingClientRect().height]));
+async function expectEqualHeights(page) {
+  for (const width of [360, 800]) {
+    await page.setViewportSize({ width, height: 900 });
+    const all = await heights(page);
+    const field = all.find(([cap]) => cap === '5')[1];
+    expect(all.length).toBeGreaterThan(1);
+    for (const [cap, height] of all) expect(near(height, field), `#${cap} at ${width}px: ${height} vs ${field}`).toBe(true);
+  }
+}
+
+const savesAndPens = [
+  ...Array.from({ length: 12 }, (_, n) => ({ id: `s${n}`, type: 'save', period: 1, ts: 1000 + n, playerId: 'g1' })),
+  ...[0, 1].map(n => ({ id: `ps${n}`, type: 'penSave', period: 1, ts: 2000 + n, playerId: 'g1' })),
+];
+
+test('goalie and player tiles are the same height', async ({ page }) => {
+  await startGoalieGame(page);
+  await expectEqualHeights(page);
 });
 
-test('goalie tiles stay the same height with a long name and an OUT goalie, so a swap leaves the field tile put', async ({ page }) => {
+test('goalie and player tiles are the same height with a long name on cap 13', async ({ page }) => {
   await startGoalieGame(page, [
-    { id: 'g1', name: 'Κωνσταντινίδης', cap: 1, archived: false, goalie: true },
-    { id: 'g13', name: 'Papadopoulos Jr', cap: 13, archived: false, goalie: true },
+    { id: 'g1', name: 'Nikolaou', cap: 1, archived: false, goalie: true },
+    { id: 'g13', name: 'Κωνσταντινίδης', cap: 13, archived: false, goalie: true },
     { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
   ]);
-  await page.setViewportSize({ width: 360, height: 800 });
+  await expectEqualHeights(page);
+});
+
+test('goalie and player tiles are the same height with 12 saves · 2 pen showing', async ({ page }) => {
+  await openSeeded(page, { events: savesAndPens });
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('12 saves · 2 pen');
+  await page.setViewportSize({ width: 360, height: 900 });
+  // The text is not cut off by the ellipsis at the narrowest width.
+  expect(await tile(page, 1).getByTestId('tile-saves').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  await expectEqualHeights(page);
+});
+
+test('goalie and player tiles are the same height in the shootout', async ({ page }) => {
+  await openSeeded(page, { period: 'SO' });
+  await expectEqualHeights(page);
+});
+
+test('goalie and player tiles are the same height after #1 fouls out through the sheet', async ({ page }) => {
+  await startGoalieGame(page);
   for (let n = 0; n < 3; n += 1) {
-    await tile(page, 1).getByTestId('tile-excl').click();
+    await tile(page, 1).getByTestId('tile-more').click();
+    await moreSheet(page).getByTestId('more-excl').click();
+    await expect(moreSheet(page)).toBeHidden();
     await page.waitForTimeout(1100); // the tapper refuses a duplicate tap within 1 s
   }
   await expect(tile(page, 1)).toHaveClass(/is-out/);
-  const goalie1 = await pageBox(page, 1);
-  const goalie13 = await pageBox(page, 13);
-  expect(near(goalie1.height, goalie13.height)).toBe(true);
-  const field = await pageBox(page, 5);
-  await tile(page, 13).getByTestId('tile-in-goal').click();
-  await expect.poll(() => tileCaps(page)).toEqual(['13', '5', '1']);
-  const after = await pageBox(page, 5);
-  for (const key of ['x', 'y', 'width', 'height']) expect(near(field[key], after[key])).toBe(true);
+  await expectEqualHeights(page);
 });
 
-test('in two columns a field tile beside a goalie tile keeps its own height', async ({ page }) => {
-  await startGoalieGame(page, [
-    ...goalieRoster,
-    { id: 'p6', name: 'Petrou', cap: 6, archived: false },
-    { id: 'p8', name: 'Nikou', cap: 8, archived: false },
-  ]);
-  await page.setViewportSize({ width: 800, height: 900 });
-  // Order: #1 (goalie, in goal), #5, #6, #8, #13: rows are (1, 5), (6, 8), (13).
-  await expect.poll(() => tileCaps(page)).toEqual(['1', '5', '6', '8', '13']);
-  const goalHeight = cap => tile(page, cap).getByTestId('tile-goal').evaluate(el => el.getBoundingClientRect().height);
-  const beside = await goalHeight(5);
-  const alone = await goalHeight(6);
-  expect(Math.abs(beside - alone)).toBeLessThanOrEqual(0.5);
-});
-
-test('Goal, Excl and Pen on goalie tiles are 36 px and their labels fit at 360 px', async ({ page }) => {
+test('the head shows IN GOAL or an In goal button, and saves instead of goals', async ({ page }) => {
   await startGoalieGame(page);
-  await page.setViewportSize({ width: 360, height: 640 });
+  await expect(tile(page, 1).locator('.tile-head .in-goal-badge')).toBeVisible();
+  await expect(tile(page, 1).getByTestId('tile-in-goal')).toBeHidden();
+  await expect(tile(page, 13).locator('.tile-head').getByTestId('tile-in-goal')).toBeVisible();
+  await expect(tile(page, 13).locator('.in-goal-badge')).toBeHidden();
   for (const cap of [1, 13]) {
-    for (const id of ['tile-goal', 'tile-excl', 'tile-pen']) {
-      const button = tile(page, cap).getByTestId(id);
-      const box = await button.boundingBox();
-      expect(Math.abs(box.height - 36)).toBeLessThanOrEqual(1);
-      const fit = await button.evaluate(el => ({
-        h: el.scrollHeight - el.clientHeight, w: el.scrollWidth - el.clientWidth,
-      }));
-      expect(fit.h).toBeLessThanOrEqual(1);
-      expect(fit.w).toBeLessThanOrEqual(1);
+    await expect(tile(page, cap).locator('.tile-head').getByTestId('tile-saves')).toHaveText('0 saves');
+    await expect(tile(page, cap).locator('.tile-goals-label')).toHaveCount(0);
+    await expect(tile(page, cap).getByTestId('tile-goals')).toHaveCount(0);
+    await expect(tile(page, cap).locator('.gk-badge')).toHaveCount(0);
+    await expect(tile(page, cap).locator('.tile-actions .btn')).toHaveCount(3);
+    for (const id of ['tile-save', 'tile-pen-save', 'tile-more']) {
+      await expect(tile(page, cap).locator('.tile-actions').getByTestId(id)).toHaveCount(1);
     }
+    for (const id of ['tile-goal', 'tile-excl', 'tile-pen']) await expect(tile(page, cap).getByTestId(id)).toHaveCount(0);
   }
-  expect((await tile(page, 5).getByTestId('tile-goal').boundingBox()).height).toBeGreaterThanOrEqual(48);
+  // A field player keeps its goals count and Goal / Excl / Pen row.
+  await expect(tile(page, 5).getByTestId('tile-goals')).toBeVisible();
+  await expect(tile(page, 5).getByTestId('tile-goal')).toBeVisible();
+});
+
+test('the ⋯ sheet records a goalie\'s goal, exclusion or penalty', async ({ page }) => {
+  await startGoalieGame(page);
+  const id = await currentGameId();
+  const recorded = async () => (await get(`games/${id}`)).events.map(e => [e.type, e.playerId]);
+
+  await tile(page, 1).getByTestId('tile-more').click();
+  await expect(moreSheet(page)).toBeVisible();
+  await expect(moreSheet(page)).toContainText('#1');
+  await moreSheet(page).getByTestId('goalie-more-close').click();
+  await expect(moreSheet(page)).toBeHidden();
+  expect(await recorded()).toEqual([]);
+
+  await tile(page, 1).getByTestId('tile-more').click();
+  await moreSheet(page).getByTestId('more-excl').click();
+  await expect(moreSheet(page)).toBeHidden();
+  await expect.poll(recorded).toEqual([['excl', 'g1']]);
+
+  await tile(page, 1).getByTestId('tile-more').click();
+  await moreSheet(page).getByTestId('more-goal').click();
+  await expect(moreSheet(page)).toBeHidden();
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect.poll(recorded).toEqual([['excl', 'g1'], ['goal', 'g1']]);
+
+  await tile(page, 1).getByTestId('tile-more').click();
+  await moreSheet(page).getByTestId('more-pen').click();
+  await expect(moreSheet(page)).toBeHidden();
+  await expect.poll(recorded).toEqual([['excl', 'g1'], ['goal', 'g1'], ['pen', 'g1']]);
+});
+
+test('an action chosen after the goalie fouled out is refused', async ({ page }) => {
+  const now = Date.now();
+  const excl = n => ({ id: `x${n}`, type: 'excl', period: 1, ts: now - 10000 + n, playerId: 'g1' });
+  await openSeeded(page, { events: [excl(1), excl(2)] });
+  await tile(page, 1).getByTestId('tile-more').click();
+  await expect(moreSheet(page)).toBeVisible();
+  const goal = await moreSheet(page).getByTestId('more-goal').elementHandle();
+  // A third foul lands from elsewhere while the sheet is open: the sheet closes.
+  await update('games/g-seed', { events: [excl(1), excl(2), excl(3)] });
+  await expect(tile(page, 1)).toHaveClass(/is-out/);
+  await expect(moreSheet(page)).toBeHidden();
+  // A tap that was already on its way (the button handle outlives the sheet) records nothing.
+  await goal.evaluate(el => el.click());
+  await page.waitForTimeout(300);
+  expect((await get('games/g-seed')).events.map(e => e.type)).toEqual(['excl', 'excl', 'excl']);
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+});
+
+test('⋯ is disabled for an OUT goalie and on a device not in control during a live game', async ({ page }) => {
+  const now = Date.now();
+  await openSeeded(page, {
+    events: [1, 2, 3].map(n => ({ id: `x${n}`, type: 'excl', period: 1, ts: now - 10000 + n, playerId: 'g13' })),
+  });
+  await expect(tile(page, 13).getByTestId('tile-more')).toBeDisabled();
+  await expect(tile(page, 1).getByTestId('tile-more')).toBeEnabled();
+  await update('control/tracker', { activeUid: 'another-device' });
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await expect(tile(page, 1).getByTestId('tile-more')).toBeDisabled();
+});
+
+test('leaving the live screen closes an open ⋯ sheet', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 1).getByTestId('tile-more').click();
+  await expect(moreSheet(page)).toBeVisible();
+  await page.evaluate(() => { location.hash = '#/'; });
+  await expect(page.getByTestId('home-resume')).toBeVisible();
+  await expect(moreSheet(page)).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveClass(/sheet-open/);
 });
 
 test('the shootout hides Save and keeps Pen save', async ({ page }) => {
@@ -394,7 +483,7 @@ test('an OUT goalie has every button disabled', async ({ page }) => {
   await openSeeded(page, {
     events: [1, 2, 3].map(n => ({ id: `x${n}`, type: 'excl', period: 1, ts: now - 10000 + n, playerId: 'g13' })),
   });
-  for (const id of ['tile-save', 'tile-pen-save', 'tile-in-goal', 'tile-goal', 'tile-excl', 'tile-pen']) {
+  for (const id of ['tile-save', 'tile-pen-save', 'tile-in-goal', 'tile-more']) {
     await expect(tile(page, 13).getByTestId(id)).toBeDisabled();
     await expect(tile(page, 1).getByTestId(id)).toBeEnabled();
   }

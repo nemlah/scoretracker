@@ -7,6 +7,7 @@ import {
   eventLabel, goalCountLabel, periodLabel, scoreText, situationShort, t,
 } from '../../strings.js';
 import { h } from '../../ui/dom.js';
+import { createOverlay } from '../../ui/overlay.js';
 import { createEventsSheet } from './events.js';
 
 const PIPS = 3;
@@ -20,41 +21,51 @@ const SITUATION_TAP = { none: 'manUp', manUp: 'manUpEnd', manDown: 'manDownEnd' 
 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
-function buildTile(player, ctx, onGoalieTap) {
+// Every tile is a head row and one button row. A goalie's Goal / Exclusion / Pen sit behind ⋯.
+function buildTile(player, ctx, onGoalieTap, host) {
   const isGoalie = player.goalie === true;
   const badge = h('span', { class: 'cap cap--tile' }, player.cap);
   const name = h('span', { class: 'tile-name' }, player.name);
   const out = h('span', { class: 'out-label', 'data-testid': 'tile-out', hidden: true }, t('out'));
-  const goals = h('span', { class: 'tile-goals', 'data-testid': 'tile-goals' }, '0');
-  const goalsLabel = h('span', { class: 'tile-goals-label' }, goalCountLabel(0));
-  const soGoals = h('span', { class: 'tile-so', 'data-testid': 'tile-so-goals', hidden: true });
   const pips = Array.from({ length: PIPS }, () => h('i', { class: 'pip' }));
   const exclCount = h('span', { class: 'pips', role: 'img', 'data-testid': 'tile-excl-count' },
     pips, h('span', { class: 'sr-only' }, '0'));
-  const goalButton = h('button', {
-    type: 'button', class: 'btn btn--goal', 'data-testid': 'tile-goal',
-    'aria-label': t('goalFor', { name: player.name }),
-    onclick: () => ctx.tapper.tap('goal', player.playerId),
-  }, t('goalButton'));
-  const exclButton = h('button', {
-    type: 'button', class: 'btn btn--excl', 'data-testid': 'tile-excl',
-    'aria-label': t('exclFor', { name: player.name }),
-    onclick: () => ctx.tapper.tap('excl', player.playerId),
-  }, t('exclButton'));
-  const penButton = h('button', {
-    type: 'button', class: 'btn btn--pen', 'data-testid': 'tile-pen',
-    'aria-label': t('penFor', { name: player.name }),
-    onclick: () => ctx.tapper.tap('pen', player.playerId),
-  }, t('penButton'));
-  const head = h('div', { class: 'tile-head' },
-    badge, h('span', { class: 'tile-who' }, name, isGoalie ? h('span', { class: 'gk-badge' }, t('gkBadge')) : null, out),
-    h('span', { class: 'tile-stats' },
-      h('span', { class: 'tile-count' }, goals, goalsLabel), soGoals, exclCount));
   const el = h('li', { class: 'tile', 'data-testid': 'tile', 'data-cap': player.cap, 'data-player-id': player.playerId });
+  let field = null;
   let goalie = null;
+  // The latest line this tile was updated with: the ⋯ sheet reads it when a button is tapped.
+  let current = { cap: player.cap, name: player.name, out: false, writable: false };
+  let more = null;
+
+  function closeMore() { more?.close(); }
+
+  function openMore(from) {
+    if (more) return;
+    const sheet = createOverlay({
+      title: t('moreSheetTitle', { cap: current.cap, name: current.name }),
+      testid: 'goalie-more-sheet',
+      closeTestId: 'goalie-more-close',
+      // Built on open and removed on close: at most one such sheet is ever in the page.
+      onClose: () => { sheet.destroy(); if (more === sheet) more = null; },
+    });
+    // A snapshot may have put the goalie OUT, or taken control away, since the sheet opened:
+    // the state is read at tap time, and the sheet closes either way.
+    const choose = type => () => {
+      if (!current.out && current.writable) ctx.tapper.tap(type, player.playerId);
+      sheet.close();
+    };
+    sheet.body.append(
+      h('button', { type: 'button', class: 'btn btn--goal', 'data-testid': 'more-goal', onclick: choose('goal') }, t('goalButton')),
+      h('button', { type: 'button', class: 'btn btn--excl', 'data-testid': 'more-excl', onclick: choose('excl') }, t('exclButton')),
+      h('button', { type: 'button', class: 'btn btn--pen', 'data-testid': 'more-pen', onclick: choose('pen') }, t('penButton')));
+    host.append(sheet.el);
+    more = sheet;
+    sheet.open(from);
+  }
+
   if (isGoalie) {
-    // A fixed line under the head: the badge keeps its space when hidden and the counts share a
-    // line of their own, so a changing count can never wrap the head or move a button.
+    // Head: cap, then the name over the saves, the in-goal slot (badge or button, same footprint), pips.
+    // The text is one line each, so a changing count or a long name can never change the tile's height.
     const inGoalBadge = h('span', { class: 'in-goal-badge' }, t('inGoalBadge'));
     const saves = h('span', { class: 'tile-saves', 'data-testid': 'tile-saves' });
     const saveButton = h('button', {
@@ -72,30 +83,62 @@ function buildTile(player, ctx, onGoalieTap) {
       'aria-label': t('inGoalFor', { name: player.name }),
       onclick: () => onGoalieTap('gkIn', player.playerId),
     }, t('inGoalButton'));
+    const moreButton = h('button', {
+      type: 'button', class: 'btn btn--more', 'data-testid': 'tile-more',
+      'aria-label': t('moreFor', { name: player.name }),
+      onclick: event => openMore(event.currentTarget),
+    }, t('moreButton'));
     el.dataset.goalie = 'true';
     el.classList.add('tile--goalie');
-    el.append(head,
-      h('div', { class: 'tile-goalie-line' }, inGoalBadge, saves),
-      h('div', { class: 'tile-actions tile-actions--goalie' },
-        saveButton, penSaveButton, inGoalButton, goalButton, exclButton, penButton));
-    goalie = { inGoalBadge, saves, saveButton, penSaveButton, inGoalButton };
+    el.append(
+      h('div', { class: 'tile-head' },
+        badge,
+        h('span', { class: 'tile-who' }, h('span', { class: 'tile-name-line' }, name, out), saves),
+        h('span', { class: 'in-goal-slot' }, inGoalBadge, inGoalButton),
+        exclCount),
+      h('div', { class: 'tile-actions' }, saveButton, penSaveButton, moreButton));
+    goalie = { inGoalBadge, saves, saveButton, penSaveButton, inGoalButton, moreButton };
   } else {
-    el.append(head, h('div', { class: 'tile-actions' }, goalButton, exclButton, penButton));
+    const goals = h('span', { class: 'tile-goals', 'data-testid': 'tile-goals' }, '0');
+    const goalsLabel = h('span', { class: 'tile-goals-label' }, goalCountLabel(0));
+    const soGoals = h('span', { class: 'tile-so', 'data-testid': 'tile-so-goals', hidden: true });
+    const goalButton = h('button', {
+      type: 'button', class: 'btn btn--goal', 'data-testid': 'tile-goal',
+      'aria-label': t('goalFor', { name: player.name }),
+      onclick: () => ctx.tapper.tap('goal', player.playerId),
+    }, t('goalButton'));
+    const exclButton = h('button', {
+      type: 'button', class: 'btn btn--excl', 'data-testid': 'tile-excl',
+      'aria-label': t('exclFor', { name: player.name }),
+      onclick: () => ctx.tapper.tap('excl', player.playerId),
+    }, t('exclButton'));
+    const penButton = h('button', {
+      type: 'button', class: 'btn btn--pen', 'data-testid': 'tile-pen',
+      'aria-label': t('penFor', { name: player.name }),
+      onclick: () => ctx.tapper.tap('pen', player.playerId),
+    }, t('penButton'));
+    el.append(
+      h('div', { class: 'tile-head' },
+        badge, h('span', { class: 'tile-who' }, name, out),
+        h('span', { class: 'tile-stats' }, h('span', { class: 'tile-count' }, goals, goalsLabel), soGoals, exclCount)),
+      h('div', { class: 'tile-actions' }, goalButton, exclButton, penButton));
+    field = { goals, goalsLabel, soGoals, goalButton, exclButton, penButton };
   }
 
   return {
     el,
     isGoalie,
+    closeMore,
+    destroy() {
+      more?.destroy();
+      more = null;
+    },
     update(line, writable, goalieLine = null, inGoal = false, shootout = false, goalieLocked = false) {
       el.dataset.cap = line.cap;
+      current = { cap: line.cap, name: line.name, out: line.out, writable };
       badge.textContent = line.cap;
       badge.classList.toggle('cap--out', line.out);
       name.textContent = line.name;
-      goals.textContent = line.goals;
-      goalsLabel.textContent = goalCountLabel(line.goals);
-      goals.setAttribute('aria-label', t('tileGoalsAria', { n: line.goals }));
-      soGoals.hidden = line.soGoals === 0;
-      soGoals.textContent = line.soGoals === 0 ? '' : t('penaltyGoals', { n: line.soGoals });
       exclCount.setAttribute('aria-label', t('tileFoulsAria', { excl: line.excl, pens: line.pens }));
       exclCount.lastChild.textContent = line.excl;
       pips.forEach((pip, i) => {
@@ -107,10 +150,17 @@ function buildTile(player, ctx, onGoalieTap) {
       });
       out.hidden = !line.out;
       el.classList.toggle('is-out', line.out);
-      goalButton.disabled = !writable || line.out;
-      exclButton.disabled = !writable || line.out;
-      penButton.disabled = !writable || line.out;
-      if (goalie === null) return;
+      if (field !== null) {
+        field.goals.textContent = line.goals;
+        field.goalsLabel.textContent = goalCountLabel(line.goals);
+        field.goals.setAttribute('aria-label', t('tileGoalsAria', { n: line.goals }));
+        field.soGoals.hidden = line.soGoals === 0;
+        field.soGoals.textContent = line.soGoals === 0 ? '' : t('penaltyGoals', { n: line.soGoals });
+        field.goalButton.disabled = !writable || line.out;
+        field.exclButton.disabled = !writable || line.out;
+        field.penButton.disabled = !writable || line.out;
+        return;
+      }
       const penSaves = (goalieLine?.penSaves ?? 0) + (goalieLine?.soSaves ?? 0);
       const saveCount = goalieLine?.saves ?? 0;
       const savesText = saveCount === 1 ? t('tileSavesOne') : t('tileSaves', { n: saveCount });
@@ -119,15 +169,19 @@ function buildTile(player, ctx, onGoalieTap) {
         : savesText;
       el.classList.toggle('is-in-goal', inGoal);
       if (inGoal) el.dataset.inGoal = 'true'; else delete el.dataset.inGoal;
+      // The badge and the button share one slot: whichever is not shown keeps its space.
       goalie.inGoalBadge.style.visibility = inGoal ? 'visible' : 'hidden';
-      // Right after a goalie change the three goalie buttons are refused for a moment, so a second
+      goalie.inGoalButton.style.visibility = inGoal ? 'hidden' : 'visible';
+      // Right after a goalie change the goalie buttons are refused for a moment, so a second
       // finger on the old layout cannot hit a tile that has just moved.
       goalie.saveButton.disabled = !writable || line.out || goalieLocked;
       goalie.penSaveButton.disabled = !writable || line.out || goalieLocked;
       goalie.inGoalButton.disabled = !writable || line.out || goalieLocked;
+      // ⋯ is Goal, Exclusion and Pen: disabled like Goal on a player tile. An open sheet closes.
+      goalie.moreButton.disabled = !writable || line.out;
+      if (!writable || line.out) closeMore();
       // Hidden, not removed: the button keeps its space, so nothing moves under a finger.
       goalie.saveButton.style.visibility = shootout ? 'hidden' : 'visible';
-      goalie.inGoalButton.style.visibility = inGoal ? 'hidden' : 'visible';
     },
   };
 }
@@ -220,7 +274,8 @@ export function mount(root, ctx) {
       update(ctx.getState());
     }, GOALIE_LOCK_MS);
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
-    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    // One frame later: WebKit drops a smooth scroll started in the same task as the re-render.
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }));
   }
 
   // Same guard as Undo: a double tap would skip a quarter, so after a change the button is
@@ -328,12 +383,12 @@ export function mount(root, ctx) {
     for (const [id, tile] of tiles) {
       // A tile whose goalie flag changed (lineup edit) has a different layout, so it is rebuilt.
       const flagChanged = tile.isGoalie !== (lines.find(line => line.playerId === id)?.goalie === true);
-      if (!keep.has(id) || flagChanged) { tile.el.remove(); tiles.delete(id); }
+      if (!keep.has(id) || flagChanged) { tile.destroy(); tile.el.remove(); tiles.delete(id); }
     }
     lines.forEach((line, index) => {
       let tile = tiles.get(line.playerId);
       if (!tile) {
-        tile = buildTile(line, ctx, goalieTap);
+        tile = buildTile(line, ctx, goalieTap, root);
         tiles.set(line.playerId, tile);
       }
       tile.update(line, writable, stats?.goalies.find(entry => entry.playerId === line.playerId),
@@ -366,7 +421,10 @@ export function mount(root, ctx) {
     loading.hidden = state.gameLoaded;
     none.hidden = !(state.gameLoaded && !live);
     if (live) renderGame(current, state);
-    else clearSituation();
+    else {
+      clearSituation();
+      for (const tile of tiles.values()) tile.closeMore();
+    }
     sheet.update(live ? current : null, state);
   }
 
@@ -408,6 +466,7 @@ export function mount(root, ctx) {
       clearTimeout(goalieTimer);
       clearSituation();
       sheet.destroy();
+      for (const tile of tiles.values()) tile.destroy();
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
       document.body.classList.remove('on-live');
