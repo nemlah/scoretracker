@@ -9,10 +9,13 @@ import {
 import { EMULATOR, firebaseConfig, useEmulator } from './config.js';
 
 // Browser only: the persistent Firestore cache requires IndexedDB.
-export function initFirebase({ emulator = useEmulator() } = {}) {
+// Tabs of one app name share a cache, and its primary tab runs every tab's listeners with its
+// own sign-in. A page that never signs in (the viewer) passes its own name, so it can't become
+// the primary tab for the tracker and run the tracker's listeners signed out.
+export function initFirebase({ emulator = useEmulator(), name } = {}) {
   const app = initializeApp(emulator
     ? { projectId: EMULATOR.projectId, apiKey: 'demo' }
-    : firebaseConfig);
+    : firebaseConfig, name);
   const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   });

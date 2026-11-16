@@ -20,7 +20,9 @@ const STALE_MS = 6000;
 document.documentElement.style.setProperty('--accent', teamConfig.accent);
 document.title = t('viewerTitle', { team: teamConfig.name });
 
-const repo = createRepo(initFirebase().db);
+// Its own app name keeps the viewer's Firestore cache apart from the tracker's (see firebase.js).
+// A phone still holding the previous firebase.js ignores the name and shares the cache as before.
+const repo = createRepo(initFirebase({ name: 'viewer' }).db);
 const root = document.getElementById('app');
 
 // undefined = no snapshot yet, null = document absent.

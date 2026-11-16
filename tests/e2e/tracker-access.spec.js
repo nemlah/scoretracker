@@ -44,6 +44,20 @@ test('right code unlocks and survives reload', async ({ page }) => {
   await expect(page.getByTestId('code-input')).toHaveCount(0);
 });
 
+// The viewer never signs in. If both pages shared one Firestore cache, the viewer tab opened
+// first would run the tracker's listeners without its sign-in and the tracker would hang on
+// "Loading…" with permission-denied.
+test('a viewer tab opened first in the same browser does not block the tracker', async ({ page, context }) => {
+  await page.goto('/index.html?emulator=1');
+  await expect(page.getByTestId('empty-state')).toBeVisible();
+
+  const tracker = await context.newPage();
+  collectProblems(tracker, problems);
+  await tracker.goto(TRACKER_URL);
+  await unlockTracker(tracker);
+  await expect(page.getByTestId('empty-state')).toBeVisible();
+});
+
 test('second device takes over; first becomes read-only and can take back', async ({ page, browser }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
