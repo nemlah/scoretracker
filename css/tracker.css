@@ -238,7 +238,7 @@ body.on-live .view { padding: 0; }
   gap: 0.75rem;
 }
 @media (min-width: 700px) {
-  .tiles { grid-template-columns: 1fr 1fr; }
+  .tiles { grid-template-columns: 1fr 1fr; align-items: start; }
 }
 
 .tile {
@@ -305,6 +305,11 @@ body.on-live .view { padding: 0; }
 
 /* Goalie tiles. Same footprint whatever the state: hidden buttons keep their space (visibility). */
 .tile--goalie { grid-template-rows: auto 1.5rem auto; }
+/* One line in the head, whatever the name or OUT: both goalie tiles keep the same height, so a goalie
+   swap never moves a field tile. A long name is cut with an ellipsis; the badges stay visible. */
+.tile--goalie .tile-who { flex-wrap: nowrap; }
+.tile--goalie .tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile--goalie .gk-badge, .tile--goalie .out-label { flex: none; }
 .tile--goalie.is-in-goal {
   border-color: var(--accent);
   background: #E4EEFB; /* --ink on it is 14:1; the page tint is green or red, never blue */

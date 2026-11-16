@@ -276,6 +276,49 @@ test('with three goalies the two not in goal come last by cap', async ({ page })
   await expect.poll(() => tileCaps(page)).toEqual(['13', '5', '1', '7']);
 });
 
+const near = (a, b) => Math.abs(a - b) <= 0.5;
+const pageBox = (page, cap) => tile(page, cap).evaluate(el => {
+  const rect = el.getBoundingClientRect();
+  return { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height };
+});
+
+test('goalie tiles stay the same height with a long name and an OUT goalie, so a swap leaves the field tile put', async ({ page }) => {
+  await startGoalieGame(page, [
+    { id: 'g1', name: 'Κωνσταντινίδης', cap: 1, archived: false, goalie: true },
+    { id: 'g13', name: 'Papadopoulos Jr', cap: 13, archived: false, goalie: true },
+    { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
+  ]);
+  await page.setViewportSize({ width: 360, height: 800 });
+  for (let n = 0; n < 3; n += 1) {
+    await tile(page, 1).getByTestId('tile-excl').click();
+    await page.waitForTimeout(1100); // the tapper refuses a duplicate tap within 1 s
+  }
+  await expect(tile(page, 1)).toHaveClass(/is-out/);
+  const goalie1 = await pageBox(page, 1);
+  const goalie13 = await pageBox(page, 13);
+  expect(near(goalie1.height, goalie13.height)).toBe(true);
+  const field = await pageBox(page, 5);
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  await expect.poll(() => tileCaps(page)).toEqual(['13', '5', '1']);
+  const after = await pageBox(page, 5);
+  for (const key of ['x', 'y', 'width', 'height']) expect(near(field[key], after[key])).toBe(true);
+});
+
+test('in two columns a field tile beside a goalie tile keeps its own height', async ({ page }) => {
+  await startGoalieGame(page, [
+    ...goalieRoster,
+    { id: 'p6', name: 'Petrou', cap: 6, archived: false },
+    { id: 'p8', name: 'Nikou', cap: 8, archived: false },
+  ]);
+  await page.setViewportSize({ width: 800, height: 900 });
+  // Order: #1 (goalie, in goal), #5, #6, #8, #13: rows are (1, 5), (6, 8), (13).
+  await expect.poll(() => tileCaps(page)).toEqual(['1', '5', '6', '8', '13']);
+  const goalHeight = cap => tile(page, cap).getByTestId('tile-goal').evaluate(el => el.getBoundingClientRect().height);
+  const beside = await goalHeight(5);
+  const alone = await goalHeight(6);
+  expect(Math.abs(beside - alone)).toBeLessThanOrEqual(0.5);
+});
+
 test('Goal, Excl and Pen on goalie tiles are 36 px and their labels fit at 360 px', async ({ page }) => {
   await startGoalieGame(page);
   await page.setViewportSize({ width: 360, height: 640 });

@@ -157,7 +157,7 @@ result is "no goalie stats" and nothing else applies.
   first, field players, then the other goalie; Goal / Excl / Pen on goalie
   tiles are 36 px. See `2026-11-16-goalie-order-timeline-saves-design.md`.*
 - SAVE is the largest target on a goalie tile; PEN SAVE and In goal at least
-  48 px; Goal / Excl / Pen keep at least 48 px.
+  48 px; Goal / Excl / Pen keep at least 48 px. *(Goal / Excl / Pen on goalie tiles: 36 px since 16/11/2026.)*
 - In the shootout SAVE is hidden (a shootout block is a PEN SAVE); PEN SAVE
   and In goal stay.
 - A goalie who is OUT (3 fouls) has every button disabled, as today.
