@@ -1,13 +1,13 @@
 # Session log
 
-## 16/11/2026 - Goalie order, smaller goalie buttons, timeline saves (branch feat/goalie-order-timeline-saves, 9704df2)
+## 16/11/2026 - Goalie order, smaller goalie buttons, timeline saves, live (main f5f541c)
 - Live screen: the goalie in goal first, field players by cap, the other goalie(s) last. A tap on this device's goalie buttons that changes the goalie in goal (In goal, or Save / Pen save on the other goalie) swaps the two goalie tiles, pauses Save / Pen save / In goal for 1 s and scrolls to the top; Undo, Events-sheet corrections and other devices reorder without the pause or the scroll. Field tiles never move on a swap (the goalie tile head is one line; a long goalie name ends in "…").
 - Goalie tiles: Goal / Excl / Pen are 36 px (were 48). In two columns (≥ 700 px) field tiles keep their own height.
 - Viewer: every ordinary save is its own lighter timeline row, "✋ Save · #1 Name"; shown only when both cached model.js and strings.js carry TIMELINE_SAVES, so a phone mixing old and new files keeps saves out.
 - Design: docs/superpowers/specs/2026-11-16-goalie-order-timeline-saves-design.md (the 15/11 goalies spec's no-reorder anti-goal, order rule, 48 px rule and "no saves in the timeline" non-goal are marked amended). Plan: docs/superpowers/plans/2026-11-16-goalie-order-timeline-saves.md.
 - Commits: 149ecfc (Codex), 854c6e3, c3c4c4d and 9704df2 (sonnet). Per-task Codex reviews clean; opus whole-branch review "ready to merge" with 3 Minors, all fixed in 9704df2 and re-reviewed.
 - Tests at 9704df2: unit 202, e2e 386 passed / 14 skipped / 0 failed; emulator 28 at c3c4c4d (the fix touched CSS, tests and docs only).
-- Not merged or deployed. After deploy, on a phone: swap goalies (In goal, and Save on the other goalie) and check the smooth scroll, a long-named goalie, and landscape.
+- Deployed 16/11/2026: fast-forward to f5f541c, unit 202/202. Live headless check at 360 px: Steaua 8–13 shows 39 timeline rows incl. 7 lighter "Save · #1 Τίμος" rows; no sideways scroll; the games list shows Steaua, ΡΟΗ, Delfin; the tracker reaches the unlock screen in the viewer's browser context; no console errors. Owner's phone check still to do: swap goalies (In goal, and Save on the other goalie) and check the smooth scroll, a long-named goalie, and landscape; open tracker and viewer once on Wi-Fi on every phone before the next game.
 - Next in the queue: R7 (service worker cache failure).
 
 ## 16/11/2026 - R1 retry duplicate fixed, live (main 425d060)
