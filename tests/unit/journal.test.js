@@ -190,6 +190,43 @@ test('a later replace of the same event supersedes earlier pending and failed re
   assert.deepEqual(again.failed('g'), []);
 });
 
+test('a replace supersedes an earlier pending add of the same event', () => {
+  const storage = fakeStorage();
+  const journal = createJournal(storage);
+  journal.record('g', 'add', e1);
+  const other = journal.record('g', 'add', makeEvent('goal', 1, 'p1', 1000, 'e2'));
+  const otherGame = journal.record('h', 'add', e1);
+  const correction = journal.record('g', 'replace', scorer('p2'));
+  assert.deepEqual(stored(storage), [other, otherGame, correction]);
+  assert.deepEqual(journal.reconcile('g', [other.event, correction.event]), { confirmed: 2, failed: [] });
+  assert.deepEqual(stored(storage), [otherGame]);
+});
+
+test('a replace supersedes an earlier failed add of the same event', () => {
+  const storage = fakeStorage();
+  const journal = createJournal(storage);
+  journal.record('g', 'add', e1);
+  const other = journal.record('g', 'add', makeEvent('goal', 1, 'p1', 1000, 'e2'));
+  const otherGame = journal.record('h', 'add', e1);
+  assert.equal(journal.reconcile('g', []).failed.length, 2);
+  const correction = journal.record('g', 'replace', scorer('p2'));
+  assert.deepEqual(journal.failed('g'), [{ ...other, status: 'failed' }]);
+  assert.deepEqual(stored(storage), [{ ...other, status: 'failed' }, otherGame, correction]);
+});
+
+test('a replace supersedes an earlier failed remove so the corrected event is kept', () => {
+  const storage = fakeStorage();
+  const journal = createJournal(storage);
+  journal.record('g', 'remove', e1);
+  const other = journal.record('g', 'remove', makeEvent('goal', 1, 'p1', 1000, 'e2'));
+  const otherGame = journal.record('h', 'remove', e1);
+  assert.equal(journal.reconcile('g', [e1, other.event]).failed.length, 2);
+  const correction = journal.record('g', 'replace', scorer('p2'));
+  assert.deepEqual(journal.failed('g'), [{ ...other, status: 'failed' }]);
+  assert.deepEqual(stored(storage), [{ ...other, status: 'failed' }, otherGame, correction]);
+  assert.deepEqual(journal.reconcile('g', [correction.event]), { confirmed: 1, failed: [] });
+});
+
 test('a remove drops the pending and failed adds and replaces of that event', () => {
   const storage = fakeStorage();
   const journal = createJournal(storage);

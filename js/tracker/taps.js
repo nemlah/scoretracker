@@ -86,8 +86,10 @@ export function createTapper({
     return event;
   }
 
-  // Retry the latest intent with one write per event: arrayUnion compares whole objects, not ids.
-  // Resolve against `current`, which may be another game's snapshot or hold another event version.
+  // One write per event, from its latest entry: replaying an add and then its correction would
+  // store both versions (arrayUnion compares whole objects, not ids). A journal written by the
+  // previous journal.js can still hold superseded entries; they are retired here. `current` is
+  // the game's latest snapshot when it is not the one this tapper watches.
   function retryFailed(gameId, current = getGame()) {
     if (!isActive()) return;
     const known = current?.id === gameId ? (current.events ?? []) : null;
@@ -100,13 +102,19 @@ export function createTapper({
     }
     for (const [id, entries] of groups) {
       const last = entries.at(-1);
+      for (const entry of entries.slice(0, -1)) journal.discard(entry.id);
       const serverVersion = known?.find(event => event.id === id);
       if (last.op === 'remove' && known && !serverVersion) {
         // Already gone: nothing to remove, so nothing is left to retry.
-        for (const entry of entries) journal.discard(entry.id);
+        journal.discard(last.id);
         continue;
       }
-      for (const entry of entries) journal.markRetried(entry.id);
+      if (last.op === 'add' && serverVersion) {
+        // Already landed: the server may hold a newer correction.
+        journal.discard(last.id);
+        continue;
+      }
+      journal.markRetried(last.id);
       if (last.op === 'remove') {
         sent.push(send(repo.removeEvent, gameId, serverVersion ?? last.event));
       } else if (serverVersion) {

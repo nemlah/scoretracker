@@ -183,7 +183,7 @@ test('a refused goal and its refused scorer change are retried as one goal with 
     // A comes back: both queued writes are refused by the rules.
     await context.setOffline(false);
     await expect(page.getByTestId('takeover-banner')).toBeVisible();
-    await expect(page.getByTestId('failed-banner')).toContainText('2 taps not saved', { timeout: 15000 });
+    await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved', { timeout: 15000 });
     await expect(viewer.getByTestId('score-us')).toHaveText('0');
     expect((await get(`games/${gameId}`)).events).toEqual([]);
 
