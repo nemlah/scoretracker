@@ -46,7 +46,9 @@ every mistake visible and fixable, tiles never move under a finger.
   the opponent's shooters. Deferred by the owner ("focus on goalies
   initially").
 - Shots by our field players, shot locations, or goalie assists/steals.
-- Listing ordinary saves in the viewer timeline (too many).
+- Listing ordinary saves in the viewer timeline (too many). *Superseded
+  16/11/2026: the owner asked for them; see
+  `2026-11-16-goalie-order-timeline-saves-design.md`.*
 - Season shootout stats per goalie (the game section shows the shootout
   line; the season table doesn't).
 - Backfilling games played before this change.
@@ -54,7 +56,9 @@ every mistake visible and fixable, tiles never move under a finger.
 ## Anti-goals
 
 - Tiles reordering or resizing when the goalie in goal changes (a frequent
-  SAVE tap must never land on a moved button).
+  SAVE tap must never land on a moved button). *Amended 16/11/2026: the two
+  goalie tiles now swap ends on a goalie change while every field tile stays
+  put; see `2026-11-16-goalie-order-timeline-saves-design.md`.*
 - Goals against pinned on a goalie when no goalie is marked in the lineup
   (old games, or a game where nobody was marked): those games produce no
   goalie stats at all.
@@ -149,7 +153,9 @@ result is "no goalie stats" and nothing else applies.
 - Goalie tiles come first (by cap), then field players (by cap). The order
   never changes when the goalie in goal changes; only the highlight and the
   In goal button's visibility change, and both tile layouts keep the same
-  size so nothing below moves.
+  size so nothing below moves. *Superseded 16/11/2026: the goalie in goal
+  first, field players, then the other goalie; Goal / Excl / Pen on goalie
+  tiles are 36 px. See `2026-11-16-goalie-order-timeline-saves-design.md`.*
 - SAVE is the largest target on a goalie tile; PEN SAVE and In goal at least
   48 px; Goal / Excl / Pen keep at least 48 px.
 - In the shootout SAVE is hidden (a shootout block is a PEN SAVE); PEN SAVE
