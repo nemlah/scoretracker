@@ -1,12 +1,12 @@
 # Session log
 
-## 16/11/2026 - Tracker "Loading…" hang fixed (branch fix/viewer-own-cache, fb09b1f)
+## 16/11/2026 - Tracker "Loading…" hang fixed, live (main 8071b5c)
 - Cause: viewer and tracker shared the default Firebase app, so one multi-tab Firestore cache and one primary-tab election. The primary tab runs every tab's listeners with its own sign-in; a viewer tab (never signed in) opened first made the tracker's `editors/<uid>` listen fail with permission-denied (firestore.rules:17) and the tracker stayed on "Loading…".
 - Fix: `initFirebase({ name })` takes an optional app name (default app unchanged); the viewer passes `'viewer'` and gets its own cache (Firestore keys its IndexedDB and tab-sync storage by app name). The tracker keeps its sign-in, ownership and pending writes. A phone mixing old and new cached modules falls back to the shared cache, as before.
 - Test: tracker-access "a viewer tab opened first in the same browser does not block the tracker" failed on chromium and webkit before the fix (permission-denied) and passes after.
 - Tests at fb09b1f: unit 192, emulator 28, e2e 363 passed / 13 skipped / 0 failed. Codex read-only review: one Minor, accepted.
 - Accepted Minor: the viewer's cache starts empty once after deploy (open the viewer once on Wi-Fi before relying on it offline); on the scorekeeper's own phone the viewer now shows taps after server sync, like every other phone.
-- Not deployed yet. After deploy, the live check can open the tracker in the viewer's browser context (release-routine step 4 no longer needs a separate context).
+- Deployed 16/11/2026: fast-forward to 8071b5c, unit 192/192. Live headless check at 360 px: the viewer games list shows Steaua, ΡΟΗ, Delfin; the tracker opened in the viewer's browser context reaches the unlock screen in ~2 s; two caches (`firestore/[DEFAULT]` and `firestore/viewer`); no sideways scroll, no console errors. Before the next game: open tracker and viewer once on Wi-Fi on every phone.
 - Next: (2) goalie order on the live screen (conflicts with the goalies spec, ask the owner first) and (3) smaller Goal / Excl / Pen buttons on goalie tiles; use superpowers:brainstorming for both.
 
 ## 16/11/2026 - Where we left off (handoff before /clear)
