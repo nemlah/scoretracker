@@ -200,6 +200,7 @@ export function mount(root, ctx) {
   let openSituation = null;
   let goalieLocked = false;
   let goalieTimer = null;
+  let scrollFrame = null;
   let inGoalId = null;
 
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
@@ -275,7 +276,12 @@ export function mount(root, ctx) {
     }, GOALIE_LOCK_MS);
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
     // One frame later: WebKit drops a smooth scroll started in the same task as the re-render.
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }));
+    // Cancelled on unmount, so it can never scroll the view navigated to.
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = null;
+      if (!unmounted) window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    });
   }
 
   // Same guard as Undo: a double tap would skip a quarter, so after a change the button is
@@ -464,6 +470,7 @@ export function mount(root, ctx) {
       clearTimeout(periodTimer);
       clearTimeout(situationTimer);
       clearTimeout(goalieTimer);
+      cancelAnimationFrame(scrollFrame);
       clearSituation();
       sheet.destroy();
       for (const tile of tiles.values()) tile.destroy();

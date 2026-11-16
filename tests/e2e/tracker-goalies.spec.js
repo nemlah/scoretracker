@@ -277,6 +277,10 @@ test('with three goalies the two not in goal come last by cap', async ({ page })
 });
 
 const near = (a, b) => Math.abs(a - b) <= 0.5;
+const pageBox = (page, cap) => tile(page, cap).evaluate(el => {
+  const rect = el.getBoundingClientRect();
+  return { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height };
+});
 const moreSheet = page => page.getByTestId('goalie-more-sheet');
 
 const heights = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el => [el.dataset.cap, el.getBoundingClientRect().height]));
@@ -317,6 +321,48 @@ test('goalie and player tiles are the same height with 12 saves · 2 pen showing
   expect(await tile(page, 1).getByTestId('tile-saves').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
   await expectEqualHeights(page);
 });
+
+for (const [label, extra] of [['in goal', []], ['not in goal', [{ id: 'gk', type: 'gkIn', period: 1, ts: 5000, playerId: 'g1' }]]]) {
+  test(`one goalie tile with a two-digit cap, a long name, 12 saves · 2 pen and three fouls keeps two rows at 360 px (${label})`, async ({ page }) => {
+    const long = 'Κωνσταντινίδης';
+    const own = events => events.map(event => ({ ...event, playerId: 'g13' }));
+    await openSeeded(page, {
+      lineup: [
+        { playerId: 'g1', name: 'Nikolaou', cap: 1, goalie: true },
+        { playerId: 'g13', name: long, cap: 13, goalie: true },
+        { playerId: 'p5', name: 'Alexiou', cap: 5 },
+      ],
+      events: [
+        ...own(savesAndPens),
+        ...[1, 2, 3].map(n => ({ id: `x${n}`, type: 'excl', period: 1, ts: 3000 + n, playerId: 'g13' })),
+        ...extra,
+      ],
+    });
+    await page.setViewportSize({ width: 360, height: 900 });
+    const goalie = tile(page, 13);
+    await expect(goalie).toHaveClass(/is-out/);
+    await expect(goalie.getByTestId('tile-saves')).toHaveText('12 saves · 2 pen');
+    expect(await goalie.locator('.pip.is-on').count()).toBe(3);
+    const field = (await pageBox(page, 5)).height;
+    expect(near((await pageBox(page, 13)).height, field)).toBe(true);
+    const nameLine = await goalie.locator('.tile-name').evaluate(el => {
+      const style = getComputedStyle(el);
+      return {
+        height: el.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight),
+        cut: el.scrollWidth - el.clientWidth, overflow: style.textOverflow,
+      };
+    });
+    expect(nameLine.height).toBeLessThanOrEqual(nameLine.lineHeight + 1);
+    expect(nameLine.cut).toBeGreaterThan(0);
+    // The cut name does not widen the page: nothing scrolls sideways.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    expect(nameLine.overflow).toBe('ellipsis');
+    const savesLine = await goalie.getByTestId('tile-saves').evaluate(el => ({
+      height: el.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+    }));
+    expect(savesLine.height).toBeLessThanOrEqual(savesLine.lineHeight + 1);
+  });
+}
 
 test('goalie and player tiles are the same height in the shootout', async ({ page }) => {
   await openSeeded(page, { period: 'SO' });
@@ -399,8 +445,10 @@ test('an action chosen after the goalie fouled out is refused', async ({ page })
   await expect(moreSheet(page)).toBeHidden();
   // A tap that was already on its way (the button handle outlives the sheet) records nothing.
   await goal.evaluate(el => el.click());
-  await page.waitForTimeout(300);
-  expect((await get('games/g-seed')).events.map(e => e.type)).toEqual(['excl', 'excl', 'excl']);
+  // Nothing to wait on for a negative check, so order it behind a write that does land: the page's
+  // writes reach the server in order, so a refused goal would show before this opponent goal.
+  await page.getByTestId('opp-goal').click();
+  await expect.poll(async () => (await get('games/g-seed')).events.map(e => e.type)).toEqual(['excl', 'excl', 'excl', 'oppGoal']);
   await expect(page.getByTestId('score-us')).toHaveText('0');
 });
 

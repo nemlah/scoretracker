@@ -234,15 +234,16 @@ body.on-live .view { padding: 0; }
   margin: 0;
   padding: 0.75rem 1rem calc(var(--dock-h) + 1rem);
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr); /* a long goalie name is cut by its ellipsis, it never widens the column */
   gap: 0.75rem;
 }
 @media (min-width: 700px) {
-  .tiles { grid-template-columns: 1fr 1fr; align-items: start; }
+  .tiles { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 }
 
 .tile {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* the head may be narrower than its content: a long name is cut */
   gap: 0.625rem;
   padding: 0.75rem;
   border: 1px solid var(--line);
