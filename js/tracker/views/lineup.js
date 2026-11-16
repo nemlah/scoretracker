@@ -91,7 +91,7 @@ export function createLineupSheet(ctx, host) {
   }
 
   function renderDraft() {
-    const writable = ctx.getState().active;
+    const writable = ctx.getState().writable;
     const events = game?.events ?? [];
     const keep = new Set(draft.map(player => player.playerId));
     for (const [id, parts] of rows) {

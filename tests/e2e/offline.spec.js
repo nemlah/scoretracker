@@ -381,7 +381,8 @@ test('taps on a game whose offline creation was refused can only be discarded', 
     await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved', { timeout: 20000 });
     await expect(page.getByTestId('failed-gone')).toContainText('no longer exists');
     await expect(page.getByTestId('failed-game-link')).toHaveCount(0);
-    await page.getByTestId('take-over').click();
+    // The game does not exist, so none is live: no banner, and the touch on Retry takes control.
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
     await page.getByTestId('retry-failed').click();
     await expect(page.getByTestId('toast')).toContainText('no longer exists');
     await expect(page.getByTestId('failed-banner')).toBeVisible();

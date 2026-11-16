@@ -319,7 +319,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
 
   function update(current, state) {
     game = current;
-    const writable = state.active;
+    const writable = state.writable;
     const live = current.status === 'live';
     const lineup = current.lineup ?? [];
     const key = lineupSignature(lineup);

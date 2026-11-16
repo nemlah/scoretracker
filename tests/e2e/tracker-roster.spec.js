@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { closeAll, resetAll, seed, update } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -14,11 +14,19 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-async function openRoster(page) {
-  await page.goto(TRACKER_URL);
+async function openRoster(page, url = TRACKER_URL) {
+  await page.goto(url);
   await unlockTracker(page);
   await page.getByTestId('home-roster').click();
   await expect(page.getByTestId('roster-add-btn')).toBeEnabled();
+}
+
+// A live game keeps the takeover banner (and disabled controls) on a device not in control.
+async function seedLiveGame() {
+  await seed('games/g1', {
+    opponent: 'Live FC', date: '2026-11-01', season: '2026-27', status: 'live', period: 1, lineup: [], events: [],
+  });
+  await update('team/main', { currentGameId: 'g1' });
 }
 
 async function addPlayer(page, name, cap) {
@@ -94,7 +102,8 @@ test('archived rows offer Unarchive but no Edit', async ({ page }) => {
 
 test('a rejected save rolls the roster back to the authoritative rows', async ({ page }) => {
   await seed('team/main', { roster: [{ id: 'a', name: 'Alexiou', cap: 5, archived: false }] });
-  await openRoster(page);
+  await seedLiveGame();
+  await openRoster(page, HOME_URL);
   await expect(activeRows(page)).toHaveCount(1);
 
   // Another device takes control, then this page (still showing enabled controls) writes anyway.
@@ -118,7 +127,8 @@ test('a rejected save keeps the draft and editor of another player being edited'
       { id: 'b', name: 'Beta', cap: 5, archived: false },
     ],
   });
-  await openRoster(page);
+  await seedLiveGame();
+  await openRoster(page, HOME_URL);
   await expect(activeRows(page)).toHaveCount(2);
 
   await update('control/tracker', { activeUid: 'another-device' });

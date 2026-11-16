@@ -43,6 +43,12 @@ const state = {
   uid: null,
   editor: 'unknown', // 'unknown' until the first confirmed snapshot of our own editor document
   active: false,
+  // True while the current game is live, or not loaded yet: control then moves only through the
+  // banner's Take over button.
+  gameLive: true,
+  // Whether this device's controls are enabled: in control, or able to take control by itself
+  // on the first touch (valid editor, online, no live game).
+  writable: false,
   online: navigator.onLine,
   // True once any snapshot has come from the server (not just the local cache) since the page opened.
   synced: false,
@@ -148,6 +154,22 @@ async function takeOver() {
     else onWriteError(err);
   }
 }
+
+// With no live game, the first touch or key press on a device not in control takes control, so
+// the change it starts is saved normally. The takeover write is issued synchronously, before the
+// click or key press does its own write: the rules refuse writes from a device not in control.
+let claiming = false;
+function claimControl() {
+  if (claiming || state.active || !isInRoute() || state.editor !== 'valid' || state.gameLive || !state.online) return;
+  claiming = true;
+  takeOver().finally(() => { claiming = false; });
+  // Shown as in control at once, so the click that follows passes its guards; the server snapshot
+  // confirms it, or corrects it when the write is refused.
+  state.control = { ...(state.control ?? {}), activeUid: state.uid };
+  render();
+}
+root.addEventListener('pointerdown', claimControl, true);
+root.addEventListener('keydown', claimControl, true);
 
 function parseRoute() {
   const hash = location.hash.replace(/^#/, '');
@@ -355,6 +377,10 @@ function derive() {
   state.route = parseRoute();
   state.editor = editorDoc && !revoked ? 'valid' : editorLoaded ? 'none' : 'unknown';
   state.active = state.editor === 'valid' && state.control?.activeUid === state.uid;
+  // A current game that has not loaded yet counts as live, so nothing is taken over blindly.
+  state.gameLive = !state.gameLoaded || state.game?.status === 'live';
+  state.writable = state.active
+    || (state.editor === 'valid' && teamLoaded && controlLoaded && state.online && !state.gameLive);
   // Boot, unlocking and taking over from another device are all moments to catch up on stats
   // recounts. The device that held control before may have left a recount unfinished, and its
   // dirty marker lives only in its own storage, so the current game's season is recounted too.
@@ -420,9 +446,14 @@ function render() {
   syncChrome();
 }
 
+function isInRoute() {
+  return current.slot !== null && current.slot !== 'unlock' && current.slot !== 'loading' && current.slot !== 'error';
+}
+
 function syncChrome() {
-  const inRoute = current.slot !== 'unlock' && current.slot !== 'loading' && current.slot !== 'error';
-  const readOnly = inRoute && !state.active;
+  const inRoute = isInRoute();
+  // Not in control: read-only while a game is live (or offline); otherwise the first input takes control.
+  const readOnly = inRoute && !state.active && (state.gameLive || !state.online);
   backButton.hidden = !inRoute || current.slot === 'home';
   takeoverBanner.hidden = !readOnly;
   offlineBanner.hidden = state.online || current.slot === 'unlock';

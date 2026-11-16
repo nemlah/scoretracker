@@ -174,6 +174,11 @@ export function mount(root, ctx) {
     target.append(...nodes.slice(at + 1));
   }
 
+  // What the list was last built from. A render that changes neither keeps the rows, so the
+  // element under a pointer survives the render that a quiet takeover causes.
+  let renderedKey = null;
+  const listKey = () => JSON.stringify([currentRoster(), editingId]);
+
   function renderList() {
     const players = currentRoster();
     const live = players.filter(player => !player.archived);
@@ -197,6 +202,7 @@ export function mount(root, ctx) {
     empty.hidden = players.length > 0;
     archived.hidden = gone.length === 0;
     archivedSummary.textContent = t('rosterArchivedHeading', { n: gone.length });
+    renderedKey = listKey();
   }
 
   renderList();
@@ -205,7 +211,7 @@ export function mount(root, ctx) {
     const roster = state.team?.roster ?? [];
     if (optimistic && sameRoster(roster, optimistic)) optimistic = null;
     // An open editor row is preserved by renderList, so snapshots never disturb its draft.
-    renderList();
+    if (listKey() !== renderedKey) renderList();
   }
 
   return { update, unmount() { root.replaceChildren(); } };

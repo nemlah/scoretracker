@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { closeAll, get, remove, resetAll, seed, update } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 
@@ -58,32 +58,153 @@ test('a viewer tab opened first in the same browser does not block the tracker',
   await expect(page.getByTestId('empty-state')).toBeVisible();
 });
 
-test('second device takes over; first becomes read-only and can take back', async ({ page, browser }) => {
+const roster = [
+  { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
+  { id: 'p7', name: 'Georgiou', cap: 7, archived: false },
+];
+
+async function startGame(page) {
+  await seed('team/main', { roster });
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+}
 
+// Device A unlocks first, then device B unlocks and holds control. A learns it from the control
+// snapshot; with no live game that is invisible, so give the snapshot a moment before acting.
+async function withTwoDevices(page, browser, body) {
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   try {
     const pageB = await contextB.newPage();
     collectProblems(pageB, problems);
-    await pageB.goto(TRACKER_URL);
+    await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
-
-    await expect(page.getByTestId('takeover-banner')).toBeVisible();
-    await expect(page.getByTestId('takeover-banner')).toContainText('Tracking moved to another device');
-    await expect(page.getByTestId('take-over')).toHaveText('Take over');
-    await expect(page.getByTestId('home-new')).toBeDisabled();
-    await expect(pageB.getByTestId('takeover-banner')).toBeHidden();
-    await expect(pageB.getByTestId('home-new')).toBeEnabled();
-
-    await page.getByTestId('take-over').click();
-    await expect(page.getByTestId('takeover-banner')).toBeHidden();
-    await expect(page.getByTestId('home-new')).toBeEnabled();
-    await expect(pageB.getByTestId('takeover-banner')).toBeVisible();
-    await expect(pageB.getByTestId('home-new')).toBeDisabled();
+    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+    await page.waitForTimeout(500);
+    await body(pageB);
   } finally {
     await contextB.close();
   }
+}
+
+// Moves to the roster without a touch or key press, which would take control.
+const openRosterQuietly = page => page.evaluate(() => { location.hash = '#/roster'; });
+const activeUid = async () => (await get('control/tracker'))?.activeUid;
+const rosterNames = async () => ((await get('team/main'))?.roster ?? []).map(player => player.name);
+
+test('second device takes over; first becomes read-only and can take back', async ({ page, browser }) => {
+  await startGame(page);
+  await withTwoDevices(page, browser, async pageB => {
+    await expect(page.getByTestId('takeover-banner')).toBeVisible();
+    await expect(page.getByTestId('takeover-banner')).toContainText('Tracking moved to another device');
+    await expect(page.getByTestId('take-over')).toHaveText('Take over');
+    await expect(page.getByTestId('opp-goal')).toBeDisabled();
+    await expect(pageB.getByTestId('takeover-banner')).toBeHidden();
+
+    // A touch on a live game does not take control; only Take over does.
+    const holder = await activeUid();
+    await page.getByTestId('score-us').click();
+    await page.waitForTimeout(500);
+    expect(await activeUid()).toBe(holder);
+    await expect(page.getByTestId('takeover-banner')).toBeVisible();
+
+    await page.getByTestId('take-over').click();
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await expect(page.getByTestId('opp-goal')).toBeEnabled();
+    await expect(pageB.getByTestId('takeover-banner')).toBeVisible();
+  });
+});
+
+test('with no live game the device not in control shows no banner and keeps its buttons', async ({ page, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async () => {
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await expect(page.getByTestId('home-new')).toBeEnabled();
+    await openRosterQuietly(page);
+    await expect(page.getByTestId('roster-add-name')).toBeEnabled();
+    await expect(page.getByTestId('roster-add-cap')).toBeEnabled();
+    await expect(page.getByTestId('roster-add-btn')).toBeEnabled();
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+  });
+});
+
+test('with no live game the first touch takes control and the change is saved', async ({ page, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async pageB => {
+    const holder = await activeUid();
+    await openRosterQuietly(page);
+    await page.getByTestId('roster-add-name').fill('Quiet');
+    await page.getByTestId('roster-add-cap').fill('9');
+    await page.getByTestId('roster-add-btn').click();
+    // The write itself is checked, not only the move of control: the rules refuse it without control.
+    await expect.poll(rosterNames).toContain('Quiet');
+    const taken = await activeUid();
+    expect(taken).not.toBe(holder);
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await expect(pageB.getByTestId('takeover-banner')).toBeHidden();
+    await expect(page.getByTestId('failed-banner')).toBeHidden();
+  });
+});
+
+test('the first touch on a roster row button is not lost to the render it causes', async ({ page, browser }) => {
+  await seed('team/main', { roster: [{ id: 'a', name: 'Alexiou', cap: 5, archived: false }] });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async () => {
+    await openRosterQuietly(page);
+    await page.getByTestId('roster-archive').click();
+    await expect.poll(async () => (await get('team/main'))?.roster?.[0]?.archived).toBe(true);
+  });
+});
+
+test('a first key press takes control and the change is saved', async ({ page, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async pageB => {
+    const holder = await activeUid();
+    await openRosterQuietly(page);
+    const name = page.getByTestId('roster-add-name');
+    await expect(name).toBeEnabled();
+    await name.fill('Keys');
+    await page.getByTestId('roster-add-cap').fill('8');
+    // Enter is the first key: its keydown must take control before the form submits.
+    await page.getByTestId('roster-add-cap').press('Enter');
+    await expect.poll(rosterNames).toContain('Keys');
+    expect(await activeUid()).not.toBe(holder);
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await expect(pageB.getByTestId('takeover-banner')).toBeHidden();
+  });
+});
+
+test('two open devices do not take control from each other without input', async ({ page, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async () => {
+    const holder = await activeUid();
+    await page.waitForTimeout(2000);
+    expect(await activeUid()).toBe(holder);
+  });
+});
+
+test('offline with no live game the device not in control stays read-only', async ({ page, context, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async () => {
+    await context.setOffline(true);
+    try {
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      await expect(page.getByTestId('home-new')).toBeDisabled();
+    } finally {
+      await context.setOffline(false);
+    }
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+  });
+  dropNetworkNoise(problems);
 });
 
 test('revoked code: next write shows unlock with code-changed notice', async ({ page }) => {
@@ -168,11 +289,12 @@ test('a device that becomes active recounts the season of the current game', asy
   await unlockTracker(page);
   await expect.poll(async () => (await get('stats/2026-27'))?.results?.[0]?.us).toBe(1);
 
-  // Taking over from another device repairs it too.
+  // Taking over from another device repairs it too: with no live game the first touch does it.
   await update('control/tracker', { activeUid: 'another-device' });
-  await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await remove('stats/2026-27');
-  await page.getByTestId('take-over').click();
+  await page.waitForTimeout(500);
+  await page.getByTestId('home-roster').click();
+  await expect.poll(activeUid).not.toBe('another-device');
   await expect.poll(async () => (await get('stats/2026-27'))?.results?.[0]?.us).toBe(1);
 });
 
