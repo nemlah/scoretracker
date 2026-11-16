@@ -67,11 +67,13 @@
 - This replaces the goalies spec rule "the order never changes when the goalie in goal changes";
   its purpose (SAVE never lands on a moved button) holds because the field tiles stay put and the
   in-goal SAVE stays first.
-- After an In goal tap on this device: every In goal button is disabled for 1 s (like the Undo and
-  period locks), because the previous goalie's In goal button lands where the tapped one was; and
-  the page scrolls to the top so the new goalie's SAVE is in view (smooth, instant under
-  reduced motion). A goalie change that arrives another way (Events sheet correction, another
-  device) reorders without scrolling.
+- After a tap on this device's goalie buttons that changes the goalie in goal (In goal, or SAVE /
+  PEN SAVE on the goalie not in goal, which also puts them in goal): SAVE, PEN SAVE and In goal on
+  every goalie tile are disabled for 1 s (like the Undo and period locks), because the previous
+  goalie's tile lands where the tapped one was; and the page scrolls to the top so the new
+  goalie's SAVE is in view (smooth, instant under reduced motion). A goalie change that arrives
+  another way (Undo, Events sheet correction, another device) reorders without the pause or the
+  scroll. *(Found while planning: the 15/11 design lets SAVE on the bench goalie put them in goal.)*
 - An OUT goalie still in goal stays on top until In goal is tapped on another goalie.
 
 ### Goalie tile buttons (`css/tracker.css`)
@@ -90,7 +92,8 @@
 ## Left to the builder
 
 - Test ids, the exact lighter style for save rows, how the 1 s lock and the scroll are wired.
-- Tests: unit (tile order, `timeline()` with saves, `timelineEntry` for a save); e2e (order with two
+- Tests: unit (`timeline()` with saves, `timelineEntry` for a save); e2e (tile order, which lives in
+  the DOM module `live.js`; order with two
   goalies, swap on In goal leaves field tiles where they were, In goal pause, 36 px row at 360 px,
   save rows in the viewer timeline, viewer degrading beside an old `model.js` if the existing
   mixed-cache tests allow it).
