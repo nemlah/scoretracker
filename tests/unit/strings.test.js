@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as strings from '../../js/strings.js';
 import { eventLabel, goalCountLabel, periodLabel, scoreText, t, timelineEntry } from '../../js/strings.js';
 
 const lineup = [
@@ -166,4 +167,12 @@ test('timelineEntry for a penalty save', () => {
     { side: 'us', icon: '✋', sr: 'Penalty saved', text: 'Penalty saved · #1 Georgiou', badge: false });
   assert.deepEqual(timelineEntry({ type: 'penSave', playerId: 'gone' }, goalkeepers, 'X', true),
     { side: 'us', icon: '✋', sr: 'Penalty saved', text: 'Penalty saved · #? Unknown player', badge: false });
+});
+
+test('timelineEntry for a save', () => {
+  assert.deepEqual(timelineEntry({ type: 'save', playerId: 'g1' }, goalkeepers),
+    { side: 'us', icon: '✋', sr: 'Save', text: 'Save · #1 Georgiou', badge: false, minor: true });
+  assert.deepEqual(timelineEntry({ type: 'save', playerId: 'gone' }, goalkeepers),
+    { side: 'us', icon: '✋', sr: 'Save', text: 'Save · #? Unknown player', badge: false, minor: true });
+  assert.equal(strings.TIMELINE_SAVES, true);
 });

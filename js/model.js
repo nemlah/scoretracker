@@ -41,6 +41,9 @@ import { goalieStats } from './goalies.js';
  * @property {boolean} [situations]
  */
 
+// The viewer checks this before passing saves to the timeline.
+export const TIMELINE_SAVES = true;
+
 export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES, 'save', 'penSave', 'gkIn']);
 export const PERIODS = Object.freeze([1, 2, 3, 4, 'SO']);
 export const EXCL_LIMIT = 3;
@@ -129,7 +132,7 @@ export function latestNewGoal(prevEvents, nextEvents) {
 export function timeline(events) {
   return [...PERIODS].reverse().flatMap(period => {
     const entries = events.filter(event => event.period === period
-      && !SITUATION_TYPES.includes(event.type) && event.type !== 'save' && event.type !== 'gkIn')
+      && !SITUATION_TYPES.includes(event.type) && event.type !== 'gkIn')
       .map(event => withPlayer(event, event.playerId))
       .reverse().sort((a, b) => b.ts - a.ts);
     return entries.length ? [{ period, events: entries }] : [];

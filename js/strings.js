@@ -9,6 +9,7 @@ const STRINGS = {
   evGoalie: 'Goalie', evGoalieFor: 'Goalie for {label}', evInGoal: 'In goal', evInGoalFor: 'In goal for {label}',
   goaliesHeading: 'Goalkeepers', colSaves: 'Saves', colPenSaves: 'Pen', colGA: 'GA', colSavePct: 'Save %',
   savePctText: '{pct}%', noShots: '—', shootoutGoalie: 'Shootout: {saved} saved, {conceded} conceded', inGoalSr: 'in goal',
+  tlSaveIcon: '✋', tlSaveSr: 'Save', tlSaveText: 'Save · {player}',
   tlPenSaveIcon: '✋', tlPenSaveSr: 'Penalty saved', tlPenSaveText: 'Penalty saved · {player}',
 
   penButton: 'Pen',
@@ -230,6 +231,9 @@ const STRINGS = {
   openGameFor: 'Open the game against {opponent} on {date}',
 };
 
+// The viewer checks this before rendering saves in the timeline.
+export const TIMELINE_SAVES = true;
+
 export function t(key, params = {}) {
   if (!Object.hasOwn(STRINGS, key)) {
     console.warn(`Missing string: ${key}`);
@@ -280,6 +284,10 @@ export function timelineEntry(event, lineup, opponent, out = false) {
   if (isGoal && event.playerId == null) return { ...entry, text: t('tlUnknownScorer') };
   const player = lineup.find(candidate => candidate.playerId === event.playerId);
   const text = player ? t('tlPlayer', { cap: player.cap, name: player.name }) : t('unknownPlayer');
+  if (event.type === 'save') {
+    return { side: 'us', icon: t('tlSaveIcon'), sr: t('tlSaveSr'),
+      text: t('tlSaveText', { player: text }), badge: false, minor: true };
+  }
   if (event.type === 'penSave') {
     return { side: 'us', icon: t('tlPenSaveIcon'), sr: t('tlPenSaveSr'),
       text: t('tlPenSaveText', { player: text }), badge: false };
