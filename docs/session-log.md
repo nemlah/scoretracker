@@ -1,5 +1,25 @@
 # Session log
 
+## 16/11/2026 - Todo queue (after the 16/11 code review)
+Open from before, in order:
+1. (2) Live screen: goalie in goal at the top, the other goalie at the bottom. Conflicts with `docs/superpowers/specs/2026-11-15-goalies-design.md:56` and `:149` (tiles never reorder); ask the owner first. Use superpowers:brainstorming.
+2. (3) Smaller Goal / Excl / Pen on goalie tiles (`js/tracker/views/live.js:54-80`, `css/tracker.css:307-341`; the spec's `:153` says ≥ 48 px). Use superpowers:brainstorming.
+3. Parked: the games-list pin key check, our players' missed penalties, older seasons in the viewer, the 4 tracker issues from 14/11 (repo.endGame first).
+
+Added from `docs/code-review-2026-11-16.md` (the findings we agree with, in the order to do them; R-numbers refer to that review):
+4. R1 (P1, do before 1 and 2): retrying a failed add together with its scorer or goalie correction writes the event twice (same id, two objects), so one goal counts twice. `retryFailed()` (`js/tracker/taps.js:92`) resolves every entry against one snapshot, and the journal keeps the add when a replace is recorded (`js/journal.js:71`). Collapse to one final state per event id before retrying; detect and repair duplicate ids.
+5. R7: `networkFirst()` (`sw.js:112-144`) awaits `caches.open()` outside its try, so a Cache Storage failure fails every same-origin request even with a good network. Treat cache open, match and put as optional.
+6. R6: `watch()` (`js/repo.js:51`) passes no error callback to `onSnapshot`, so a terminal listener error leaves "Loading…" or a frozen score with no message (the 16/11 tracker hang looked like this). Show unavailable or stale with a reload path; leave transient reconnects to the SDK.
+7. R8: `newerGameId()` (`js/repo.js:65`) needs a strictly later date, so ending a reopened game leaves the pointer on it when the newer game has the same date (tournament days; 14/11 already had two games). Order by date, then `createdAt`, then id, with a fallback for games without `createdAt`. Do it together with parked tracker issues 1 and 4, which touch the same `endGame`.
+8. R11: season tables show the names stored in stats, so a roster rename stays stale until a recount. The viewer should take names from `team.roster` by player id, with the stats name as fallback.
+9. R9: before the first save or switch, goals against go to the lowest-cap lineup goalie (`js/goalies.js:13-30`), so a cap edit, or removing a goalie (`playerHasEvents`, `js/model.js:145`, ignores opponent goals), moves past goals against to another goalie. Record the starting goalie; block removing a goalie who has goals against.
+10. R2: one final-game correction runs two season recounts (`js/tracker/recount.js:9` marks the season again after the write, though `recomputeSeason` already waits for pending writes). About 2 × (games + 1) reads instead of half that; only after-game corrections. Keep the offline path working.
+11. R5: two tracker tabs on one phone overwrite each other's dirty-season list (`js/tracker/statsQueue.js` reads storage once and writes its whole copy), so an older season's recount can be lost. Merge with storage before each write.
+12. R3: the README free-plan estimate (about 1,000 viewer-games a day, so about 50 updates a game) predates saves and situations. Count updates per game from production and correct it; also say that going over quota blocks the tracker's writes.
+13. Mixed releases (review design risk): a versioned release shell in the service worker instead of per-file refresh, so a phone can't mix old and new modules; it would retire the mixed-cache guards. Larger; later.
+
+Not added: R4 (unbounded history list: years away at about 30 games a season), R10 (hidden Events panel: under 0.5 ms at real game sizes by the review's own numbers), the 1 MiB document limit (a game is a few KB), older-season repair being local to one device (rare; 11 covers the likely case), WebKit offline coverage (Playwright can't simulate it; the on-phone check covers it), rules schema validation (one trusted editor; 4 covers duplicate ids).
+
 ## 16/11/2026 - Tracker "Loading…" hang fixed, live (main 8071b5c)
 - Cause: viewer and tracker shared the default Firebase app, so one multi-tab Firestore cache and one primary-tab election. The primary tab runs every tab's listeners with its own sign-in; a viewer tab (never signed in) opened first made the tracker's `editors/<uid>` listen fail with permission-denied (firestore.rules:17) and the tracker stayed on "Loading…".
 - Fix: `initFirebase({ name })` takes an optional app name (default app unchanged); the viewer passes `'viewer'` and gets its own cache (Firestore keys its IndexedDB and tab-sync storage by app name). The tracker keeps its sign-in, ownership and pending writes. A phone mixing old and new cached modules falls back to the shared cache, as before.
