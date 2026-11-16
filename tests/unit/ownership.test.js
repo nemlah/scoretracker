@@ -69,26 +69,46 @@ test('other errors are reported as failed writes', () => {
   assert.deepEqual(log, ['failure', 'failure']);
 });
 
-test('a snapshot with the old holder that arrives during a claim does not undo it', () => {
+test('pointerdown then a stale snapshot with the old uid: the click guard still reads this device as active', () => {
   const claim = createControlClaim();
   assert.equal(claim.active, false);
   assert.deepEqual(claim.receive({ activeUid: 'other' }), { activeUid: 'other' });
 
+  // pointerdown: the claim starts and the device shows as in control at once.
   assert.deepEqual(claim.begin('me', { activeUid: 'other' }), { activeUid: 'me' });
   assert.equal(claim.active, true);
-  // Queued before the takeover write: still names the old holder, other fields are kept.
+  // Before the click: a snapshot queued earlier still names the old holder. What the app stores
+  // (and the click guard reads as activeUid) is still this device; other fields are kept.
+  assert.equal(claim.receive({ activeUid: 'other', claimedAt: 1 }).activeUid, 'me');
   assert.deepEqual(claim.receive({ activeUid: 'other', claimedAt: 1 }), { activeUid: 'me', claimedAt: 1 });
   assert.deepEqual(claim.receive(null), { activeUid: 'me' });
   assert.deepEqual(claim.receive({ activeUid: 'me' }), { activeUid: 'me' });
 });
 
-test('once the takeover is accepted, snapshots apply as they come', () => {
+test('once the takeover is accepted, the snapshot that names this device is what shows', () => {
   const claim = createControlClaim();
   claim.begin('me', { activeUid: 'other' });
   claim.receive({ activeUid: 'other' });
-  assert.equal(claim.end(true), undefined);
+  claim.receive({ activeUid: 'me' });
+  assert.deepEqual(claim.end(true), { activeUid: 'me' });
   assert.equal(claim.active, false);
   assert.deepEqual(claim.receive({ activeUid: 'third' }), { activeUid: 'third' });
+});
+
+test('another device taking control before the claim settles wins once it settles', () => {
+  const claim = createControlClaim();
+  claim.begin('me', { activeUid: 'other' });
+  claim.receive({ activeUid: 'me' });
+  // Masked while the claim is in flight...
+  assert.equal(claim.receive({ activeUid: 'third' }).activeUid, 'me');
+  // ...but the owner after settlement is the other device, not this one.
+  assert.deepEqual(claim.end(true), { activeUid: 'third' });
+});
+
+test('a takeover accepted with no snapshot in between keeps what is shown', () => {
+  const claim = createControlClaim();
+  claim.begin('me', { activeUid: 'other' });
+  assert.equal(claim.end(true), undefined);
 });
 
 test('a refused takeover shows the latest holder the server reported', () => {

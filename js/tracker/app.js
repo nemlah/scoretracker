@@ -5,7 +5,8 @@ import { createJournal } from '../journal.js';
 import { createRepo } from '../repo.js';
 import { t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
-import { createControlClaim, createWriteErrorHandler } from './ownership.js';
+import { createWriteErrorHandler } from './ownership.js';
+import * as ownership from './ownership.js';
 import { createRecovery } from './recovery.js';
 import { createStatsQueue } from './statsQueue.js';
 import { createTapper } from './taps.js';
@@ -158,10 +159,21 @@ async function takeOver() {
   }
 }
 
+// createControlClaim was added after the previous release. A phone can briefly hold that release's
+// cached ownership.js beside this file; without it snapshots simply apply unmasked.
+const claim = ownership.createControlClaim?.() ?? unmaskedClaim();
+function unmaskedClaim() {
+  let busy = false;
+  return {
+    get active() { return busy; },
+    begin(uid, control) { busy = true; return { ...(control ?? {}), activeUid: uid }; },
+    receive: doc => doc,
+    end() { busy = false; },
+  };
+}
 // With no live game, the first touch or key press on a device not in control takes control, so
 // the change it starts is saved normally. The takeover write is issued synchronously, before the
 // click or key press does its own write: the rules refuse writes from a device not in control.
-const claim = createControlClaim();
 function claimControl() {
   if (claim.active || state.active || !isInRoute() || state.editor !== 'valid' || state.gameLive || !state.online) return;
   const done = takeOver();

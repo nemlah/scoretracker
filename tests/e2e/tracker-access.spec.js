@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { closeAll, get, remove, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
@@ -209,6 +210,25 @@ test('offline with no live game the device not in control stays read-only', asyn
     await expect(page.getByTestId('takeover-banner')).toBeHidden();
   });
   dropNetworkNoise(problems);
+});
+
+// A phone holding the previous release can pair the new app.js with a cached ownership.js that
+// lacks createControlClaim. The tracker must still start and save changes.
+test.describe('mixed module cache', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('the tracker still unlocks and saves when ownership.js is the previous release', async ({ page }) => {
+    const previous = execSync('git show 7e9461a:js/tracker/ownership.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/tracker/ownership.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await page.goto(TRACKER_URL);
+    await expect(page.getByTestId('code-input')).toBeVisible();
+    await unlockTracker(page);
+    await page.getByTestId('home-roster').click();
+    await page.getByTestId('roster-add-name').fill('Cached');
+    await page.getByTestId('roster-add-cap').fill('4');
+    await page.getByTestId('roster-add-btn').click();
+    await expect.poll(rosterNames).toContain('Cached');
+  });
 });
 
 test('revoked code: next write shows unlock with code-changed notice', async ({ page }) => {

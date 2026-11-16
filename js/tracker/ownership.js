@@ -40,28 +40,36 @@ export function createWriteErrorHandler({ getState, readControl, onRevoked, onFa
  * Tracks a quiet takeover (the first touch on a device not in control, with no live game) while
  * its write is in flight. Control snapshots that were already on their way before the write was
  * issued carry the old holder; they must not undo the optimistic ownership the click that follows
- * depends on. The latest snapshot is remembered, so a refused takeover can show the real holder.
+ * depends on. The latest snapshot is remembered and applied once the write settles: after our
+ * local write Firestore delivers a snapshot naming us, so what was last received is either that
+ * or a genuinely newer holder.
  */
 export function createControlClaim() {
   let uid = null;
   let latest = null;
+  let received = false;
   return {
     get active() { return uid !== null; },
     /** Starts a claim; returns the control document to show at once. */
     begin(myUid, control) {
       uid = myUid;
       latest = control ?? null;
+      received = false;
       return { ...(control ?? {}), activeUid: myUid };
     },
     /** The control document to show for an incoming snapshot. */
     receive(doc) {
       latest = doc;
+      received = true;
       return uid !== null && doc?.activeUid !== uid ? { ...(doc ?? {}), activeUid: uid } : doc;
     },
-    /** Ends the claim; returns the control document to show again after a refusal, else undefined. */
+    /**
+     * Ends the claim; returns the control document to show now, or undefined to keep what is
+     * shown (the write succeeded and no snapshot arrived meanwhile).
+     */
     end(succeeded) {
       uid = null;
-      return succeeded ? undefined : latest;
+      return received || !succeeded ? latest : undefined;
     },
   };
 }
