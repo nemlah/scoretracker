@@ -1,5 +1,14 @@
 # Session log
 
+## 16/11/2026 - Tracker "Loading…" hang fixed (branch fix/viewer-own-cache, fb09b1f)
+- Cause: viewer and tracker shared the default Firebase app, so one multi-tab Firestore cache and one primary-tab election. The primary tab runs every tab's listeners with its own sign-in; a viewer tab (never signed in) opened first made the tracker's `editors/<uid>` listen fail with permission-denied (firestore.rules:17) and the tracker stayed on "Loading…".
+- Fix: `initFirebase({ name })` takes an optional app name (default app unchanged); the viewer passes `'viewer'` and gets its own cache (Firestore keys its IndexedDB and tab-sync storage by app name). The tracker keeps its sign-in, ownership and pending writes. A phone mixing old and new cached modules falls back to the shared cache, as before.
+- Test: tracker-access "a viewer tab opened first in the same browser does not block the tracker" failed on chromium and webkit before the fix (permission-denied) and passes after.
+- Tests at fb09b1f: unit 192, emulator 28, e2e 363 passed / 13 skipped / 0 failed. Codex read-only review: one Minor, accepted.
+- Accepted Minor: the viewer's cache starts empty once after deploy (open the viewer once on Wi-Fi before relying on it offline); on the scorekeeper's own phone the viewer now shows taps after server sync, like every other phone.
+- Not deployed yet. After deploy, the live check can open the tracker in the viewer's browser context (release-routine step 4 no longer needs a separate context).
+- Next: (2) goalie order on the live screen (conflicts with the goalies spec, ask the owner first) and (3) smaller Goal / Excl / Pen buttons on goalie tiles; use superpowers:brainstorming for both.
+
 ## 16/11/2026 - Where we left off (handoff before /clear)
 - **Owner's next request (16/11), not started, no branch yet:** (1) fix the tracker "Loading…" hang; (2) on the live screen keep the goalie in goal at the top of the list and move the other goalie to the bottom; (3) make the Goal / Excl / Pen buttons on goalie tiles smaller (rarely used). Use superpowers:systematic-debugging for (1) and superpowers:brainstorming for (2)+(3).
 - **(1) The hang:** both pages call `initFirebase()` (`js/firebase.js:12`) on the default app, sharing one `persistentMultipleTabManager` cache. The viewer never signs in; when its tab is the cache's primary tab, a tracker tab opened in the same browser with no saved sign-in stays on "Loading…" with permission-denied. Also happens on 4de03d6, so it is older than 15/11. Repro: open the viewer, then `track.html` in the same browser context. A repro script from 15/11 is at /private/tmp/claude-501/-Users-nemlah-Code-scoretracker/e790e31c-8b4e-4519-95b3-480447996116/scratchpad/shared-check.cjs (gone after a reboot).
