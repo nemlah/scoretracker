@@ -95,6 +95,10 @@ export function mount(root, ctx) {
 
   function renderRows() {
     const errors = validateLineup(selection);
+    // Enabled while this device can take control by itself on the first touch (state.writable);
+    // a cached app.js from the previous release lacks it.
+    const current = ctx.getState();
+    const writable = current.writable ?? current.active;
     const reasonOf = id => errors.find(error => error.playerId === id)?.reason;
     for (const player of selection) {
       const parts = rows.get(player.playerId);
@@ -102,7 +106,7 @@ export function mount(root, ctx) {
       // The field being typed in keeps its text; every other field shows the committed cap.
       if (document.activeElement !== parts.cap) parts.cap.value = player.cap ?? '';
       else if (capValue(parts.cap.value) !== player.cap) parts.cap.value = player.cap ?? '';
-      parts.cap.disabled = !player.selected || !ctx.getState().active;
+      parts.cap.disabled = !player.selected || !writable;
       const reason = player.selected ? reasonOf(player.playerId) : undefined;
       parts.error.hidden = reason === undefined;
       parts.error.textContent = reason === undefined ? '' : t(REASONS[reason]);
@@ -112,7 +116,7 @@ export function mount(root, ctx) {
     lineupError.textContent = noPlayers ? t('selNoPlayers') : '';
     const seasonOk = isValidSeason(season.value.trim());
     seasonError.hidden = seasonOk;
-    start.disabled = starting || errors.length > 0 || !seasonOk || !ctx.getState().active;
+    start.disabled = starting || errors.length > 0 || !seasonOk || !writable;
   }
 
   function init(state) {

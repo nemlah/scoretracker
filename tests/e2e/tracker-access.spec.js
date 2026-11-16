@@ -1,9 +1,11 @@
 import { execSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { closeAll, get, remove, resetAll, seed, update } from './helpers.js';
+import { EMULATOR } from '../../js/config.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
+const SERVER_WAIT = 20000;
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -75,9 +77,8 @@ async function startGame(page) {
 }
 
 // Device A unlocks first and holds control; then device B unlocks and takes it. Returns once the
-// server says B holds control. With no live game A shows nothing when it learns of that, so there
-// is no page signal to wait for on A; its control listener gets the change within milliseconds of
-// the server holding it, while every step below that follows on A is a user action on A.
+// server says B holds control. With no live game A shows nothing when it learns of that: call
+// knowsOtherHolds before A acts.
 async function withTwoDevices(page, browser, body) {
   const aUid = await activeUid();
   expect(aUid).toBeTruthy();
@@ -93,6 +94,35 @@ async function withTwoDevices(page, browser, body) {
     await contextB.close();
   }
 }
+
+// Waits until A has learned that another device holds control. With no live game A shows nothing
+// for it, but going offline shows the takeover banner for a device not in control, so the banner
+// appearing proves A's state says "not in control"; coming back, the banner must go again.
+async function knowsOtherHolds(page, context) {
+  await context.setOffline(true);
+  try {
+    await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  } finally {
+    await context.setOffline(false);
+  }
+  await expect(page.getByTestId('takeover-banner')).toBeHidden({ timeout: SERVER_WAIT });
+  dropNetworkNoise(problems);
+}
+
+// Firestore requests stay blocked until the returned function runs; the page itself, the auth
+// emulator and anything cached keep working. Streams that are already open are not affected.
+async function blockFirestore(page) {
+  const handler = route => route.abort('internetdisconnected');
+  const matches = url => url.port === String(EMULATOR.firestorePort);
+  await page.route(matches, handler);
+  return () => page.unroute(matches, handler);
+}
+
+// The page cannot be backgrounded in a test; replay what the browser reports.
+const setVisibility = (page, visibility) => page.evaluate(value => {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, visibility);
 
 // Moves to the roster without a touch or key press, which would take control.
 const openRosterQuietly = page => page.evaluate(() => { location.hash = '#/roster'; });
@@ -123,10 +153,11 @@ test('second device takes over; first becomes read-only and can take back', asyn
   });
 });
 
-test('with no live game the device not in control shows no banner and keeps its buttons', async ({ page, browser }) => {
+test('with no live game the device not in control shows no banner and keeps its buttons', async ({ page, context, browser }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await withTwoDevices(page, browser, async () => {
+    await knowsOtherHolds(page, context);
     await expect(page.getByTestId('takeover-banner')).toBeHidden();
     await expect(page.getByTestId('home-new')).toBeEnabled();
     await openRosterQuietly(page);
@@ -137,10 +168,11 @@ test('with no live game the device not in control shows no banner and keeps its 
   });
 });
 
-test('with no live game the first touch takes control and the change is saved', async ({ page, browser }) => {
+test('with no live game the first touch takes control and the change is saved', async ({ page, context, browser }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await withTwoDevices(page, browser, async pageB => {
+    await knowsOtherHolds(page, context);
     const holder = await activeUid();
     await openRosterQuietly(page);
     await page.getByTestId('roster-add-name').fill('Quiet');
@@ -156,21 +188,42 @@ test('with no live game the first touch takes control and the change is saved', 
   });
 });
 
-test('the first touch on a roster row button is not lost to the render it causes', async ({ page, browser }) => {
+test('the first touch on a roster row button is not lost to the render it causes', async ({ page, context, browser }) => {
   await seed('team/main', { roster: [{ id: 'a', name: 'Alexiou', cap: 5, archived: false }] });
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await withTwoDevices(page, browser, async () => {
+    await knowsOtherHolds(page, context);
     await openRosterQuietly(page);
     await page.getByTestId('roster-archive').click();
     await expect.poll(async () => (await get('team/main'))?.roster?.[0]?.archived).toBe(true);
   });
 });
 
-test('a first key press takes control and the change is saved', async ({ page, browser }) => {
+test('the new game screen of a device not in control keeps Start enabled; the first touch starts the game', async ({ page, context, browser }) => {
+  await seed('team/main', { roster });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async () => {
+    await knowsOtherHolds(page, context);
+    const holder = await activeUid();
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await page.getByTestId('opponent-input').fill('Opponent FC');
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await expect(page.getByTestId('start-game')).toBeEnabled();
+    await page.getByTestId('start-game').click();
+    await expect(page.getByTestId('score-us')).toHaveText('0');
+    await expect.poll(activeUid).not.toBe(holder);
+    await expect.poll(async () => (await get('team/main'))?.currentGameId).toBeTruthy();
+    await expect(page.getByTestId('failed-banner')).toBeHidden();
+  });
+});
+
+test('a first key press takes control and the change is saved',async ({ page, context, browser }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await withTwoDevices(page, browser, async pageB => {
+    await knowsOtherHolds(page, context);
     const holder = await activeUid();
     await openRosterQuietly(page);
     const name = page.getByTestId('roster-add-name');
@@ -186,10 +239,11 @@ test('a first key press takes control and the change is saved', async ({ page, b
   });
 });
 
-test('two open devices do not take control from each other without input', async ({ page, browser }) => {
+test('two open devices do not take control from each other without input', async ({ page, context, browser }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await withTwoDevices(page, browser, async () => {
+    await knowsOtherHolds(page, context);
     const holder = await activeUid();
     await page.waitForTimeout(2000);
     expect(await activeUid()).toBe(holder);
@@ -212,6 +266,126 @@ test('offline with no live game the device not in control stays read-only', asyn
   dropNetworkNoise(problems);
 });
 
+test('modifier keys alone do not take control; an ordinary key does', async ({ page, context, browser }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await withTwoDevices(page, browser, async () => {
+    await knowsOtherHolds(page, context);
+    const holder = await activeUid();
+    await openRosterQuietly(page);
+    const name = page.getByTestId('roster-add-name');
+    await expect(name).toBeEnabled();
+    await name.focus();
+    // Cmd+Tab, Cmd+R and the like: nothing for the tracker to act on.
+    for (const key of ['Shift', 'Control', 'Alt', 'Meta', 'Control+a', 'Meta+a', 'Alt+a']) await page.keyboard.press(key);
+    // A negative check has no event to wait for: give a takeover write time to show up.
+    await page.waitForTimeout(500);
+    expect(await activeUid()).toBe(holder);
+    await page.keyboard.press('Tab');
+    await expect.poll(activeUid).not.toBe(holder);
+  });
+});
+
+// The quiet takeover and the no-banner state need what the server confirmed, not what the cache
+// holds. Until team, control and the current game have each had a server snapshot, the device
+// not in control behaves as during a live game.
+test.describe('server confirmation', () => {
+
+  const liveGame = {
+    opponent: 'Live FC', date: '2026-11-16', season: '2026-27', status: 'live', situations: true, period: 1,
+    lineup: [{ playerId: 'p5', name: 'Alexiou', cap: 5 }, { playerId: 'p7', name: 'Georgiou', cap: 7 }],
+    events: [],
+  };
+  const probeRoster = [...roster, { id: 'p9', name: 'Probe', cap: 9, archived: false }];
+  // Seen on A's roster once A has a server snapshot of team/main again.
+  const probeVisible = async page => {
+    await openRosterQuietly(page);
+    await expect(page.getByText('Probe')).toBeVisible({ timeout: SERVER_WAIT });
+  };
+  const backgrounded = async page => {
+    await setVisibility(page, 'hidden');
+    await setVisibility(page, 'visible');
+  };
+
+  test('a cold open on a cache that predates the live game takes no control; the banner stays', async ({ page, context, browser }) => {
+    await seed('team/main', { roster });
+    await page.goto(TRACKER_URL);
+    await unlockTracker(page);
+    await withTwoDevices(page, browser, async () => {
+      await knowsOtherHolds(page, context);
+      const holder = await activeUid();
+      // A's cache says: another device holds control, no game. A is closed while a game goes live.
+      await page.goto('about:blank');
+      await seed('team/main', { roster: probeRoster, currentGameId: 'g1' });
+      await seed('games/g1', liveGame);
+      const unblock = await blockFirestore(page);
+      await page.goto(HOME_URL);
+      await expect(page.getByTestId('home-new')).toBeVisible();
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      await expect(page.getByTestId('home-new')).toBeDisabled();
+      await page.locator('.brand').click();
+      await page.waitForTimeout(500);
+      expect(await activeUid()).toBe(holder);
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+
+      await unblock();
+      await probeVisible(page);
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      await page.locator('.brand').click();
+      await page.waitForTimeout(500);
+      expect(await activeUid()).toBe(holder);
+      dropNetworkNoise(problems);
+    });
+  });
+
+  test('back from the background the device confirms with the server before it takes control quietly', async ({ page, context, browser }) => {
+    await page.goto(TRACKER_URL);
+    await unlockTracker(page);
+    await withTwoDevices(page, browser, async () => {
+      await knowsOtherHolds(page, context);
+      const holder = await activeUid();
+      await setVisibility(page, 'hidden');
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      await setVisibility(page, 'visible');
+      await expect(page.getByTestId('takeover-banner')).toBeHidden({ timeout: SERVER_WAIT });
+      await expect(page.getByTestId('home-new')).toBeEnabled();
+      await page.locator('.brand').click();
+      await expect.poll(activeUid).not.toBe(holder);
+    });
+  });
+
+  test('back from the background on a dead connection the device takes no control and the live game shows', async ({ page, context, browser }) => {
+    await page.goto(TRACKER_URL);
+    await unlockTracker(page);
+    await withTwoDevices(page, browser, async () => {
+      await knowsOtherHolds(page, context);
+      const holder = await activeUid();
+      // The browser reports a connection but nothing gets through: the open streams are cut.
+      await context.setOffline(true);
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      const unblock = await blockFirestore(page);
+      await context.setOffline(false);
+      await seed('team/main', { roster: probeRoster, currentGameId: 'g1' });
+      await seed('games/g1', liveGame);
+
+      await backgrounded(page);
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      await page.locator('.brand').click();
+      await page.waitForTimeout(500);
+      expect(await activeUid()).toBe(holder);
+
+      await unblock();
+      await backgrounded(page);
+      await probeVisible(page);
+      await expect(page.getByTestId('takeover-banner')).toBeVisible();
+      await page.locator('.brand').click();
+      await page.waitForTimeout(500);
+      expect(await activeUid()).toBe(holder);
+      dropNetworkNoise(problems);
+    });
+  });
+});
+
 // A phone holding the previous release can pair the new app.js with a cached ownership.js that
 // lacks createControlClaim. The tracker must still start and save changes.
 test.describe('mixed module cache', () => {
@@ -223,6 +397,43 @@ test.describe('mixed module cache', () => {
     await page.goto(TRACKER_URL);
     await expect(page.getByTestId('code-input')).toBeVisible();
     await unlockTracker(page);
+    await page.getByTestId('home-roster').click();
+    await page.getByTestId('roster-add-name').fill('Cached');
+    await page.getByTestId('roster-add-cap').fill('4');
+    await page.getByTestId('roster-add-btn').click();
+    await expect.poll(rosterNames).toContain('Cached');
+  });
+
+  // app.js is the previous release's: it sets state.active but not state.writable, which the
+  // views read with a fallback.
+  test('the views keep their controls enabled when app.js is the previous release', async ({ page }) => {
+    const previous = execSync('git show 7e9461a:js/tracker/app.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/tracker/app.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await seed('team/main', { roster, currentGameId: 'g1' });
+    await seed('games/g1', {
+      opponent: 'Old FC', date: '2026-11-01', season: '2026-27', status: 'final', period: 4,
+      lineup: [{ playerId: 'p5', name: 'Alexiou', cap: 5 }], events: [],
+    });
+    await page.goto(HOME_URL);
+    await expect(page.getByTestId('code-input')).toBeVisible();
+    await unlockTracker(page);
+    await page.evaluate(() => { location.hash = '#/games/g1'; });
+    await expect(page.getByTestId('reopen-game')).toBeEnabled();
+    await expect(page.getByTestId('info-save')).toBeEnabled();
+    await expect(page.getByTestId('delete-game')).toBeEnabled();
+  });
+
+  // repo.js is the previous release's: no confirmFromServer. Coming back from the background the
+  // stale mark is simply cleared (today's behaviour) and the tracker keeps working.
+  test('the tracker still works when repo.js is the previous release and the page returns from the background', async ({ page }) => {
+    const previous = execSync('git show 7e9461a:js/repo.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/repo.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await page.goto(TRACKER_URL);
+    await expect(page.getByTestId('code-input')).toBeVisible();
+    await unlockTracker(page);
+    await setVisibility(page, 'hidden');
+    await setVisibility(page, 'visible');
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
     await page.getByTestId('home-roster').click();
     await page.getByTestId('roster-add-name').fill('Cached');
     await page.getByTestId('roster-add-cap').fill('4');

@@ -319,7 +319,8 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
 
   function update(current, state) {
     game = current;
-    const writable = state.writable;
+    // state.writable is newer than state.active: a cached app.js from the previous release lacks it.
+    const writable = state.writable ?? state.active;
     const live = current.status === 'live';
     const lineup = current.lineup ?? [];
     const key = lineupSignature(lineup);

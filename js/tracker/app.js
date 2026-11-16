@@ -48,8 +48,12 @@ const state = {
   // banner's Take over button.
   gameLive: true,
   // Whether this device's controls are enabled: in control, or able to take control by itself
-  // on the first touch (valid editor, online, no live game).
+  // on the first touch (valid editor, online, no live game, everything on screen confirmed by the
+  // server, nothing waiting to be saved).
   writable: false,
+  // True while the team, control and current game on screen each come from a server snapshot
+  // (not just the local cache) and the page has not been in the background since.
+  confirmed: false,
   online: navigator.onLine,
   // True once any snapshot has come from the server (not just the local cache) since the page opened.
   synced: false,
@@ -73,6 +77,14 @@ let editorDoc = null;
 let revoked = false;
 let teamLoaded = false;
 let controlLoaded = false;
+// Whether the latest snapshot of each listener came from the server (meta.fromCache === false).
+// A cold open shows the cache first, and a page back from the background holds listeners that
+// went stale; neither says who holds control or whether a game is live.
+let teamConfirmed = false;
+let controlConfirmed = false;
+let gameConfirmed = false;
+// Counts trips to the background, so a server read started before one cannot confirm after it.
+let backgrounds = 0;
 let bootFailed = false;
 // The default route is replaced by the live screen on the first load only.
 let landingChecked = false;
@@ -171,11 +183,17 @@ function unmaskedClaim() {
     end() { busy = false; },
   };
 }
+// Keys that do nothing in the tracker by themselves, or are shortcuts of the browser or system
+// (Cmd+Tab, Cmd+R): they must not move control.
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'OS']);
+
 // With no live game, the first touch or key press on a device not in control takes control, so
 // the change it starts is saved normally. The takeover write is issued synchronously, before the
 // click or key press does its own write: the rules refuse writes from a device not in control.
-function claimControl() {
-  if (claim.active || state.active || !isInRoute() || state.editor !== 'valid' || state.gameLive || !state.online) return;
+// state.writable says the screen is trustworthy: confirmed by the server, online, no game live.
+function claimControl(event) {
+  if (event.type === 'keydown' && (MODIFIER_KEYS.has(event.key) || event.ctrlKey || event.metaKey || event.altKey)) return;
+  if (claim.active || state.active || !state.writable || !isInRoute()) return;
   const done = takeOver();
   // Shown as in control at once, so the click that follows passes its guards. Control snapshots
   // that were already on their way (old holder) are held off until the write settles.
@@ -373,6 +391,7 @@ function syncGameWatch() {
   gameUnsub = null;
   watchedGameId = wanted;
   serverSeen = false;
+  gameConfirmed = false;
   state.game = null;
   state.gameLoaded = wanted === null;
   state.gameOffline = false;
@@ -383,6 +402,7 @@ function syncGameWatch() {
   if (wanted === null) return;
   gameUnsub = watchGameWithJournal(wanted, (game, meta) => {
     if (!meta.fromCache) serverSeen = true;
+    gameConfirmed = !meta.fromCache;
     noteServer(meta);
     state.game = game;
     state.gameLoaded = true;
@@ -400,8 +420,12 @@ function derive() {
   state.active = state.editor === 'valid' && state.control?.activeUid === state.uid;
   // A current game that has not loaded yet counts as live, so nothing is taken over blindly.
   state.gameLive = !state.gameLoaded || state.game?.status === 'live';
+  state.confirmed = teamConfirmed && controlConfirmed && (watchedGameId === null || gameConfirmed);
+  // Not in control, the first touch may take control only on a screen that can be trusted: no
+  // game live, the server has confirmed every piece of it, and no write is waiting for the server.
   state.writable = state.active
-    || (state.editor === 'valid' && teamLoaded && controlLoaded && state.online && !state.gameLive);
+    || (state.editor === 'valid' && teamLoaded && controlLoaded && state.online && !state.gameLive
+      && state.confirmed && !state.pendingWrites && !state.gameOffline);
   // Boot, unlocking and taking over from another device are all moments to catch up on stats
   // recounts. The device that held control before may have left a recount unfinished, and its
   // dirty marker lives only in its own storage, so the current game's season is recounted too.
@@ -473,8 +497,8 @@ function isInRoute() {
 
 function syncChrome() {
   const inRoute = isInRoute();
-  // Not in control: read-only while a game is live (or offline); otherwise the first input takes control.
-  const readOnly = inRoute && !state.active && (state.gameLive || !state.online);
+  // Not in control: read-only unless the first input can take control (see state.writable).
+  const readOnly = inRoute && !state.active && !state.writable;
   backButton.hidden = !inRoute || current.slot === 'home';
   takeoverBanner.hidden = !readOnly;
   offlineBanner.hidden = state.online || current.slot === 'unlock';
@@ -553,11 +577,69 @@ function subscribe() {
       editorLoaded = true;
       render();
     }),
-    repo.watchControl((doc, meta) => { noteServer(meta); state.control = claim.receive(doc); controlLoaded = true; render(); }),
-    repo.watchTeam((doc, meta) => { noteServer(meta); state.team = doc; teamLoaded = true; render(); }),
+    repo.watchControl((doc, meta) => {
+      noteServer(meta);
+      controlConfirmed = !meta.fromCache;
+      state.control = claim.receive(doc);
+      controlLoaded = true;
+      render();
+    }),
+    repo.watchTeam((doc, meta) => {
+      noteServer(meta);
+      teamConfirmed = !meta.fromCache;
+      state.team = doc;
+      teamLoaded = true;
+      render();
+    }),
   );
   syncGameWatch();
 }
+
+// Back from the background the listeners may be stale until the connection is re-established, so
+// nothing on screen counts as confirmed until the server says so. repo.confirmFromServer was
+// added after the previous release; a phone can hold that release's repo.js beside this file, in
+// which case the mark is simply cleared (the behaviour before it existed).
+async function reconfirm() {
+  if (!repo) return;
+  const trip = backgrounds;
+  const read = repo.confirmFromServer?.();
+  if (!read) {
+    teamConfirmed = true;
+    controlConfirmed = true;
+    gameConfirmed = true;
+    render();
+    return;
+  }
+  let fresh;
+  try {
+    fresh = await read;
+  } catch {
+    return; // Stays unconfirmed until a server snapshot arrives or the page is shown again.
+  }
+  if (trip !== backgrounds) return;
+  state.team = fresh.team;
+  state.control = claim.receive(fresh.control);
+  teamConfirmed = true;
+  controlConfirmed = true;
+  // The game follows the team's pointer; a pointer that moved is picked up by the next render,
+  // and the new game's own snapshot then confirms it. A game that changed is left to its listener.
+  if (watchedGameId === (fresh.team?.currentGameId ?? null) && state.gameLoaded && fresh.game?.status === state.game?.status) {
+    gameConfirmed = true;
+  }
+  render();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    backgrounds += 1;
+    teamConfirmed = false;
+    controlConfirmed = false;
+    gameConfirmed = false;
+    render();
+  } else if (document.visibilityState === 'visible') {
+    reconfirm();
+  }
+});
 
 window.addEventListener('hashchange', render);
 window.addEventListener('online', () => { state.online = true; ctx.stats.drain(); render(); });

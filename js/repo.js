@@ -98,6 +98,23 @@ export function createRepo(db) {
       return snapshot.exists() ? gameData(snapshot) : null;
     },
 
+    /**
+     * Team, control and the current game (when the team has one) as the server has them, for
+     * confirming what the screen shows. Each is null when the document does not exist; game is
+     * undefined when there is no current game. Rejects when the server cannot be reached.
+     */
+    async confirmFromServer() {
+      const [teamSnapshot, controlSnapshot] = await Promise.all([getDocFromServer(teamRef), getDocFromServer(controlRef)]);
+      const team = teamSnapshot.data() ?? null;
+      const gameId = team?.currentGameId ?? null;
+      let game;
+      if (gameId !== null) {
+        const gameSnapshot = await getDocFromServer(gameRef(gameId));
+        game = gameSnapshot.exists() ? gameData(gameSnapshot) : null;
+      }
+      return { team, control: controlSnapshot.data() ?? null, game };
+    },
+
     async listGames() {
       const snapshot = await getDocs(query(gamesRef, orderBy('date', 'desc')));
       return snapshot.docs.map(gameData);

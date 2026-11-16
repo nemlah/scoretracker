@@ -154,16 +154,18 @@ export function mount(root, ctx) {
       infoSeason.value = game.season;
       infoError.hidden = true;
     }
-    for (const field of [infoOpponent, infoDate, infoSeason, infoSave]) field.disabled = !state.writable;
+    // state.writable is newer than state.active: a cached app.js from the previous release lacks it.
+    const writable = state.writable ?? state.active;
+    for (const field of [infoOpponent, infoDate, infoSeason, infoSave]) field.disabled = !writable;
     score.textContent = resultText(game);
     const live = game.status === 'live';
     liveNote.hidden = !live;
     const other = state.gameLoaded && state.game?.status === 'live' && state.game.id !== game.id;
     const blocked = !state.gameLoaded || other;
     reopen.hidden = live;
-    reopen.disabled = !state.writable || blocked || reopening === game.id;
+    reopen.disabled = !writable || blocked || reopening === game.id;
     reopenNote.hidden = live || !other;
-    del.el.disabled = !state.writable;
+    del.el.disabled = !writable;
     panel.update(game, state);
   }
 
