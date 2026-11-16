@@ -1,12 +1,12 @@
 # Session log
 
-## 16/11/2026 - R1 retry duplicate fixed (branch fix/retry-duplicate-events, ee1a7b3)
+## 16/11/2026 - R1 retry duplicate fixed, live (main 425d060)
 - Bug (review R1): a goal tapped offline plus its scorer correction, both refused after another device took over, were retried as two adds of one event id; arrayUnion compares whole objects, so the score counted the goal twice. Production checked: no duplicate ids in any game (Steaua 54, ΡΟΗ 34, Delfin 50 events), so no data repair.
 - Fix: `journal.record` — a correction supersedes the earlier add, remove and correction of its event, so the journal holds one entry per event (this also stops a stale refused delete from removing an event corrected afterwards). `retryFailed` sends one write per event from its latest entry, retires superseded entries left by the previous journal.js, and drops a lone add the server already holds.
 - Commits: b235d0f and ee1a7b3 (Codex, high), 0bd7c1c (sonnet e2e). Reviews: Codex read-only twice, opus whole-branch; their findings (stale remove, lone add overwriting a newer correction) are fixed in ee1a7b3; the round-2 review found no issues.
 - Visible change: a refused goal plus its refused correction shows "1 tap not saved" (was 2).
 - Tests at ee1a7b3: unit 201, emulator 28, e2e 364 passed / 14 skipped / 0 failed. The new offline e2e is Chromium-only like the rest of that suite; on the old code it failed with goals p5 and p2 on the server.
-- Not merged or deployed. Deploy only when no game is live; old and new journal.js / taps.js mix safely in both directions.
+- Deployed 16/11/2026: fast-forward to 425d060, unit 201/201. Live headless check at 360 px: the tracker reaches the unlock screen in the viewer's browser context (~2 s) with the new journal.js and taps.js; the viewer lists Steaua, ΡΟΗ, Delfin; no sideways scroll, no console errors. Old and new journal.js / taps.js mix safely in both directions. Before the next game: open tracker and viewer once on Wi-Fi on every phone.
 - Next in the queue: (2) goalie order and (3) goalie button sizes (brainstorming), then R7.
 
 ## 16/11/2026 - Todo queue (after the 16/11 code review)
