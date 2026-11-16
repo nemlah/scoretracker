@@ -1,5 +1,15 @@
 # Session log
 
+## 16/11/2026 - Goalie order, smaller goalie buttons, timeline saves (branch feat/goalie-order-timeline-saves, 9704df2)
+- Live screen: the goalie in goal first, field players by cap, the other goalie(s) last. A tap on this device's goalie buttons that changes the goalie in goal (In goal, or Save / Pen save on the other goalie) swaps the two goalie tiles, pauses Save / Pen save / In goal for 1 s and scrolls to the top; Undo, Events-sheet corrections and other devices reorder without the pause or the scroll. Field tiles never move on a swap (the goalie tile head is one line; a long goalie name ends in "…").
+- Goalie tiles: Goal / Excl / Pen are 36 px (were 48). In two columns (≥ 700 px) field tiles keep their own height.
+- Viewer: every ordinary save is its own lighter timeline row, "✋ Save · #1 Name"; shown only when both cached model.js and strings.js carry TIMELINE_SAVES, so a phone mixing old and new files keeps saves out.
+- Design: docs/superpowers/specs/2026-11-16-goalie-order-timeline-saves-design.md (the 15/11 goalies spec's no-reorder anti-goal, order rule, 48 px rule and "no saves in the timeline" non-goal are marked amended). Plan: docs/superpowers/plans/2026-11-16-goalie-order-timeline-saves.md.
+- Commits: 149ecfc (Codex), 854c6e3, c3c4c4d and 9704df2 (sonnet). Per-task Codex reviews clean; opus whole-branch review "ready to merge" with 3 Minors, all fixed in 9704df2 and re-reviewed.
+- Tests at 9704df2: unit 202, e2e 386 passed / 14 skipped / 0 failed; emulator 28 at c3c4c4d (the fix touched CSS, tests and docs only).
+- Not merged or deployed. After deploy, on a phone: swap goalies (In goal, and Save on the other goalie) and check the smooth scroll, a long-named goalie, and landscape.
+- Next in the queue: R7 (service worker cache failure).
+
 ## 16/11/2026 - R1 retry duplicate fixed, live (main 425d060)
 - Bug (review R1): a goal tapped offline plus its scorer correction, both refused after another device took over, were retried as two adds of one event id; arrayUnion compares whole objects, so the score counted the goal twice. Production checked: no duplicate ids in any game (Steaua 54, ΡΟΗ 34, Delfin 50 events), so no data repair.
 - Fix: `journal.record` — a correction supersedes the earlier add, remove and correction of its event, so the journal holds one entry per event (this also stops a stale refused delete from removing an event corrected afterwards). `retryFailed` sends one write per event from its latest entry, retires superseded entries left by the previous journal.js, and drops a lone add the server already holds.
@@ -11,8 +21,8 @@
 
 ## 16/11/2026 - Todo queue (after the 16/11 code review)
 Open from before, in order:
-1. (2) Live screen: goalie in goal at the top, the other goalie at the bottom. Conflicts with `docs/superpowers/specs/2026-11-15-goalies-design.md:56` and `:149` (tiles never reorder); ask the owner first. Use superpowers:brainstorming.
-2. (3) Smaller Goal / Excl / Pen on goalie tiles (`js/tracker/views/live.js:54-80`, `css/tracker.css:307-341`; the spec's `:153` says ≥ 48 px). Use superpowers:brainstorming.
+1. Done 16/11 (branch feat/goalie-order-timeline-saves): the goalie in goal first, the other goalie last; see the entry above.
+2. Done 16/11 (same branch): Goal / Excl / Pen on goalie tiles are 36 px; saves also added to the viewer timeline.
 3. Parked: the games-list pin key check, our players' missed penalties, older seasons in the viewer, the 4 tracker issues from 14/11 (repo.endGame first).
 
 Added from `docs/code-review-2026-11-16.md` (the findings we agree with, in the order to do them; R-numbers refer to that review):
