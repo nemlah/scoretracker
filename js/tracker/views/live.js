@@ -13,13 +13,14 @@ const PIPS = 3;
 const UNDO_LOCK_MS = 1000;
 const PERIOD_LOCK_MS = 1000;
 const SITUATION_LOCK_MS = 1000;
+const GOALIE_LOCK_MS = 1000;
 const SITUATION_TICK_MS = 1000;
 const SITUATION_BUTTON = { none: 'manUpButton', manUp: 'manUpEndButton', manDown: 'manDownEndButton' };
 const SITUATION_TAP = { none: 'manUp', manUp: 'manUpEnd', manDown: 'manDownEnd' };
 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
-function buildTile(player, ctx) {
+function buildTile(player, ctx, onGoalieTap) {
   const isGoalie = player.goalie === true;
   const badge = h('span', { class: 'cap cap--tile' }, player.cap);
   const name = h('span', { class: 'tile-name' }, player.name);
@@ -59,17 +60,17 @@ function buildTile(player, ctx) {
     const saveButton = h('button', {
       type: 'button', class: 'btn btn--save', 'data-testid': 'tile-save',
       'aria-label': t('saveFor', { name: player.name }),
-      onclick: () => ctx.tapper.tap('save', player.playerId),
+      onclick: () => onGoalieTap('save', player.playerId),
     }, t('saveButton'));
     const penSaveButton = h('button', {
       type: 'button', class: 'btn btn--pen-save', 'data-testid': 'tile-pen-save',
       'aria-label': t('penSaveFor', { name: player.name }),
-      onclick: () => ctx.tapper.tap('penSave', player.playerId),
+      onclick: () => onGoalieTap('penSave', player.playerId),
     }, t('penSaveButton'));
     const inGoalButton = h('button', {
       type: 'button', class: 'btn btn--in-goal', 'data-testid': 'tile-in-goal',
       'aria-label': t('inGoalFor', { name: player.name }),
-      onclick: () => ctx.tapper.tap('gkIn', player.playerId),
+      onclick: () => onGoalieTap('gkIn', player.playerId),
     }, t('inGoalButton'));
     el.dataset.goalie = 'true';
     el.classList.add('tile--goalie');
@@ -85,7 +86,7 @@ function buildTile(player, ctx) {
   return {
     el,
     isGoalie,
-    update(line, writable, goalieLine = null, inGoal = false, shootout = false) {
+    update(line, writable, goalieLine = null, inGoal = false, shootout = false, goalieLocked = false) {
       el.dataset.cap = line.cap;
       badge.textContent = line.cap;
       badge.classList.toggle('cap--out', line.out);
@@ -119,9 +120,11 @@ function buildTile(player, ctx) {
       el.classList.toggle('is-in-goal', inGoal);
       if (inGoal) el.dataset.inGoal = 'true'; else delete el.dataset.inGoal;
       goalie.inGoalBadge.style.visibility = inGoal ? 'visible' : 'hidden';
-      goalie.saveButton.disabled = !writable || line.out;
-      goalie.penSaveButton.disabled = !writable || line.out;
-      goalie.inGoalButton.disabled = !writable || line.out;
+      // Right after a goalie change the three goalie buttons are refused for a moment, so a second
+      // finger on the old layout cannot hit a tile that has just moved.
+      goalie.saveButton.disabled = !writable || line.out || goalieLocked;
+      goalie.penSaveButton.disabled = !writable || line.out || goalieLocked;
+      goalie.inGoalButton.disabled = !writable || line.out || goalieLocked;
       // Hidden, not removed: the button keeps its space, so nothing moves under a finger.
       goalie.saveButton.style.visibility = shootout ? 'hidden' : 'visible';
       goalie.inGoalButton.style.visibility = inGoal ? 'hidden' : 'visible';
@@ -141,6 +144,9 @@ export function mount(root, ctx) {
   let situationTimer = null;
   let situationTick = null;
   let openSituation = null;
+  let goalieLocked = false;
+  let goalieTimer = null;
+  let inGoalId = null;
 
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
   const scoreThem = h('span', { class: 'score-them', 'data-testid': 'score-them' }, '0');
@@ -197,6 +203,24 @@ export function mount(root, ctx) {
       undoTimer = null;
       update(ctx.getState());
     }, UNDO_LOCK_MS);
+  }
+
+  // A tap that puts another goalie in goal (In goal, or a Save / Pen save by the one who was not in
+  // goal) moves the goalie tiles. The goalie buttons are then refused for a second and the screen
+  // scrolls to the top, where the goalie in goal now is. Undo reorders too, but never pauses or scrolls.
+  function goalieTap(type, playerId) {
+    if (goalieLocked) return;
+    const changes = inGoalId !== null && playerId !== inGoalId;
+    if (!ctx.tapper.tap(type, playerId) || !changes) return;
+    goalieLocked = true;
+    update(ctx.getState());
+    goalieTimer = setTimeout(() => {
+      goalieLocked = false;
+      goalieTimer = null;
+      update(ctx.getState());
+    }, GOALIE_LOCK_MS);
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
   }
 
   // Same guard as Undo: a double tap would skip a quarter, so after a change the button is
@@ -289,10 +313,17 @@ export function mount(root, ctx) {
       : t('periodAria', { label: periodLabel(current.period), next: periodLabel(next) }));
     periodButton.disabled = !writable || next === null || periodLocked;
 
-    // Goalie tiles first, then field players, each by cap. Who is in goal never reorders anything.
+    // The goalie in goal first, then the field players, then the other goalies; each group by cap.
+    // The goalie tiles all have the same height, so a goalie change swaps them without moving any
+    // field tile.
     const all = playerLines(current.lineup ?? [], events);
-    const lines = [...all.filter(line => line.goalie === true), ...all.filter(line => line.goalie !== true)];
     const stats = goalieStats({ ...current, lineup: current.lineup ?? [], events });
+    inGoalId = stats?.inGoal ?? null;
+    const lines = [
+      ...all.filter(line => line.goalie === true && line.playerId === inGoalId),
+      ...all.filter(line => line.goalie !== true),
+      ...all.filter(line => line.goalie === true && line.playerId !== inGoalId),
+    ];
     const keep = new Set(lines.map(line => line.playerId));
     for (const [id, tile] of tiles) {
       // A tile whose goalie flag changed (lineup edit) has a different layout, so it is rebuilt.
@@ -302,11 +333,11 @@ export function mount(root, ctx) {
     lines.forEach((line, index) => {
       let tile = tiles.get(line.playerId);
       if (!tile) {
-        tile = buildTile(line, ctx);
+        tile = buildTile(line, ctx, goalieTap);
         tiles.set(line.playerId, tile);
       }
       tile.update(line, writable, stats?.goalies.find(entry => entry.playerId === line.playerId),
-        stats?.inGoal === line.playerId, current.period === 'SO');
+        stats?.inGoal === line.playerId, current.period === 'SO', goalieLocked);
       // Only move a tile that is out of place, so unchanged tiles keep their DOM identity.
       if (tileList.children[index] !== tile.el) tileList.insertBefore(tile.el, tileList.children[index] ?? null);
     });
@@ -374,6 +405,7 @@ export function mount(root, ctx) {
       clearTimeout(undoTimer);
       clearTimeout(periodTimer);
       clearTimeout(situationTimer);
+      clearTimeout(goalieTimer);
       clearSituation();
       sheet.destroy();
       document.removeEventListener('visibilitychange', onVisibility);

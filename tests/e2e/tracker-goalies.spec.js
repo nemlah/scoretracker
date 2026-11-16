@@ -127,8 +127,8 @@ const boxes = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el
   return [rect.x + scrollX, rect.y + scrollY, rect.width, rect.height]; // page coordinates: a tap may scroll
 }));
 
-async function startGoalieGame(page) {
-  await seed('team/main', { roster: goalieRoster });
+async function startGoalieGame(page, roster = goalieRoster) {
+  await seed('team/main', { roster });
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
@@ -152,10 +152,10 @@ async function openSeeded(page, game) {
   await expect(page.getByTestId('score-us')).toBeVisible();
 }
 
-test('goalie tiles come first and the lowest cap starts in goal', async ({ page }) => {
+test('the goalie in goal comes first, field players next, the other goalie last', async ({ page }) => {
   await startGoalieGame(page);
   await expect(page.getByTestId('tile')).toHaveCount(3);
-  expect(await tileCaps(page)).toEqual(['1', '13', '5']);
+  expect(await tileCaps(page)).toEqual(['1', '5', '13']);
   await expect(tile(page, 1)).toHaveAttribute('data-goalie', 'true');
   await expect(tile(page, 13)).toHaveAttribute('data-goalie', 'true');
   await expect(tile(page, 5)).not.toHaveAttribute('data-goalie', 'true');
@@ -190,18 +190,22 @@ test('Pen save shows the pen count next to the saves', async ({ page }) => {
   await expect.poll(async () => (await get(`games/${id}`)).events.map(e => e.type)).toEqual(['save', 'penSave']);
 });
 
-test('Save on the bench goalie moves the highlight without moving any tile', async ({ page }) => {
+test('Save on the other goalie puts them in goal and swaps the goalie tiles; the field tile stays put', async ({ page }) => {
   await startGoalieGame(page);
-  const before = await boxes(page);
+  // Page coordinates: the tap may scroll the window (to the top after a goalie change).
+  const field = () => tile(page, 5).evaluate(el => {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height };
+  });
+  const before = await field();
   await tile(page, 13).getByTestId('tile-save').click();
   await expect(tile(page, 13)).toHaveAttribute('data-in-goal', 'true');
   await expect(tile(page, 1)).not.toHaveAttribute('data-in-goal', 'true');
   await expect(tile(page, 1).getByTestId('tile-in-goal')).toBeVisible();
   await expect(tile(page, 13).getByTestId('tile-in-goal')).toBeHidden();
-  const after = await boxes(page);
-  expect(after).toHaveLength(before.length);
-  before.forEach((box, i) => box.forEach((value, j) => expect(Math.abs(value - after[i][j])).toBeLessThanOrEqual(0.5)));
-  expect(await tileCaps(page)).toEqual(['1', '13', '5']);
+  expect(await tileCaps(page)).toEqual(['13', '5', '1']);
+  const after = await field();
+  for (const key of ['x', 'y', 'width', 'height']) expect(Math.abs(before[key] - after[key])).toBeLessThanOrEqual(0.5);
 });
 
 test('In goal switches the goalie in goal', async ({ page }) => {
@@ -209,9 +213,85 @@ test('In goal switches the goalie in goal', async ({ page }) => {
   await tile(page, 13).getByTestId('tile-in-goal').click();
   await expect(tile(page, 13)).toHaveAttribute('data-in-goal', 'true');
   await expect(tile(page, 1)).not.toHaveAttribute('data-in-goal', 'true');
+  expect(await tileCaps(page)).toEqual(['13', '5', '1']);
   const id = await currentGameId();
   await expect.poll(async () => (await get(`games/${id}`)).events.map(e => [e.type, e.playerId])).toEqual([['gkIn', 'g13']]);
   await expect(page.getByTestId('undo')).toContainText('In goal · #13');
+});
+
+const goalieButtons = (page, cap, ids) => ids.map(id => tile(page, cap).getByTestId(id));
+
+test('after a goalie change the goalie buttons pause for a second', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  const locked = [
+    ...goalieButtons(page, 1, ['tile-in-goal', 'tile-save']),
+    ...goalieButtons(page, 13, ['tile-save', 'tile-pen-save']),
+  ];
+  for (const button of locked) await expect(button).toBeDisabled({ timeout: 300 });
+  await tile(page, 1).getByTestId('tile-in-goal').click({ force: true });
+  for (const button of locked) await expect(button).toBeEnabled({ timeout: 2000 });
+  const id = await currentGameId();
+  await expect.poll(async () => (await get(`games/${id}`)).events.map(e => [e.type, e.playerId])).toEqual([['gkIn', 'g13']]);
+  expect((await get(`games/${id}`)).events.map(e => [e.type, e.playerId])).toEqual([['gkIn', 'g13']]);
+});
+
+test('a Save on the goalie in goal does not pause anything', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 1).getByTestId('tile-save').click();
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('1 save');
+  await expect(tile(page, 13).getByTestId('tile-in-goal')).toBeEnabled({ timeout: 300 });
+});
+
+test('a goalie change scrolls back to the top', async ({ page }) => {
+  await startGoalieGame(page);
+  await page.setViewportSize({ width: 360, height: 480 });
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+});
+
+test('a goalie change from Undo reorders without the pause or a scroll', async ({ page }) => {
+  await startGoalieGame(page);
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  await expect(tile(page, 1).getByTestId('tile-in-goal')).toBeEnabled({ timeout: 2000 });
+  await page.setViewportSize({ width: 360, height: 480 });
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await page.getByTestId('undo').click();
+  await expect.poll(() => tileCaps(page)).toEqual(['1', '5', '13']);
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await expect(tile(page, 13).getByTestId('tile-in-goal')).toBeEnabled({ timeout: 300 });
+});
+
+test('with three goalies the two not in goal come last by cap', async ({ page }) => {
+  await startGoalieGame(page, [
+    ...goalieRoster,
+    { id: 'g7', name: 'Ioannou', cap: 7, archived: false, goalie: true },
+  ]);
+  await expect(page.getByTestId('tile')).toHaveCount(4);
+  expect(await tileCaps(page)).toEqual(['1', '5', '7', '13']);
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  await expect.poll(() => tileCaps(page)).toEqual(['13', '5', '1', '7']);
+});
+
+test('Goal, Excl and Pen on goalie tiles are 36 px and their labels fit at 360 px', async ({ page }) => {
+  await startGoalieGame(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  for (const cap of [1, 13]) {
+    for (const id of ['tile-goal', 'tile-excl', 'tile-pen']) {
+      const button = tile(page, cap).getByTestId(id);
+      const box = await button.boundingBox();
+      expect(Math.abs(box.height - 36)).toBeLessThanOrEqual(1);
+      const fit = await button.evaluate(el => ({
+        h: el.scrollHeight - el.clientHeight, w: el.scrollWidth - el.clientWidth,
+      }));
+      expect(fit.h).toBeLessThanOrEqual(1);
+      expect(fit.w).toBeLessThanOrEqual(1);
+    }
+  }
+  expect((await tile(page, 5).getByTestId('tile-goal').boundingBox()).height).toBeGreaterThanOrEqual(48);
 });
 
 test('the shootout hides Save and keeps Pen save', async ({ page }) => {
@@ -225,6 +305,13 @@ test('the shootout hides Save and keeps Pen save', async ({ page }) => {
   await expect.poll(async () => (await get('games/g-seed')).events.map(e => [e.type, e.period])).toEqual([['penSave', 'SO']]);
   const after = await boxes(page);
   before.forEach((box, i) => box.forEach((value, j) => expect(Math.abs(value - after[i][j])).toBeLessThanOrEqual(0.5)));
+});
+
+test('in the shootout Pen save on the other goalie swaps the tiles and pauses', async ({ page }) => {
+  await openSeeded(page, { period: 'SO' });
+  await tile(page, 13).getByTestId('tile-pen-save').click();
+  await expect.poll(() => tileCaps(page)).toEqual(['13', '5', '1']);
+  await expect(tile(page, 1).getByTestId('tile-pen-save')).toBeDisabled({ timeout: 300 });
 });
 
 test('a shootout penalty save shows on the goalie tile', async ({ page }) => {

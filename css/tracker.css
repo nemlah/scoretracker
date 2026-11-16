@@ -324,7 +324,7 @@ body.on-live .view { padding: 0; }
   white-space: nowrap;
 }
 .tile-saves { margin-inline-start: auto; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
-.tile-actions--goalie { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 4.5rem 3rem; }
+.tile-actions--goalie { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 4.5rem 2.25rem; }
 .tile-actions--goalie .btn { min-width: 0; padding-inline: 0.25rem; overflow-wrap: anywhere; }
 /* SAVE is tapped 8-15 times a game: the biggest target on the tile. */
 .btn--save {
@@ -337,8 +337,10 @@ body.on-live .view { padding: 0; }
 }
 .btn--pen-save, .btn--in-goal { min-height: 4.5rem; font-size: 1rem; }
 .btn--pen-save { border-color: var(--water-text); color: var(--water-text); }
-.tile-actions--goalie .btn--goal { min-height: 3rem; font-size: 1.25rem; }
-.tile-actions--goalie .btn--excl, .tile-actions--goalie .btn--pen, .btn--pen-save { font-size: 0.875rem; }
+.tile-actions--goalie .btn--goal, .tile-actions--goalie .btn--excl, .tile-actions--goalie .btn--pen { min-height: 2.25rem; padding-block: 0; }
+.tile-actions--goalie .btn--goal { font-size: 1.125rem; }
+.tile-actions--goalie .btn--excl, .tile-actions--goalie .btn--pen { font-size: 0.8125rem; line-height: 1.1; }
+.btn--pen-save { font-size: 0.875rem; }
 
 .dock {
   position: fixed;
