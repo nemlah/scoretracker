@@ -15,7 +15,9 @@
 1. Live screen order: the goalie in goal first, then the field players by cap, then the other
    lineup goalie(s) by cap.
 2. Goalie tiles: the Goal / Excl / Pen row is 36 px high instead of 48 px. SAVE, PEN SAVE and
-   In goal keep their size.
+   In goal keep their size. *Superseded the same day: goalie tiles became two rows (Goal / Excl /
+   Pen behind a ⋯ sheet, In goal in the head); see
+   `2026-11-16-quiet-takeover-and-two-row-goalie-tile-design.md`.*
 3. Viewer game timeline: every ordinary save is its own row, in time order within its period,
    `✋ Save · #1 Τίμος`, in lighter text than goals. Penalty saves stay as they are.
 
