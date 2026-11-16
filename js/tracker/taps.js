@@ -86,29 +86,33 @@ export function createTapper({
     return event;
   }
 
-  // `current` is the game's latest snapshot when it is not the one this tapper watches. Removals
-  // and replacements are resolved by event id against it: the server may hold another version
-  // of the event than the one the entry remembers (an earlier correction was refused too).
+  // Retry the latest intent with one write per event: arrayUnion compares whole objects, not ids.
+  // Resolve against `current`, which may be another game's snapshot or hold another event version.
   function retryFailed(gameId, current = getGame()) {
     if (!isActive()) return;
     const known = current?.id === gameId ? (current.events ?? []) : null;
     const sent = [];
+    const groups = new Map();
     for (const entry of journal.failed(gameId)) {
-      const serverVersion = known?.find(event => event.id === entry.event.id);
-      if (entry.op === 'remove' && known && !serverVersion) {
+      const id = entry.event.id;
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(entry);
+    }
+    for (const [id, entries] of groups) {
+      const last = entries.at(-1);
+      const serverVersion = known?.find(event => event.id === id);
+      if (last.op === 'remove' && known && !serverVersion) {
         // Already gone: nothing to remove, so nothing is left to retry.
-        journal.discard(entry.id);
+        for (const entry of entries) journal.discard(entry.id);
         continue;
       }
-      journal.markRetried(entry.id);
-      if (entry.op === 'add') {
-        sent.push(send(repo.addEvent, gameId, entry.event));
-      } else if (entry.op === 'remove') {
-        sent.push(send(repo.removeEvent, gameId, serverVersion ?? entry.event));
+      for (const entry of entries) journal.markRetried(entry.id);
+      if (last.op === 'remove') {
+        sent.push(send(repo.removeEvent, gameId, serverVersion ?? last.event));
       } else if (serverVersion) {
-        sent.push(send(repo.replaceEvent, gameId, serverVersion, entry.event));
+        sent.push(send(repo.replaceEvent, gameId, serverVersion, last.event));
       } else {
-        sent.push(send(repo.addEvent, gameId, entry.event));
+        sent.push(send(repo.addEvent, gameId, last.event));
       }
     }
     return Promise.all(sent);

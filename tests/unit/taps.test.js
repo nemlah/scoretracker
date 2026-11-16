@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
+import { createJournal } from '../../js/journal.js';
 import { createTapper } from '../../js/tracker/taps.js';
-import { makeEvent } from '../../js/model.js';
+import { deriveScore, makeEvent } from '../../js/model.js';
 
 const lineup = [
   { playerId: 'p2', name: 'Papadakis', cap: 2 },
@@ -206,6 +208,104 @@ test('retryFailed re-issues add/remove/replace with the original event objects',
     ['journal.markRetried', 'j2'], ['repo.removeEvent', 'g1', removeEv],
     ['journal.markRetried', 'j3'], ['repo.replaceEvent', 'g1', oldVersion, replaceEv],
   ]);
+});
+
+test('retryFailed sends only the latest intent for a failed add and replace absent from the snapshot', async () => {
+  const v1 = makeEvent('goal', 1, 'p5', 300, 'c');
+  const v2 = { ...v1, playerId: 'p2' };
+  const { tapper, calls, failedEntries } = setup();
+  failedEntries.push(
+    { id: 'j1', gameId: 'g1', op: 'add', event: v1, status: 'failed' },
+    { id: 'j2', gameId: 'g1', op: 'replace', event: v2, status: 'failed' },
+  );
+  await tapper.retryFailed('g1');
+  assert.deepEqual(calls, [
+    ['journal.markRetried', 'j1'], ['journal.markRetried', 'j2'],
+    ['repo.addEvent', 'g1', v2],
+  ]);
+});
+
+test('retryFailed sends one replace for a failed add and replace present in the snapshot', async () => {
+  const v1 = makeEvent('goal', 1, 'p5', 300, 'c');
+  const v2 = { ...v1, playerId: 'p2' };
+  const { tapper, calls, failedEntries } = setup({
+    game: { id: 'g1', status: 'live', period: 1, lineup, events: [v1] },
+  });
+  failedEntries.push(
+    { id: 'j1', gameId: 'g1', op: 'add', event: v1, status: 'failed' },
+    { id: 'j2', gameId: 'g1', op: 'replace', event: v2, status: 'failed' },
+  );
+  await tapper.retryFailed('g1');
+  assert.deepEqual(calls, [
+    ['journal.markRetried', 'j1'], ['journal.markRetried', 'j2'],
+    ['repo.replaceEvent', 'g1', v1, v2],
+  ]);
+});
+
+test('retryFailed replaces another server version for a lone failed add', async () => {
+  const event = makeEvent('goal', 1, 'p5', 300, 'c');
+  const serverVersion = { ...event, playerId: 'p2' };
+  const { tapper, calls, failedEntries } = setup({
+    game: { id: 'g1', status: 'live', period: 1, lineup, events: [serverVersion] },
+  });
+  failedEntries.push({ id: 'j1', gameId: 'g1', op: 'add', event, status: 'failed' });
+  await tapper.retryFailed('g1');
+  assert.deepEqual(calls, [
+    ['journal.markRetried', 'j1'], ['repo.replaceEvent', 'g1', serverVersion, event],
+  ]);
+});
+
+test('retryFailed reconciles a real journal without duplicate goals and is idempotent', async () => {
+  const values = new Map();
+  const journal = createJournal({
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  });
+  let serverEvents = [];
+  const calls = [];
+  const union = event => {
+    if (!serverEvents.some(existing => isDeepStrictEqual(existing, event))) serverEvents.push({ ...event });
+  };
+  const remove = event => {
+    serverEvents = serverEvents.filter(existing => !isDeepStrictEqual(existing, event));
+  };
+  const repo = {
+    async addEvent(gameId, event) {
+      calls.push(['repo.addEvent', gameId, event]);
+      union(event);
+    },
+    async removeEvent(gameId, event) {
+      calls.push(['repo.removeEvent', gameId, event]);
+      remove(event);
+    },
+    async replaceEvent(gameId, before, after) {
+      calls.push(['repo.replaceEvent', gameId, before, after]);
+      remove(before);
+      union(after);
+    },
+  };
+  const errors = [];
+  const tapper = createTapper({
+    repo, journal,
+    getGame: () => ({ id: 'g1', events: [...serverEvents] }),
+    isActive: () => true,
+    onError: err => errors.push(err),
+  });
+  const v1 = makeEvent('goal', 1, 'p5', 300, 'c');
+  const v2 = { ...v1, playerId: 'p2' };
+  journal.record('g1', 'add', v1);
+  journal.record('g1', 'replace', v2);
+  assert.equal(journal.reconcile('g1', serverEvents).failed.length, 2);
+  await tapper.retryFailed('g1');
+  assert.deepEqual(serverEvents, [v2]);
+  assert.equal(deriveScore(serverEvents).us, 1);
+  assert.deepEqual(calls, [['repo.addEvent', 'g1', v2]]);
+  assert.deepEqual(journal.reconcile('g1', serverEvents), { confirmed: 2, failed: [] });
+  assert.deepEqual(journal.failed('g1'), []);
+  assert.deepEqual(journal.pendingGameIds(), []);
+  await tapper.retryFailed('g1');
+  assert.deepEqual(calls, [['repo.addEvent', 'g1', v2]]);
+  assert.deepEqual(errors, []);
 });
 
 test('retryFailed removes the version the server holds, not the one the entry remembers', () => {
