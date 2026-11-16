@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createWriteErrorHandler } from '../../js/tracker/ownership.js';
+import { createControlClaim, createWriteErrorHandler } from '../../js/tracker/ownership.js';
 
 const denied = Object.assign(new Error('denied'), { code: 'permission-denied' });
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -67,4 +67,38 @@ test('other errors are reported as failed writes', () => {
   handler(Object.assign(new Error('x'), { code: 'unavailable' }));
   handler(new Error('y'));
   assert.deepEqual(log, ['failure', 'failure']);
+});
+
+test('a snapshot with the old holder that arrives during a claim does not undo it', () => {
+  const claim = createControlClaim();
+  assert.equal(claim.active, false);
+  assert.deepEqual(claim.receive({ activeUid: 'other' }), { activeUid: 'other' });
+
+  assert.deepEqual(claim.begin('me', { activeUid: 'other' }), { activeUid: 'me' });
+  assert.equal(claim.active, true);
+  // Queued before the takeover write: still names the old holder, other fields are kept.
+  assert.deepEqual(claim.receive({ activeUid: 'other', claimedAt: 1 }), { activeUid: 'me', claimedAt: 1 });
+  assert.deepEqual(claim.receive(null), { activeUid: 'me' });
+  assert.deepEqual(claim.receive({ activeUid: 'me' }), { activeUid: 'me' });
+});
+
+test('once the takeover is accepted, snapshots apply as they come', () => {
+  const claim = createControlClaim();
+  claim.begin('me', { activeUid: 'other' });
+  claim.receive({ activeUid: 'other' });
+  assert.equal(claim.end(true), undefined);
+  assert.equal(claim.active, false);
+  assert.deepEqual(claim.receive({ activeUid: 'third' }), { activeUid: 'third' });
+});
+
+test('a refused takeover shows the latest holder the server reported', () => {
+  const claim = createControlClaim();
+  claim.begin('me', { activeUid: 'other' });
+  claim.receive({ activeUid: 'third' });
+  assert.deepEqual(claim.end(false), { activeUid: 'third' });
+  assert.equal(claim.active, false);
+
+  const unseen = createControlClaim();
+  unseen.begin('me', null);
+  assert.equal(unseen.end(false), null);
 });

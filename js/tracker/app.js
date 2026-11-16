@@ -5,7 +5,7 @@ import { createJournal } from '../journal.js';
 import { createRepo } from '../repo.js';
 import { t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
-import { createWriteErrorHandler } from './ownership.js';
+import { createControlClaim, createWriteErrorHandler } from './ownership.js';
 import { createRecovery } from './recovery.js';
 import { createStatsQueue } from './statsQueue.js';
 import { createTapper } from './taps.js';
@@ -141,31 +141,40 @@ const onWriteError = createWriteErrorHandler({
   onFailure: () => showToast(t('writeFailed')),
 });
 
+// Resolves true once the takeover write was accepted.
 async function takeOver() {
   if (!state.online) {
     showToast(t('takeoverNeedsConnection'));
-    return;
+    return false;
   }
   try {
     await repo.takeOver(state.uid);
+    return true;
   } catch (err) {
     // A refused takeover by a signed-in editor means the code itself is no longer valid.
     if (err?.code === 'permission-denied') markRevoked();
     else onWriteError(err);
+    return false;
   }
 }
 
 // With no live game, the first touch or key press on a device not in control takes control, so
 // the change it starts is saved normally. The takeover write is issued synchronously, before the
 // click or key press does its own write: the rules refuse writes from a device not in control.
-let claiming = false;
+const claim = createControlClaim();
 function claimControl() {
-  if (claiming || state.active || !isInRoute() || state.editor !== 'valid' || state.gameLive || !state.online) return;
-  claiming = true;
-  takeOver().finally(() => { claiming = false; });
-  // Shown as in control at once, so the click that follows passes its guards; the server snapshot
-  // confirms it, or corrects it when the write is refused.
-  state.control = { ...(state.control ?? {}), activeUid: state.uid };
+  if (claim.active || state.active || !isInRoute() || state.editor !== 'valid' || state.gameLive || !state.online) return;
+  const done = takeOver();
+  // Shown as in control at once, so the click that follows passes its guards. Control snapshots
+  // that were already on their way (old holder) are held off until the write settles.
+  state.control = claim.begin(state.uid, state.control);
+  done.then(succeeded => {
+    const restore = claim.end(succeeded);
+    if (restore !== undefined) {
+      state.control = restore;
+      render();
+    }
+  });
   render();
 }
 root.addEventListener('pointerdown', claimControl, true);
@@ -532,7 +541,7 @@ function subscribe() {
       editorLoaded = true;
       render();
     }),
-    repo.watchControl((doc, meta) => { noteServer(meta); state.control = doc; controlLoaded = true; render(); }),
+    repo.watchControl((doc, meta) => { noteServer(meta); state.control = claim.receive(doc); controlLoaded = true; render(); }),
     repo.watchTeam((doc, meta) => { noteServer(meta); state.team = doc; teamLoaded = true; render(); }),
   );
   syncGameWatch();

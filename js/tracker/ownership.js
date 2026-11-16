@@ -35,3 +35,33 @@ export function createWriteErrorHandler({ getState, readControl, onRevoked, onFa
     onFailure(err);
   };
 }
+
+/**
+ * Tracks a quiet takeover (the first touch on a device not in control, with no live game) while
+ * its write is in flight. Control snapshots that were already on their way before the write was
+ * issued carry the old holder; they must not undo the optimistic ownership the click that follows
+ * depends on. The latest snapshot is remembered, so a refused takeover can show the real holder.
+ */
+export function createControlClaim() {
+  let uid = null;
+  let latest = null;
+  return {
+    get active() { return uid !== null; },
+    /** Starts a claim; returns the control document to show at once. */
+    begin(myUid, control) {
+      uid = myUid;
+      latest = control ?? null;
+      return { ...(control ?? {}), activeUid: myUid };
+    },
+    /** The control document to show for an incoming snapshot. */
+    receive(doc) {
+      latest = doc;
+      return uid !== null && doc?.activeUid !== uid ? { ...(doc ?? {}), activeUid: uid } : doc;
+    },
+    /** Ends the claim; returns the control document to show again after a refusal, else undefined. */
+    end(succeeded) {
+      uid = null;
+      return succeeded ? undefined : latest;
+    },
+  };
+}

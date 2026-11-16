@@ -73,17 +73,20 @@ async function startGame(page) {
   await expect(page.getByTestId('score-us')).toHaveText('0');
 }
 
-// Device A unlocks first, then device B unlocks and holds control. A learns it from the control
-// snapshot; with no live game that is invisible, so give the snapshot a moment before acting.
+// Device A unlocks first and holds control; then device B unlocks and takes it. Returns once the
+// server says B holds control. With no live game A shows nothing when it learns of that, so there
+// is no page signal to wait for on A; its control listener gets the change within milliseconds of
+// the server holding it, while every step below that follows on A is a user action on A.
 async function withTwoDevices(page, browser, body) {
+  const aUid = await activeUid();
+  expect(aUid).toBeTruthy();
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   try {
     const pageB = await contextB.newPage();
     collectProblems(pageB, problems);
     await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
-    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
-    await page.waitForTimeout(500);
+    await expect.poll(activeUid).not.toBe(aUid);
     await body(pageB);
   } finally {
     await contextB.close();
@@ -107,6 +110,7 @@ test('second device takes over; first becomes read-only and can take back', asyn
     // A touch on a live game does not take control; only Take over does.
     const holder = await activeUid();
     await page.getByTestId('score-us').click();
+    // A negative check has no event to wait for: give a takeover write time to show up.
     await page.waitForTimeout(500);
     expect(await activeUid()).toBe(holder);
     await expect(page.getByTestId('takeover-banner')).toBeVisible();
@@ -292,9 +296,12 @@ test('a device that becomes active recounts the season of the current game', asy
   // Taking over from another device repairs it too: with no live game the first touch does it.
   await update('control/tracker', { activeUid: 'another-device' });
   await remove('stats/2026-27');
-  await page.waitForTimeout(500);
-  await page.getByTestId('home-roster').click();
-  await expect.poll(activeUid).not.toBe('another-device');
+  // Nothing on the page shows that this device learned of it, so touch until control moves: the
+  // first touch after it learned takes control (earlier ones find the device still in control).
+  await expect(async () => {
+    await page.locator('.brand').click();
+    expect(await activeUid()).not.toBe('another-device');
+  }).toPass();
   await expect.poll(async () => (await get('stats/2026-27'))?.results?.[0]?.us).toBe(1);
 });
 
