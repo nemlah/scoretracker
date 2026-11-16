@@ -1,5 +1,14 @@
 # Session log
 
+## 16/11/2026 - R1 retry duplicate fixed (branch fix/retry-duplicate-events, ee1a7b3)
+- Bug (review R1): a goal tapped offline plus its scorer correction, both refused after another device took over, were retried as two adds of one event id; arrayUnion compares whole objects, so the score counted the goal twice. Production checked: no duplicate ids in any game (Steaua 54, ΡΟΗ 34, Delfin 50 events), so no data repair.
+- Fix: `journal.record` — a correction supersedes the earlier add, remove and correction of its event, so the journal holds one entry per event (this also stops a stale refused delete from removing an event corrected afterwards). `retryFailed` sends one write per event from its latest entry, retires superseded entries left by the previous journal.js, and drops a lone add the server already holds.
+- Commits: b235d0f and ee1a7b3 (Codex, high), 0bd7c1c (sonnet e2e). Reviews: Codex read-only twice, opus whole-branch; their findings (stale remove, lone add overwriting a newer correction) are fixed in ee1a7b3; the round-2 review found no issues.
+- Visible change: a refused goal plus its refused correction shows "1 tap not saved" (was 2).
+- Tests at ee1a7b3: unit 201, emulator 28, e2e 364 passed / 14 skipped / 0 failed. The new offline e2e is Chromium-only like the rest of that suite; on the old code it failed with goals p5 and p2 on the server.
+- Not merged or deployed. Deploy only when no game is live; old and new journal.js / taps.js mix safely in both directions.
+- Next in the queue: (2) goalie order and (3) goalie button sizes (brainstorming), then R7.
+
 ## 16/11/2026 - Todo queue (after the 16/11 code review)
 Open from before, in order:
 1. (2) Live screen: goalie in goal at the top, the other goalie at the bottom. Conflicts with `docs/superpowers/specs/2026-11-15-goalies-design.md:56` and `:149` (tiles never reorder); ask the owner first. Use superpowers:brainstorming.
@@ -7,7 +16,7 @@ Open from before, in order:
 3. Parked: the games-list pin key check, our players' missed penalties, older seasons in the viewer, the 4 tracker issues from 14/11 (repo.endGame first).
 
 Added from `docs/code-review-2026-11-16.md` (the findings we agree with, in the order to do them; R-numbers refer to that review):
-4. R1 (P1, do before 1 and 2): retrying a failed add together with its scorer or goalie correction writes the event twice (same id, two objects), so one goal counts twice. `retryFailed()` (`js/tracker/taps.js:92`) resolves every entry against one snapshot, and the journal keeps the add when a replace is recorded (`js/journal.js:71`). Collapse to one final state per event id before retrying; detect and repair duplicate ids.
+4. Done 16/11 (R1, branch fix/retry-duplicate-events): a refused goal and its refused correction are no longer retried as two goals; see the entry above.
 5. R7: `networkFirst()` (`sw.js:112-144`) awaits `caches.open()` outside its try, so a Cache Storage failure fails every same-origin request even with a good network. Treat cache open, match and put as optional.
 6. R6: `watch()` (`js/repo.js:51`) passes no error callback to `onSnapshot`, so a terminal listener error leaves "Loading…" or a frozen score with no message (the 16/11 tracker hang looked like this). Show unavailable or stale with a reload path; leave transient reconnects to the SDK.
 7. R8: `newerGameId()` (`js/repo.js:65`) needs a strictly later date, so ending a reopened game leaves the pointer on it when the newer game has the same date (tournament days; 14/11 already had two games). Order by date, then `createdAt`, then id, with a fallback for games without `createdAt`. Do it together with parked tracker issues 1 and 4, which touch the same `endGame`.
