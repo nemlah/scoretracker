@@ -1,11 +1,12 @@
 # Session log
 
-## 15/11/2026 - Viewer quarter scores (branch feat/quarter-scores, not merged)
+## 16/11/2026 - Viewer quarter scores live (main 6870b94)
 - Done: a final game's scoreboard shows `Q1 2–3 · Q2 1–4 · Q3 3–3 · Q4 2–3` under the score (our goals first, `0–0` for an empty quarter, shootout goals left to the shootout line); hidden on live games; appears when a watched game ends. Commits 0f30e4a, 7522fb8, 38f6679.
 - Guard: the line is hidden if its quarters don't add up to the score shown (goals with a period outside 1–4; none exist in production — 138 events, all 1–4).
 - Wrapping: each " ·" stays with the quarter before it, so a wrapped row never starts with a dot; the line fits one row down to ~300 px, the wrap test uses 240 px.
 - Tests at 38f6679: unit 192, e2e 361 passed / 13 skipped / 0 failed.
-- Next: owner chooses merge/deploy; still open: the shared-cache tracker hang and the parked pin key check (entry below).
+- Deployed 16/11/2026: fast-forward to 6870b94, unit 192/192. Live headless check at 360 px: all 3 final games show the line and it matches the score (Steaua 8–13, ΡΟΗ 19–10, Delfin 11–14), one row each, no sideways scroll, no console errors; the tracker opens to the unlock screen in its own context.
+- Next: open tracker and viewer once on Wi-Fi on every phone. Still open: the shared-cache tracker hang and the parked pin key check (entry below).
 
 ## 15/11/2026 - Viewer games list live (main 0948338)
 - Done: the viewer lands on the live game when one is live, otherwise on the games list (also `#/games`); "← All games" on every game view and the unavailable message; live banner on the list; a watched game that ends stays on its final score as `#/game/<id>` (history replace). Commits 1abb7f6, 84bf044, d69a048.
