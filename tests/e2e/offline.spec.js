@@ -148,6 +148,61 @@ test('taps after losing control are flagged, retried after taking back', async (
   dropNetworkNoise(problems);
 });
 
+test('a refused goal and its refused scorer change are retried as one goal with the new scorer', async ({ page, context, browser }) => {
+  const gameId = await startGame(page);
+  const contextB = await browser.newContext({ baseURL: ORIGIN });
+  const viewerContext = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const viewer = await viewerContext.newPage();
+    collectProblems(viewer, problems);
+    await viewer.goto(VIEWER_URL);
+    await expect(viewer.getByTestId('score-us')).toHaveText('0');
+
+    // Device A goes offline, taps a goal for Alexiou, then changes the scorer to Papadakis.
+    await context.setOffline(true);
+    await expect(page.getByTestId('sync-status')).toHaveText(OFFLINE_TEXT);
+    await goal(page).click();
+    await expect(page.getByTestId('score-us')).toHaveText('1');
+    await page.getByTestId('events-open').click();
+    await expect(page.getByTestId('events-sheet')).toBeVisible();
+    await expect(page.getByTestId('ev-row')).toHaveCount(1);
+    await expect(page.getByTestId('ev-scorer')).toHaveValue('p5');
+    await page.getByTestId('ev-scorer').selectOption('p2');
+    await expect(page.getByTestId('ev-scorer')).toHaveValue('p2');
+    await page.getByTestId('events-close').click();
+    await expect(page.getByTestId('events-sheet')).toBeHidden();
+    await expect(page.getByTestId('score-us')).toHaveText('1');
+
+    // Device B unlocks and takes over while A is away.
+    const pageB = await contextB.newPage();
+    collectProblems(pageB, problems);
+    await pageB.goto(HOME_URL);
+    await unlockTracker(pageB);
+    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+
+    // A comes back: both queued writes are refused by the rules.
+    await context.setOffline(false);
+    await expect(page.getByTestId('takeover-banner')).toBeVisible();
+    await expect(page.getByTestId('failed-banner')).toContainText('2 taps not saved', { timeout: 15000 });
+    await expect(viewer.getByTestId('score-us')).toHaveText('0');
+    expect((await get(`games/${gameId}`)).events).toEqual([]);
+
+    // A takes control back and retries: one goal, with the new scorer.
+    await page.getByTestId('take-over').click();
+    await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await page.getByTestId('retry-failed').click();
+    await expect(page.getByTestId('failed-banner')).toBeHidden({ timeout: 10000 });
+    await expect.poll(async () => (await get(`games/${gameId}`)).events.map(e => [e.type, e.playerId])).toEqual([['goal', 'p2']]);
+    await expect(viewer.getByTestId('score-us')).toHaveText('1', { timeout: 10000 });
+    await expect(page.getByTestId('score-us')).toHaveText('1');
+    await expect.poll(() => journalOf(page)).toBe('[]');
+  } finally {
+    await contextB.close();
+    await viewerContext.close();
+  }
+  dropNetworkNoise(problems);
+});
+
 test('a connection with no data serves the cached shell after the timeout', async ({ page, context }) => {
   await startGame(page);
   await tile(page, 2).getByTestId('tile-goal').click();
