@@ -43,6 +43,20 @@ const lightTextPairs = [
   ['ink', 'sit-up'],
   ['ink', 'sit-down'],
   ['ink', 'led'],
+  // Tracker surfaces: the hatch's lighter stripe, the banners, the out tile, the unlock screen.
+  ['ink', 'sit-down-hatch'],
+  ['#ffffff', 'water-text'],
+  ['out-text', 'fail-bg'],
+  ['muted', 'fail-bg'],
+  ['water-text', 'fail-bg'],
+  ['ink', 'fail-bg'],
+  ['ink', 'moved-bg'],
+  ['muted', 'moved-bg'],
+  ['out-text', 'out-tile'],
+  ['ink', 'out-tile'],
+  ['unlock-error', 'unlock-field'],
+  ['led', 'unlock-field'],
+  ['board-muted', 'unlock-field'],
 ];
 const lightLinePairs = [['line-strong', 'paper'], ['line-strong', 'pool']];
 const darkTextPairs = [
@@ -126,10 +140,12 @@ test('Sofia fonts are linked', () => {
   }
 });
 
-test('viewer.css colours live in tokens', () => {
-  const loose = viewerCss.split('\n')
-    .map((line, index) => ({ line, number: index + 1 }))
-    .filter(({ line }) => /#[0-9a-f]{3,8}\b/i.test(line) && !/--[\w-]+\s*:/.test(line))
-    .map(({ line, number }) => `${number}: ${line.trim()}`);
-  assert.deepEqual(loose, [], 'hex colours outside a custom property declaration');
+test('viewer.css and tracker.css colours live in tokens', () => {
+  for (const [path, css] of [['css/viewer.css', viewerCss], ['css/tracker.css', trackerCss]]) {
+    const loose = css.split('\n')
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter(({ line }) => /#[0-9a-f]{3,8}\b/i.test(line) && !/--[\w-]+\s*:/.test(line))
+      .map(({ line, number }) => `${number}: ${line.trim()}`);
+    assert.deepEqual(loose, [], `${path}: hex colours outside a custom property declaration`);
+  }
 });
