@@ -25,11 +25,7 @@ const TOAST_MS = 5000;
 const PENDING_GRACE_MS = 2000;
 
 document.documentElement.style.setProperty('--accent', teamConfig.accent);
-import('../accent.js').then(({ accentPair }) => {
-  const pair = accentPair(teamConfig.accent);
-  document.documentElement.style.setProperty('--on-accent', pair.onAccent);
-  document.documentElement.style.setProperty('--accent-on-board', pair.accentOnBoard);
-}).catch(() => {});
+import('../accent.js').then(accent => accent.applyAccentPair(document.documentElement.style, teamConfig.accent)).catch(() => {});
 document.title = t('trackerTitle', { team: teamConfig.name });
 
 function safeStorage() {

@@ -19,11 +19,7 @@ import { clear, h } from './ui/dom.js';
 const STALE_MS = 6000;
 
 document.documentElement.style.setProperty('--accent', teamConfig.accent);
-import('./accent.js').then(({ accentPair }) => {
-  const pair = accentPair(teamConfig.accent);
-  document.documentElement.style.setProperty('--on-accent', pair.onAccent);
-  document.documentElement.style.setProperty('--accent-on-board', pair.accentOnBoard);
-}).catch(() => {});
+import('./accent.js').then(accent => accent.applyAccentPair(document.documentElement.style, teamConfig.accent)).catch(() => {});
 document.title = t('viewerTitle', { team: teamConfig.name });
 
 // Its own app name keeps the viewer's Firestore cache apart from the tracker's (see firebase.js).

@@ -38,3 +38,9 @@ export function accentPair(accent) {
   }
   return { onAccent, accentOnBoard };
 }
+
+export function applyAccentPair(style, accent) {
+  const { onAccent, accentOnBoard } = accentPair(accent);
+  style.setProperty('--on-accent', onAccent);
+  style.setProperty('--accent-on-board', accentOnBoard);
+}

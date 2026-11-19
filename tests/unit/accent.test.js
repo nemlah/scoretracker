@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accentPair, contrastRatio } from '../../js/accent.js';
+import { accentPair, applyAccentPair, contrastRatio } from '../../js/accent.js';
 
 const board = '#0b1320';
 const white = '#ffffff';
@@ -48,4 +48,20 @@ test('accentOnBoard uses the first 5% step that clears 3:1 for blue', () => {
 
 test('accentPair preserves a non-hex CSS colour and uses white text', () => {
   assert.deepEqual(accentPair('blue'), { onAccent: '#ffffff', accentOnBoard: 'blue' });
+});
+
+test('applyAccentPair sets both CSS custom properties', () => {
+  const calls = [];
+  const style = {
+    setProperty(name, value) {
+      calls.push([name, value]);
+    },
+  };
+
+  applyAccentPair(style, '#0057b8');
+
+  assert.deepEqual(calls, [
+    ['--on-accent', '#ffffff'],
+    ['--accent-on-board', accentPair('#0057b8').accentOnBoard],
+  ]);
 });
