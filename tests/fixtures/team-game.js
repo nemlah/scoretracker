@@ -1,0 +1,63 @@
+export const teamGame = {
+  id: 'team-g1',
+  opponent: 'Harbour WPC',
+  date: '2026-11-16',
+  season: '2026-27',
+  status: 'final',
+  period: 4,
+  situations: true,
+  lineup: [
+    { playerId: 'p1', name: 'Νίκος Λέκκας', cap: 1, goalie: true },
+    { playerId: 'p7', name: 'Άρης Λάμπρου', cap: 7 },
+    { playerId: 'p12', name: 'Αλέξανδρος Κωνσταντίνος Παπαγεωργίου', cap: 12 },
+  ],
+  events: [
+    { id: 'e1', type: 'manUp', period: 1, ts: 1000 },
+    { id: 'e2', type: 'goal', period: 1, ts: 2000, playerId: 'p12' },
+    { id: 'e3', type: 'excl', period: 1, ts: 3000, playerId: 'p7' },
+    { id: 'e4', type: 'oppGoal', period: 1, ts: 4000 },
+    { id: 'e5', type: 'goal', period: 1, ts: 5000, playerId: 'p12' },
+    { id: 'e6', type: 'manUp', period: 2, ts: 6000 },
+    { id: 'e7', type: 'manUpEnd', period: 2, ts: 7000 },
+    { id: 'e8', type: 'excl', period: 2, ts: 8000, playerId: 'p7' },
+    { id: 'e9', type: 'manDownEnd', period: 2, ts: 9000 },
+    { id: 'e10', type: 'oppGoal', period: 2, ts: 10000 },
+    { id: 'e11', type: 'pen', period: 3, ts: 11000, playerId: 'p12' },
+    { id: 'e12', type: 'penSave', period: 3, ts: 12000, playerId: 'p1' },
+    { id: 'e13', type: 'excl', period: 3, ts: 13000, playerId: 'p12' },
+    { id: 'e14', type: 'goal', period: 3, ts: 14000, playerId: 'p7' },
+    { id: 'e15', type: 'goal', period: 3, ts: 15000 },
+    { id: 'e16', type: 'pen', period: 4, ts: 16000, playerId: 'p12' },
+    { id: 'e17', type: 'oppGoal', period: 4, ts: 17000 },
+    { id: 'e18', type: 'goal', period: 4, ts: 18000, playerId: 'p12' },
+  ],
+};
+
+export const teamGameExpected = {
+  tracked: true,
+  manUp: {
+    quarters: [{ played: 1, scored: 1 }, { played: 1, scored: 0 },
+      { played: 0, scored: 0 }, { played: 0, scored: 0 }],
+    played: 2,
+    scored: 1,
+  },
+  manDown: {
+    quarters: [{ played: 1, stopped: 0 }, { played: 1, stopped: 1 },
+      { played: 1, stopped: 1 }, { played: 0, stopped: 0 }],
+    played: 3,
+    stopped: 2,
+  },
+  goals: { for: 5, against: 3, manUpFor: 1, manDownAgainst: 1 },
+  fouls: {
+    quarters: [{ excl: 1, pens: 0 }, { excl: 1, pens: 0 },
+      { excl: 1, pens: 1 }, { excl: 0, pens: 1 }],
+    excl: 3,
+    pens: 2,
+  },
+  trouble: [
+    { playerId: 'p7', name: 'Άρης Λάμπρου', cap: 7, fouls: 2, out: false },
+    { playerId: 'p12', name: 'Αλέξανδρος Κωνσταντίνος Παπαγεωργίου', cap: 12, fouls: 3, out: true },
+  ],
+  pensAgainst: { faced: 2, saved: 1 },
+  flow: { biggestLead: 2, longestRun: { us: 2, them: 0 }, ties: 2, neverBehind: true, scorers: 2 },
+};
