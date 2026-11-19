@@ -1,14 +1,21 @@
 :root {
-  --ink: #0E2238;
+  --ink: #0B1320;
   --paper: #FFFFFF;
-  --pool: #EEF5F8;
-  --water: #0F7FA8;
-  --water-text: #0B6A8C; /* water for normal-size text: 5.52:1 on --pool */
+  --pool: #F4F6F8;
+  --water: #0B6E7F;
+  --water-text: #0B6E7F;
   --rope: #D7263D;
-  --line: #C9D6DF;
+  --line: #D5DCE3;
   --accent: #0057B8;
-  --font-body: "Fira Sans", system-ui, sans-serif;
-  --font-num: "Fira Sans Extra Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Sofia Sans", system-ui, sans-serif;
+  --font-num: "Sofia Sans Extra Condensed", "Arial Narrow", system-ui, sans-serif;
+  --muted: #4A5868;
+  --line-strong: #7A8796;
+  --board: #0B1320;
+  --board-line: #24324A;
+  --board-muted: #A9B4C2;
+  --led: #FFC23D;
+  --out-text: #B3202F;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -40,6 +47,7 @@ a { color: var(--water); }
 
 /* The one decorative device: a lane rope. */
 .rope {
+  display: none;
   height: 6px;
   background: repeating-linear-gradient(
     90deg,
@@ -59,7 +67,7 @@ a { color: var(--water); }
   height: 2.25rem;
   border-radius: 50%;
   background: var(--accent);
-  color: #FFFFFF;
+  color: var(--on-accent, #FFFFFF);
   font: 700 1.25rem/1 var(--font-num);
   font-variant-numeric: tabular-nums;
 }

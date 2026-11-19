@@ -4,15 +4,21 @@ body.viewer { background: var(--pool); }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink: #EAF2F7;
-    --paper: #0E2238;
-    --pool: #08192A;
+    --ink: #E8EEF5;
+    --paper: #131E2E;
+    --pool: #0B1320;
     --water: #5CC3EC;
     --water-text: #5CC3EC;
     --rope: #FF6B7D;
-    --line: #2B4660;
+    --line: #24324A;
+    --muted: #9AA8B8;
+    --line-strong: #5D6B7D;
+    --board: #05090F;
+    --board-line: #1F2B3D;
+    --board-muted: #A9B4C2;
+    --led: #FFC23D;
+    --out-text: #FF6B7D;
   }
-  .rope { opacity: 0.95; }
 }
 
 .page {

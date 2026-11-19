@@ -179,11 +179,11 @@ label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
 /* Live tracking */
 :root {
   --dock-h: 10rem;
-  --pen: #9A4A00;
-  --sit-up: #4FCB82;        /* page tint while a man-up is open; --ink on it is 7.82:1 */
-  --sit-down: #F0626B;      /* page tint while a man-down is open; --ink on it is 5.11:1 */
-  --sit-up-strong: #146B3A; /* button fill and header/dock bar, white text on it is 6.57:1 */
-  --sit-down-strong: #B3202F; /* same for man-down, white text on it is 6.64:1 */
+  --pen: #6B3FB5;
+  --sit-up: #C6F0D9;
+  --sit-down: #F08A4B;
+  --sit-up-strong: #0E7A4E;
+  --sit-down-strong: #E8590C;
 }
 /* The whole page changes colour while a situation is open, so it shows at the edge of vision. */
 body.sit-up { background: var(--sit-up); }
