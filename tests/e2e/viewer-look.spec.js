@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { closeAll, resetAll, seed, update } from './helpers.js';
+import { contrastRatio } from '../../js/accent.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
 const longOpponent = 'Πανελλήνιος Γυμναστικός Σύλλογος Πειραιώς Ολυμπιακός';
@@ -47,7 +48,18 @@ const seedLive = () => Promise.all([
       { gameId: 'g1', date: '2026-11-08', opponent: longOpponent, us: 12, them: 11 },
       // A one-line name: its link must still be a 44 px target.
       { gameId: 'g5', date: '2026-10-18', opponent: 'Rivals', us: 8, them: 7 },
+      // Shorter still: narrower than 44 px by its text alone.
+      { gameId: 'g6', date: '2026-10-11', opponent: 'OFI', us: 5, them: 4 },
     ],
+  }),
+]);
+
+// A finished game beside the live one, so a past game can be opened with the live banner above it.
+const seedPast = () => Promise.all([
+  seedLive(),
+  seed('games/g0', {
+    opponent: longOpponent, date: '2026-11-01', season: '2026-27', status: 'final', period: 4, lineup,
+    events: [ev('goal', 1, 'p10'), ev('oppGoal', 2)],
   }),
 ]);
 
@@ -195,5 +207,75 @@ for (const [scheme, board] of [['light', 'rgb(11, 19, 32)'], ['dark', 'rgb(5, 9,
       await expect(page.getByTestId('celebration-banner')).toHaveCSS('background-color', board);
       await expect(page.getByTestId('celebration-goal')).toHaveCSS('color', 'rgb(255, 194, 61)');
     });
+  });
+}
+
+// "rgb(...)", "color(srgb ...)" or any other computed colour as #rrggbb, read back through a canvas.
+const hexOf = (page, colour) => page.evaluate(value => {
+  const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#000000';
+  context.fillStyle = value;
+  context.fillRect(0, 0, 1, 1);
+  return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
+}, colour);
+
+for (const scheme of ['light', 'dark']) {
+  test.describe(`past game beside the live one, ${scheme}`, () => {
+    test.use({ colorScheme: scheme });
+
+    test('the open-result marker clears 3:1 against the selected row', async ({ page }) => {
+      await seedPast();
+      await open(page, '#/game/g0');
+      const row = page.locator('[data-testid="result-row"].is-open');
+      await expect(row).toHaveCount(1);
+      // accent.js is imported dynamically: the marker colour arrives a moment after first paint.
+      await expect.poll(() => rootProperty(page, `--accent-open-${scheme}`)).toMatch(/^#[0-9a-f]{6}$/);
+      const { fill, shadow } = await row.evaluate(el => ({
+        fill: getComputedStyle(el).backgroundColor,
+        // Wide screens mark the first cell, narrow ones (blocks) mark the row itself.
+        shadow: [el, el.querySelector('td:first-child')].map(node => getComputedStyle(node).boxShadow).find(value => value !== 'none') ?? 'none',
+      }));
+      // Computed as "<colour> 4px 0px 0px 0px inset": the marker, 4 px wide.
+      const parsed = shadow.match(/^((?:rgba?|color)\([^)]*\)) 4px 0px 0px 0px inset$/);
+      expect(parsed, `a 4 px inset marker, got "${shadow}"`).not.toBeNull();
+      const marker = await hexOf(page, parsed[1]);
+      const ratio = contrastRatio(marker, await hexOf(page, fill));
+      expect(ratio, `${marker} on ${fill}`).toBeGreaterThanOrEqual(3);
+    });
+
+    test('the Watch link shows an ink focus ring on the amber banner', async ({ page }) => {
+      await seedPast();
+      await open(page, '#/game/g0');
+      const watch = page.getByTestId('watch-live');
+      await expect(watch).toBeVisible();
+      // Keyboard first (so :focus-visible applies), then onto the link: WebKit's Tab skips links by default.
+      await page.keyboard.press('Tab');
+      await watch.focus();
+      await expect(watch).toBeFocused();
+      expect(await watch.evaluate(el => el.matches(':focus-visible')), 'focus-visible applies').toBe(true);
+      const ring = await watch.evaluate(el => {
+        const style = getComputedStyle(el);
+        return { style: style.outlineStyle, width: style.outlineWidth, colour: style.outlineColor };
+      });
+      expect(ring.style).toBe('solid');
+      expect(ring.width).toBe('3px');
+      expect(ring.colour).toBe('rgb(11, 19, 32)');
+      expect(contrastRatio(await hexOf(page, ring.colour), '#ffc23d')).toBeGreaterThanOrEqual(3);
+    });
+  });
+}
+
+for (const [width, height] of [[360, 740], [1280, 800]]) {
+  test(`${width} px: a result link for a short opponent is a 44 x 44 target`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await seedLive();
+    await open(page, '#/games');
+    for (const name of ['OFI', 'Rivals']) {
+      const link = page.getByTestId('result-link').filter({ hasText: new RegExp(`^${name}$`) });
+      await expect(link).toHaveCount(1);
+      const box = await link.boundingBox();
+      expect(box.width, `${name} width`).toBeGreaterThanOrEqual(44);
+      expect(box.height, `${name} height`).toBeGreaterThanOrEqual(44);
+    }
   });
 }

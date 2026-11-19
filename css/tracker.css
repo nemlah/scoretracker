@@ -14,6 +14,7 @@ body.tracker {
   --t-bar: var(--accent-on-board, var(--accent));
   --t-on-accent: var(--on-accent, #FFFFFF);
   --t-white: #FFFFFF;
+  --t-ink: var(--ink, #0B1320);
   background: var(--pool);
 }
 
@@ -88,10 +89,14 @@ body.tracker {
 /* Read-only mode: write controls stay visible but plainly dimmed. */
 .is-readonly [data-write] { opacity: 0.4; cursor: not-allowed; }
 .is-readonly .roster-row .cap { opacity: 0.7; }
-/* Tracking moved: the live screen under the banner is dimmed as a whole (the banner and Take over stay full strength).
-   Controls inside it keep their own opacity, so they are not dimmed twice. */
-body.on-live:has(.banner--takeover:not([hidden])) .view { opacity: 0.4; }
+/* Tracking moved: the live content under the banner is dimmed (the banner and Take over stay full strength). The Events
+   button and the Events sheet stay at full strength too: a child cannot undo an ancestor's opacity, so the dimming sits on
+   the head, the tiles, the dock's action row and Undo, never on .view or .live as a whole. Controls inside a dimmed block
+   keep their own opacity, so they are not dimmed twice. */
+body.on-live:has(.banner--takeover:not([hidden])) :is(.live > :not(.dock), .dock-top) { opacity: 0.4; }
+body.on-live:has(.banner--takeover:not([hidden])) .dock::before { opacity: 0.4; }
 body.on-live:has(.banner--takeover:not([hidden])) .view :is(.btn:disabled, [data-write]) { opacity: 1; }
+body.on-live:has(.banner--takeover:not([hidden])) .view .dock .btn--undo { opacity: 0.4; }
 
 .input {
   width: 100%;
@@ -207,7 +212,14 @@ body.tracker:has(.unlock) { background: var(--t-board); }
 .failed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; width: 100%; }
 .failed-row { display: flex; flex-direction: column; align-items: stretch; gap: 0.5rem; }
 .failed-row p { margin: 0; }
-.failed-row a { color: var(--water-text); font-weight: 700; }
+.failed-row a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem; /* a 44 px target */
+  color: var(--water-text);
+  font-weight: 700;
+}
 .failed-row .banner-actions { flex: none; }
 .failed-row .btn { flex: 1 1 0; min-height: 3rem; font-size: 1rem; }
 .banner-actions .btn:first-child { background: var(--t-board); border-color: var(--t-board); color: var(--t-led); }
@@ -501,7 +513,7 @@ body.on-live .view { padding: 0; }
   background-color: var(--sit-down-strong);
   background-image: var(--sit-band-down);
   border-color: var(--sit-down-strong);
-  color: var(--t-board);
+  color: var(--t-ink);
   font-size: 0.9375rem;
 }
 .situation.is-late { animation: situation-pulse 1s ease-in-out infinite; }

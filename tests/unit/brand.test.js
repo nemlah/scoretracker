@@ -10,7 +10,8 @@ const read = path => readFileSync(join(root, path), 'utf8');
 // PNG header: 8 signature bytes, 4 length, 4 "IHDR", then width and height as 32-bit big-endian.
 function pngSize(path) {
   const bytes = readFileSync(join(root, path));
-  assert.equal(bytes.subarray(1, 4).toString('latin1'), 'PNG', `${path} is a PNG`);
+  assert.deepEqual([...bytes.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], `${path} has the PNG signature`);
+  assert.equal(bytes.subarray(12, 16).toString('latin1'), 'IHDR', `${path}: the first chunk is IHDR`);
   return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
 }
 
@@ -46,6 +47,7 @@ test('pages link the icons', () => {
   assert.ok(index.includes('<link rel="manifest" href="manifest.webmanifest">'));
   assert.ok(index.includes('<meta property="og:title" content="ANOG live score">'));
   assert.ok(index.includes('<meta property="og:description" content="Every game, goal by goal">'));
+  assert.ok(index.includes('<meta property="og:url" content="https://nemlah.github.io/scoretracker/">'));
   assert.ok(index.includes('<meta property="og:image" content="https://nemlah.github.io/scoretracker/img/og.png">'));
 });
 

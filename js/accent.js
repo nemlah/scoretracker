@@ -39,8 +39,36 @@ export function accentPair(accent) {
   return { onAccent, accentOnBoard };
 }
 
+// The viewer's selected result row: the page surface with 8% of the club colour mixed in (css/viewer.css),
+// and the colour of the 4 px marker on its edge, which must clear 3:1 against that fill.
+export const OPEN_ROW = {
+  light: { paper: '#ffffff', ink: '#0b1320' },
+  dark: { paper: '#131e2e', ink: '#e8eef5' },
+};
+const OPEN_ROW_MIN = 3.1; // 3:1 plus a margin for the browser's own rounding of the mix
+
+export function openRowFill(accent, scheme) {
+  return mix(OPEN_ROW[scheme].paper, accent, 0.08);
+}
+
+export function openMarker(accent, scheme) {
+  if (typeof accent !== 'string' || !/^#[0-9a-f]{6}$/i.test(accent)) return accent;
+  const fill = openRowFill(accent, scheme);
+  let marker = accent.toLowerCase();
+  // Step 20 is the scheme's ink, which always clears 3:1 on the row.
+  for (let step = 1; contrastRatio(marker, fill) < OPEN_ROW_MIN; step++) {
+    marker = mix(accent, OPEN_ROW[scheme].ink, step / 20);
+  }
+  return marker;
+}
+
 export function applyAccentPair(style, accent) {
+  if (typeof accent !== 'string' || accent === '') return; // nothing to derive: the CSS fallbacks stay in force
   const { onAccent, accentOnBoard } = accentPair(accent);
   style.setProperty('--on-accent', onAccent);
   style.setProperty('--accent-on-board', accentOnBoard);
+  if (/^#[0-9a-f]{6}$/i.test(accent)) {
+    style.setProperty('--accent-open-light', openMarker(accent, 'light'));
+    style.setProperty('--accent-open-dark', openMarker(accent, 'dark'));
+  }
 }

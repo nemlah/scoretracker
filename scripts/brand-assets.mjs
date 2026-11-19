@@ -27,18 +27,26 @@ const ogHtml = `<!doctype html><html><head><meta charset="utf-8">
   <span aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 12px; background: #FFC23D"></span>
 </div></body></html>`;
 
+// Decoded, not just complete: a broken or undecodable crest rejects here instead of being photographed half-drawn.
+const decodeImages = page => page.evaluate(() => Promise.all(
+  [...document.images].map(img => img.decode().catch(error => {
+    throw new Error(`image failed to decode: ${img.src.slice(0, 40)}: ${error.message}`);
+  })),
+));
+
 const browser = await chromium.launch();
 try {
   for (const size of [180, 192, 512]) {
     const page = await browser.newPage({ viewport: { width: size, height: size } });
     await page.setContent(iconHtml(size));
-    await page.waitForFunction(() => document.querySelector('img').complete);
+    await decodeImages(page);
     await page.screenshot({ path: join(root, `img/icon-${size}.png`) });
     await page.close();
   }
 
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
   await page.setContent(ogHtml, { waitUntil: 'networkidle' });
+  await decodeImages(page);
   await page.evaluate(async () => {
     await Promise.all([
       document.fonts.load("800 168px 'Sofia Sans Extra Condensed'", 'ANOG'),

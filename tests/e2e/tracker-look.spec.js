@@ -173,6 +173,14 @@ test('the moved banner is pale amber and the live screen under it is dimmed', as
   // A disabled write control is dimmed once, not twice.
   await expect(tile(page, 5).getByTestId('tile-goal')).toBeDisabled();
   expect(await effectiveOpacity(tile(page, 5).getByTestId('tile-goal'))).toBe(0.4);
+  // The Events button stays at full strength, and so does the sheet it opens (a sibling of the dimmed content).
+  expect(await effectiveOpacity(page.getByTestId('events-open'))).toBe(1);
+  await page.getByTestId('events-open').click();
+  await expect(page.getByTestId('events-sheet')).toBeVisible();
+  expect(await effectiveOpacity(page.getByTestId('events-sheet'))).toBe(1);
+  expect(await effectiveOpacity(page.getByTestId('events-close'))).toBe(1);
+  await page.getByTestId('events-close').click();
+  await expect(page.getByTestId('events-sheet')).toBeHidden();
   // Take over still works through the dimmed screen: control comes back and the dimming goes.
   await page.getByTestId('take-over').click();
   await expect(banner).toBeHidden();

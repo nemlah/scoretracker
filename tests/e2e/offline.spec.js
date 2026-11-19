@@ -325,6 +325,10 @@ test('refused taps stay visible and recoverable after the current game has chang
     await expect(reopened.getByTestId('score-us')).toHaveText('0');
     await expect(reopened.getByTestId('failed-banner')).toContainText('1 tap not saved');
     await expect(reopened.getByTestId('failed-game-link')).toHaveAttribute('href', `#/games/${gameId}`);
+    // The link is a 44 x 44 target (the banner is the real one, built by a refused tap).
+    const linkBox = await reopened.getByTestId('failed-game-link').boundingBox();
+    expect(linkBox.width, 'View game width').toBeGreaterThanOrEqual(44);
+    expect(linkBox.height, 'View game height').toBeGreaterThanOrEqual(44);
     await reopened.getByTestId('take-over').click();
     await reopened.getByTestId('retry-failed').click();
     await expect.poll(async () => (await get(`games/${gameId}`)).events.length).toBe(1);
