@@ -45,21 +45,22 @@ test.afterAll(closeAll);
 
 const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 
-test('empty state when there is no team or game', async ({ page }) => {
+test('home says there are no games when there is no team or game', async ({ page }) => {
   await open(page);
-  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('results-empty')).toBeVisible();
+  await expect(page.getByTestId('empty-state')).toHaveCount(0);
+  await expect(page.getByTestId('score-us')).toBeHidden();
 });
 
 test('live game', async ({ page }) => {
   await seedLive();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('3');
   await expect(page.getByTestId('score-them')).toHaveText('2');
   await expect(page.getByTestId('period')).toHaveText('Q2');
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(page.getByTestId('final-badge')).toBeHidden();
   await expect(page.getByTestId('game-date')).toHaveText('08/11/2026');
-  await expect(page.getByTestId('empty-state')).toBeHidden();
   const rows = page.getByTestId('player-row');
   await expect(rows).toHaveCount(2); // the bench player in the lineup has no goals or exclusions
   await expect(page.locator('[data-testid="player-row"][data-cap="9"]')).toHaveCount(0);
@@ -91,18 +92,20 @@ test('live game', async ({ page }) => {
   expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
 });
 
-test('sections run timeline, players, then season totals', async ({ page }) => {
+test('the game screen runs timeline, then players, and has no season block', async ({ page }) => {
   await seedLive();
   await seed('stats/2026-27', {
     players: { p5: { name: 'Alexiou', games: 3, goals: 7, excl: 1 } },
     results: [{ gameId: 'p1', date: '2026-10-25', opponent: 'North Pool', us: 11, them: 6 }],
   });
-  await open(page);
-  await expect(page.getByTestId('season-row').first()).toBeVisible();
-  const ys = await page.evaluate(() => ['.timeline', '[data-testid="player-row"]', '[data-testid="season-row"]']
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('player-row').first()).toBeVisible();
+  const ys = await page.evaluate(() => ['.timeline', '[data-testid="player-row"]']
     .map(selector => document.querySelector(selector).getBoundingClientRect().top + scrollY));
   expect(ys[0]).toBeLessThan(ys[1]);
-  expect(ys[1]).toBeLessThan(ys[2]);
+  // The season's tables belong to home, not under a game.
+  await expect(page.getByTestId('season-row')).toHaveCount(0);
+  await expect(page.getByTestId('result-row')).toHaveCount(0);
 });
 
 const manyEvents = () => Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? ev('oppGoal', (i % 4) + 1)
@@ -110,7 +113,7 @@ const manyEvents = () => Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? ev(
 
 test('the timeline scrolls inside a fixed-height region', async ({ page }) => {
   await seedLive(manyEvents());
-  await open(page);
+  await open(page, '#/game/g1');
   const box = page.getByTestId('timeline-scroll');
   await expect(box).toBeVisible();
   await expect(box).toHaveAttribute('tabindex', '0');
@@ -129,14 +132,14 @@ test('the timeline scrolls inside a fixed-height region', async ({ page }) => {
 
 test('a short timeline is not padded to the full height', async ({ page }) => {
   await seedLive([ev('goal', 1, 'p5')]);
-  await open(page);
+  await open(page, '#/game/g1');
   expect(await page.getByTestId('timeline-scroll').evaluate(el => el.clientHeight)).toBeLessThan(288);
 });
 
 test('the timeline keeps its scroll position when a new event arrives', async ({ page }) => {
   const events = manyEvents();
   await seedLive(events);
-  await open(page);
+  await open(page, '#/game/g1');
   const box = page.getByTestId('timeline-scroll');
   await expect(page.getByTestId('timeline-item')).toHaveCount(30);
   await box.evaluate(el => { el.scrollTop = 200; });
@@ -148,7 +151,7 @@ test('the timeline keeps its scroll position when a new event arrives', async ({
 
 test('the timeline keeps its scroll position on a metadata-only update', async ({ page }) => {
   await seedLive(manyEvents());
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('timeline-item')).toHaveCount(30);
   await page.getByTestId('timeline-scroll').evaluate(el => { el.scrollTop = 200; });
   await update('games/g1', { period: 3 });
@@ -159,7 +162,7 @@ test('the timeline keeps its scroll position on a metadata-only update', async (
 test('keyboard focus stays on the timeline when a new event arrives', async ({ page }) => {
   const events = manyEvents();
   await seedLive(events);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('timeline-item')).toHaveCount(30);
   await page.getByTestId('timeline-scroll').focus();
   await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
@@ -170,7 +173,7 @@ test('keyboard focus stays on the timeline when a new event arrives', async ({ p
 test('updates live without reload', async ({ page }) => {
   const events = liveEvents();
   await seedLive(events);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('3');
   await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
   await expect(page.getByTestId('score-us')).toHaveText('4', { timeout: 5000 });
@@ -205,21 +208,26 @@ test('final with shootout and season tables', async ({ page }) => {
   await expect(page.getByTestId('score-us')).toHaveText('9');
   await expect(page.getByTestId('score-them')).toHaveText('9');
   await expect(page.getByTestId('shootout')).toHaveText('(4 – 3 pen.)');
+  await expect(page.getByTestId('result-row')).toHaveCount(0);
+  await open(page);
   await expect(page.getByTestId('result-row')).toHaveCount(2);
   await expect(page.getByTestId('result-row').first()).toContainText('Opponent FC');
   const seasonRows = page.getByTestId('season-row');
   await expect(seasonRows).toHaveCount(2);
   await expect(seasonRows.first()).toContainText('Alexiou');
   await expect(seasonRows.last()).toContainText('Papadakis');
+  // Opening home again aborts the streams that were open; that is not an app error.
+  dropNetworkNoise(problems);
 });
 
-test('game deleted while watching shows the empty state', async ({ page }) => {
+test('game deleted while watching says it is no longer available', async ({ page }) => {
   await seedLive();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('3');
   await remove('games/g1');
-  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('game-unavailable')).toBeVisible();
   await expect(page.getByTestId('score-us')).toBeHidden();
+  await expect(page.getByTestId('all-games')).toHaveText('This season');
 });
 
 const finalGame = (season, opponent, date) => ({
@@ -237,14 +245,19 @@ test('the viewer follows currentGameId from last week\'s final to a new live gam
     }),
   ]);
   await open(page);
-  // Between games the landing page is the list, not last week's final.
+  // Between games home is the season, not last week's final.
   await expect(page.getByTestId('games-list')).toBeVisible();
   await expect(page.getByTestId('score-us')).toBeHidden();
+  await expect(page.getByTestId('live-banner')).toBeHidden();
 
+  // The new game shows as the banner; its screen is one tap away.
   await update('team/main', { currentGameId: 'g2' });
+  await expect(page.getByTestId('live-banner')).toContainText('This Week FC', { timeout: 5000 });
+  await expect(page.getByTestId('score-us')).toBeHidden();
+  await page.getByTestId('live-banner').click();
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(page.getByTestId('final-badge')).toBeHidden();
-  await expect(page.getByText('This Week FC')).toBeVisible();
+  await expect(page.locator('p.team-name')).toHaveText('This Week FC');
   await expect(page.getByText('Last Week FC')).toHaveCount(0);
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('score-them')).toHaveText('0');
@@ -288,7 +301,7 @@ test('the viewer switches the season tables when the game it shows belongs to an
 
 test('a page restored from the back/forward cache is reloaded', async ({ page }) => {
   await seedLive();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('3');
   await page.evaluate(() => { window.__sameDocument = true; });
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false })));
@@ -317,7 +330,7 @@ const seedTracked = (events = trackedEvents(), tracked = true) => Promise.all([
 
 test('live man-up shows the badge and the game figures', async ({ page }) => {
   await seedTracked();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('situation-badge')).toHaveText('Man-down');
   await expect(page.getByTestId('game-manup')).toHaveText('Man-up 1/1 · 100%');
   await expect(page.getByTestId('game-mandown')).toHaveText('Man-down 0/0 stopped');
@@ -336,7 +349,7 @@ test('goals scored on a man-up are tagged; situation events are not listed; pena
     { id: 's8', type: 'goal', period: 1, ts: 8000, playerId: 'p2' },
   ];
   await seedTracked(events);
-  await open(page);
+  await open(page, '#/game/g1');
   // goals (2) + oppGoals (1) + excl (1) + pen (1)
   await expect(page.getByTestId('timeline-item')).toHaveCount(5);
   await expect(page.getByTestId('tl-manup')).toHaveCount(1);
@@ -355,7 +368,7 @@ test('fouls show E and P badges; the third foul shows a red card and out', async
   await seedLive([
     ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('pen', 2, 'p2'), ev('pen', 2, 'p5'),
   ]);
-  await open(page);
+  await open(page, '#/game/g1');
   const items = page.getByTestId('timeline-item');
   await expect(items).toHaveCount(4);
   const p2 = items.filter({ hasText: '#2 Papadakis' });
@@ -377,7 +390,7 @@ test('fouls show E and P badges; the third foul shows a red card and out', async
 
 test('an opponent-only change updates opponent-goal timeline rows', async ({ page }) => {
   await seedLive([ev('oppGoal', 1)]);
-  await open(page);
+  await open(page, '#/game/g1');
   const row = page.locator('[data-testid="timeline-item"][data-side="them"]');
   await expect(row).toContainText('Opponent FC');
   await update('games/g1', { opponent: 'New Name' });
@@ -387,13 +400,13 @@ test('an opponent-only change updates opponent-goal timeline rows', async ({ pag
 
 test('untracked game shows dashes and no badge', async ({ page }) => {
   await seedTracked([ev('goal', 1, 'p5')], false);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('game-manup')).toHaveText('Man-up —');
   await expect(page.getByTestId('game-mandown')).toHaveText('Man-down —');
   await expect(page.getByTestId('situation-badge')).toBeHidden();
 });
 
-test('season line, per-game figures and Pen. columns', async ({ page }) => {
+test('per-game figures and Pen. columns on the season', async ({ page }) => {
   await Promise.all([
     seedTracked(),
     seed('stats/2026-27', {
@@ -412,8 +425,8 @@ test('season line, per-game figures and Pen. columns', async ({ page }) => {
     }),
   ]);
   await open(page);
-  await expect(page.getByTestId('season-situations')).toContainText('Man-up 4/9 · 44%');
-  await expect(page.getByTestId('season-situations')).toContainText('Man-down 5/8 stopped · 63%');
+  // The season's man-up and man-down line is gone from the season block.
+  await expect(page.getByTestId('season-situations')).toHaveCount(0);
   await expect(page.getByTestId('result-situations')).toHaveText(['MU 3/7 · MD 4/6', '—']);
   await expect(page.getByTestId('season-pen')).toHaveText(['2', '0']);
 });
@@ -478,7 +491,7 @@ const goalieRow = (page, cap) => page.locator(`[data-testid="goalie-row"][data-c
 
 test('the Goalkeepers table shows saves, pen saves, GA and save %, and the in-goal dot while live', async ({ page }) => {
   await seedGoalieGame(goalieEvents());
-  await open(page);
+  await open(page, '#/game/g1');
   const table = page.getByTestId('game-goalies');
   await expect(table).toBeVisible();
   await expect(table).toContainText('Goalkeepers');
@@ -514,14 +527,14 @@ test('the Goalkeepers table shows saves, pen saves, GA and save %, and the in-go
 
 test('a goalie with no shots faced shows a dash for save %', async ({ page }) => {
   await seedGoalieGame([ev('save', 1, 'g1')]);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(goalieRow(page, 1).getByTestId('goalie-pct')).toHaveText('100%');
   await expect(goalieRow(page, 13).getByTestId('goalie-pct')).toHaveText('—');
 });
 
 test('saves and penalty saves appear in the timeline; In goal does not', async ({ page }) => {
   await seedGoalieGame(goalieEvents());
-  await open(page);
+  await open(page, '#/game/g1');
   // 3 saves, oppGoal x2 and the one penSave; gkIn stays out
   const items = page.getByTestId('timeline-item');
   await expect(items).toHaveCount(6);
@@ -544,7 +557,7 @@ test('saves and penalty saves appear in the timeline; In goal does not', async (
 test('the goalie shootout line', async ({ page }) => {
   const so = [ev('penSave', 'SO', 'g1'), ev('oppGoal', 'SO'), ev('penSave', 'SO', 'g1'), ev('oppGoal', 'SO'), ev('oppGoal', 'SO')];
   await seedGoalieGame([ev('save', 1, 'g1'), ev('oppGoal', 1), ...so], { period: 'SO' });
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('goalie-shootout')).toHaveText('Shootout: 2 saved, 3 conceded');
   // Shootout events stay out of the regular columns.
   const georgiou = goalieRow(page, 1);
@@ -602,14 +615,18 @@ test('no shootout line on a final game without shootout events', async ({ page }
   await expect(page.getByTestId('final-badge')).toBeVisible();
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('shootout')).toBeHidden();
+  // The results row on home does not show a shootout either.
+  await open(page);
   await expect(page.getByTestId('result-row')).toHaveCount(1);
   await expect(page.getByTestId('result-row')).not.toContainText('pen.');
   await expect(page.getByTestId('result-row')).toContainText('9 – 9');
+  // Opening home again aborts the streams that were open; that is not an app error.
+  dropNetworkNoise(problems);
 });
 
 test('a live game in the shootout with no shootout events still shows 0 – 0 pen.', async ({ page }) => {
   await seedGoalieGame([ev('goal', 1, 'p5')], { period: 'SO' });
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('shootout')).toHaveText('(0 – 0 pen.)');
 });
 
@@ -624,9 +641,12 @@ test('the Goalkeepers table does not cause sideways scrolling at 360px', async (
   await seed('stats/2026-27', {
     goalies: { g1: { name: 'Konstantinopoulos-Papadimitriou', games: 12, saves: 120, penSaves: 12, goalsAgainst: 100 } },
   });
-  await open(page);
-  await expect(page.getByTestId('season-goalie-row')).toHaveCount(1);
-  await expect(page.getByTestId('goalie-row')).toHaveCount(2);
-  const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
-  expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+  for (const [hash, testId, count] of [['#/game/g1', 'goalie-row', 2], ['', 'season-goalie-row', 1]]) {
+    await open(page, hash);
+    await expect(page.getByTestId(testId)).toHaveCount(count);
+    const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+    expect(scrollWidth, hash || 'home').toBeLessThanOrEqual(clientWidth);
+  }
+  // Opening home after the game aborts the streams that were open; that is not an app error.
+  dropNetworkNoise(problems);
 });

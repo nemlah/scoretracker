@@ -85,7 +85,8 @@ body.viewer {
   color: var(--v-on-led);
   font-weight: 700;
 }
-.live-banner :focus-visible { outline-color: var(--v-on-led); } /* the aqua ring is 1.24:1 on amber */
+.live-banner { text-decoration: none; } /* the banner is a link */
+.live-banner:focus-visible, .live-banner :focus-visible { outline-color: var(--v-on-led); } /* the aqua ring is 1.24:1 on amber */
 .live-banner .live-dot { flex: none; background: var(--v-on-led); }
 .live-banner-text { flex: 1 1 9rem; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .watch-live {

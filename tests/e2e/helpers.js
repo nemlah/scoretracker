@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { expect } from '@playwright/test';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import { EMULATOR } from '../../js/config.js';
 
@@ -44,4 +45,11 @@ export async function closeAll() {
   const pending = envPromise;
   envPromise = null;
   await (await pending).cleanup();
+}
+
+// The live game is reached from the home banner, as a visitor would. For games the tracker created.
+export async function openLiveGame(page) {
+  await page.goto('/index.html?emulator=1');
+  await page.getByTestId('live-banner').click();
+  await expect(page.getByTestId('score-us')).toBeVisible();
 }

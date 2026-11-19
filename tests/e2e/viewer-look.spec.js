@@ -82,14 +82,14 @@ const rootProperty = (page, name) => page.evaluate(
 
 test('the page is set in Sofia Sans', async ({ page }) => {
   await seedLive();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('12');
   await expect(page.locator('body')).toHaveCSS('font-family', /Sofia Sans/);
 });
 
 test('the scoreboard is a dark board with amber digits', async ({ page }) => {
   await seedLive();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('12');
   await expect(page.locator('.scoreboard')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
   await expect(page.locator('.score')).toHaveCSS('color', 'rgb(255, 194, 61)');
@@ -99,7 +99,7 @@ test('the scoreboard is a dark board with amber digits', async ({ page }) => {
 
 test('the club colour pair is set on the page', async ({ page }) => {
   await seedLive();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('12');
   // accent.js is imported dynamically: both properties arrive a moment after first paint.
   await expect.poll(() => rootProperty(page, '--on-accent')).toBe('#ffffff');
@@ -126,7 +126,7 @@ test.describe('viewer dark', () => {
 
   test('the deck is the dark page, a section is a dark card, the board is darker still', async ({ page }) => {
     await seedLive();
-    await open(page);
+    await open(page, '#/game/g1');
     await expect(page.getByTestId('score-us')).toHaveText('12');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
     await expect(page.locator('.section').first()).toHaveCSS('background-color', 'rgb(19, 30, 46)');
@@ -140,11 +140,12 @@ for (const blockFonts of [false, true]) {
     await page.setViewportSize({ width: 360, height: 740 });
     if (blockFonts) await page.route('https://fonts.googleapis.com/**', route => route.abort());
     await seedLive();
-    for (const hash of ['', '#/games']) {
+    for (const hash of ['#/game/g1', '#/games']) {
       await open(page, hash);
       // First the seeded content, so the Greek text is on the page: Google Fonts splits each family into
       // unicode-range subsets and the browser fetches the greek one only once Greek text needs it.
-      if (hash === '') {
+      const onHome = hash === '#/games';
+      if (!onHome) {
         await expect(page.getByTestId('score-us')).toHaveText('12');
         await expect(page.locator('p.team-name')).toHaveText(longOpponent);
         await expect(page.getByTestId('situation-badge')).toBeVisible();
@@ -153,8 +154,8 @@ for (const blockFonts of [false, true]) {
         await expect(page.getByTestId('games-list')).toBeVisible();
         await expect(page.getByTestId('result-link').first()).toHaveText(longOpponent);
         await expect(page.getByTestId('result-situations').first()).toBeVisible();
+        await expect(page.getByTestId('season-row').first()).toBeVisible();
       }
-      await expect(page.getByTestId('season-row').first()).toBeVisible();
       if (!blockFonts) {
         // Then the fonts, for that very text. check() alone is true when no face matches, so also require a
         // loaded face whose unicode-range covers Greek (U+0370-03FF) in both families.
@@ -178,11 +179,13 @@ for (const blockFonts of [false, true]) {
           .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
           .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
       }));
-      const links = await page.getByTestId('result-link').evaluateAll(els => els.map(el => el.getBoundingClientRect().height));
-      expect(links.length, `${hash || 'game'}: result links`).toBeGreaterThan(0);
-      expect(Math.min(...links), `${hash || 'game'}: shortest result-link target`).toBeGreaterThanOrEqual(44);
-      expect(overflow.outside, `${hash || 'game'}: boxes past 360 px`).toEqual([]);
-      expect(overflow.scroll, `${hash || 'game'}: scrollWidth`).toBeLessThanOrEqual(360);
+      if (onHome) {
+        const links = await page.getByTestId('result-link').evaluateAll(els => els.map(el => el.getBoundingClientRect().height));
+        expect(links.length, 'home: result links').toBeGreaterThan(0);
+        expect(Math.min(...links), 'home: shortest result-link target').toBeGreaterThanOrEqual(44);
+      }
+      expect(overflow.outside, `${hash}: boxes past 360 px`).toEqual([]);
+      expect(overflow.scroll, `${hash}: scrollWidth`).toBeLessThanOrEqual(360);
     }
   });
 }
@@ -200,7 +203,7 @@ for (const [scheme, board] of [['light', 'rgb(11, 19, 32)'], ['dark', 'rgb(5, 9,
 
     test('the banner is the board with an amber GOAL', async ({ page }) => {
       await celebrationGame();
-      await open(page);
+      await open(page, '#/game/g1');
       await expect(page.getByTestId('score-us')).toHaveText('0');
       await update('games/g1', { events: [ev('goal', 1, 'p10')] });
       await expect(page.getByTestId('celebration')).toBeVisible();
@@ -223,36 +226,16 @@ for (const scheme of ['light', 'dark']) {
   test.describe(`past game beside the live one, ${scheme}`, () => {
     test.use({ colorScheme: scheme });
 
-    test('the open-result marker clears 3:1 against the selected row', async ({ page }) => {
+    test('the live banner link shows an ink focus ring on the amber banner', async ({ page, browserName }) => {
       await seedPast();
       await open(page, '#/game/g0');
-      const row = page.locator('[data-testid="result-row"].is-open');
-      await expect(row).toHaveCount(1);
-      // accent.js is imported dynamically: the marker colour arrives a moment after first paint.
-      await expect.poll(() => rootProperty(page, `--accent-open-${scheme}`)).toMatch(/^#[0-9a-f]{6}$/);
-      const { fill, shadow } = await row.evaluate(el => ({
-        fill: getComputedStyle(el).backgroundColor,
-        // Wide screens mark the first cell, narrow ones (blocks) mark the row itself.
-        shadow: [el, el.querySelector('td:first-child')].map(node => getComputedStyle(node).boxShadow).find(value => value !== 'none') ?? 'none',
-      }));
-      // Computed as "<colour> 4px 0px 0px 0px inset": the marker, 4 px wide.
-      const parsed = shadow.match(/^((?:rgba?|color)\([^)]*\)) 4px 0px 0px 0px inset$/);
-      expect(parsed, `a 4 px inset marker, got "${shadow}"`).not.toBeNull();
-      const marker = await hexOf(page, parsed[1]);
-      const ratio = contrastRatio(marker, await hexOf(page, fill));
-      expect(ratio, `${marker} on ${fill}`).toBeGreaterThanOrEqual(3);
-    });
-
-    test('the Watch link shows an ink focus ring on the amber banner', async ({ page, browserName }) => {
-      await seedPast();
-      await open(page, '#/game/g0');
-      const watch = page.getByTestId('watch-live');
+      const watch = page.getByTestId('live-banner');
       await expect(watch).toBeVisible();
       // Real keyboard Tab from a known start (nothing focused), however many stops come before the link.
       await page.evaluate(() => document.activeElement?.blur());
       let presses = 0;
       while (!(await watch.evaluate(el => el === document.activeElement))) {
-        expect(presses, 'Tab reached the Watch link within 15 presses').toBeLessThan(15);
+        expect(presses, 'Tab reached the live banner within 15 presses').toBeLessThan(15);
         // Safari/WebKit leaves links out of the Tab order unless Option is held.
         await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
         presses += 1;

@@ -51,8 +51,8 @@ test('pages link the icons', () => {
   assert.ok(index.includes('<meta property="og:image" content="https://nemlah.github.io/scoretracker/img/og.png">'));
 });
 
-test('cache name is v2', () => {
-  assert.ok(read('sw.js').includes('wp-shell-v2::'));
+test('cache name is v3', () => {
+  assert.ok(read('sw.js').includes('wp-shell-v3::'));
 });
 
 test('shell lists the manifest and icons', () => {

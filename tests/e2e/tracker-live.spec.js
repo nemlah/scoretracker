@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { seasonFor, todayIso } from '../../js/model.js';
-import { closeAll, get, resetAll, seed, update } from './helpers.js';
+import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
 import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -220,7 +220,7 @@ test('viewer updates live from tracker taps', async ({ page, browser }) => {
   try {
     const viewer = await viewerContext.newPage();
     collectProblems(viewer, problems);
-    await viewer.goto('/index.html?emulator=1');
+    await openLiveGame(viewer);
     await expect(viewer.getByTestId('score-us')).toHaveText('0');
     await tile(page, 5).getByTestId('tile-goal').click();
     await tile(page, 2).getByTestId('tile-goal').click();

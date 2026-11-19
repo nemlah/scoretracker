@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { closeAll, get, resetAll, seed, update } from './helpers.js';
+import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -67,7 +67,7 @@ test('reloads offline into the live game with all taps', async ({ page, context,
   try {
     const viewer = await viewerContext.newPage();
     collectProblems(viewer, problems);
-    await viewer.goto(VIEWER_URL);
+    await openLiveGame(viewer);
     await expect(viewer.getByTestId('score-us')).toHaveText('3', { timeout: 10000 });
   } finally {
     await viewerContext.close();
@@ -81,7 +81,7 @@ test('the viewer shows the connection note offline and hides it after reconnecti
     opponent: 'Opponent FC', date: '2026-11-08', season: '2026-27', status: 'live', period: 1,
     lineup: [{ playerId: 'p5', name: 'Alexiou', cap: 5 }], events: [],
   });
-  await page.goto(VIEWER_URL);
+  await openLiveGame(page);
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect(page.getByTestId('connection-note')).toBeHidden();
   await context.setOffline(true);
@@ -93,7 +93,7 @@ test('the viewer shows the connection note offline and hides it after reconnecti
 
 test('the viewer reopens offline from the cached shell', async ({ page, context }) => {
   await page.goto(VIEWER_URL);
-  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('results-empty')).toBeVisible();
   await swReady(page);
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
@@ -111,7 +111,7 @@ test('taps after losing control are flagged, retried after taking back', async (
   try {
     const viewer = await viewerContext.newPage();
     collectProblems(viewer, problems);
-    await viewer.goto(VIEWER_URL);
+    await openLiveGame(viewer);
     await expect(viewer.getByTestId('score-us')).toHaveText('0');
 
     // Device A loses its signal and taps. The tap is only in A's cache and journal.
@@ -155,7 +155,7 @@ test('a refused goal and its refused scorer change are retried as one goal with 
   try {
     const viewer = await viewerContext.newPage();
     collectProblems(viewer, problems);
-    await viewer.goto(VIEWER_URL);
+    await openLiveGame(viewer);
     await expect(viewer.getByTestId('score-us')).toHaveText('0');
 
     // Device A goes offline, taps a goal for Alexiou, then changes the scorer to Papadakis.
@@ -253,7 +253,7 @@ test('an upstream 503 on a shell file is served from the cache instead', async (
 
 test('a slow successful response is stored and becomes the next offline response', async ({ page, context }) => {
   await page.goto(VIEWER_URL);
-  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('results-empty')).toBeVisible();
   await swReady(page);
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
@@ -269,7 +269,7 @@ test('a slow successful response is stored and becomes the next offline response
   await expect(page.locator('#app')).not.toHaveAttribute('data-shell', 'refreshed');
   await expect.poll(() => page.evaluate(async () => {
     const { scope } = await navigator.serviceWorker.getRegistration();
-    const cached = await (await caches.open(`wp-shell-v2::${scope}`)).match('/index.html');
+    const cached = await (await caches.open(`wp-shell-v3::${scope}`)).match('/index.html');
     return (await cached.text()).includes('data-shell="refreshed"');
   }), { timeout: 10000 }).toBe(true);
   await context.unroute(`${ORIGIN}/index.html*`);

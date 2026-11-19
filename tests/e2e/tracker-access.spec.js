@@ -52,13 +52,13 @@ test('right code unlocks and survives reload', async ({ page }) => {
 // "Loading…" with permission-denied.
 test('a viewer tab opened first in the same browser does not block the tracker', async ({ page, context }) => {
   await page.goto('/index.html?emulator=1');
-  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('results-empty')).toBeVisible();
 
   const tracker = await context.newPage();
   collectProblems(tracker, problems);
   await tracker.goto(TRACKER_URL);
   await unlockTracker(tracker);
-  await expect(page.getByTestId('empty-state')).toBeVisible();
+  await expect(page.getByTestId('results-empty')).toBeVisible();
 });
 
 const roster = [

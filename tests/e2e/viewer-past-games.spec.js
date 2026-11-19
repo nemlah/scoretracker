@@ -54,11 +54,11 @@ const hashOf = page => page.evaluate(() => location.hash);
 const opponentName = page => page.locator('p.team-name');
 const resultLink = (page, id) => page.locator(`[data-testid="result-link"][href="#/game/${id}"]`);
 
-test('a results row opens that past game and the All games link goes to the list', async ({ page }) => {
+test('a results row opens that past game, the back link returns to the season, and the banner opens the live game', async ({ page }) => {
   await seedBoth();
   await open(page);
-  await expect(opponentName(page)).toHaveText('Waves');
-  await expect(page.getByTestId('all-games')).toBeVisible();
+  await expect(page.getByTestId('games-list')).toBeVisible();
+  await expect(opponentName(page)).toBeHidden();
   await resultLink(page, 'g1').click();
   await expect.poll(() => hashOf(page)).toBe('#/game/g1');
   await expect(opponentName(page)).toHaveText('Rivals');
@@ -66,14 +66,14 @@ test('a results row opens that past game and the All games link goes to the list
   await expect(page.getByTestId('score-us')).toHaveText('2');
   await expect(page.getByTestId('score-them')).toHaveText('1');
   await expect(page.getByTestId('all-games')).toBeVisible();
-  await expect(page.getByTestId('all-games')).toHaveText('← All games');
-  await expect(page.getByTestId('all-games')).toHaveAttribute('href', '#/games');
+  await expect(page.getByTestId('all-games')).toHaveText('This season');
+  await expect(page.getByTestId('all-games')).toHaveAttribute('href', '#/');
   await page.getByTestId('all-games').click();
-  await expect.poll(() => hashOf(page)).toBe('#/games');
+  await expect.poll(() => hashOf(page)).toBe('#/');
   await expect(page.getByTestId('games-list')).toBeVisible();
   await expect(page.getByTestId('all-games')).toBeHidden();
-  await page.getByTestId('watch-live').click();
-  await expect.poll(() => hashOf(page)).toBe('#/');
+  await page.getByTestId('live-banner').click();
+  await expect.poll(() => hashOf(page)).toBe('#/game/g2');
   await expect(opponentName(page)).toHaveText('Waves');
   await expect(page.getByTestId('score-us')).toHaveText('1');
 });
@@ -96,31 +96,17 @@ test('a shared #/game link opens that game directly', async ({ page }) => {
   await expect(page.getByTestId('all-games')).toBeVisible();
 });
 
-test('the open game is marked in the results list', async ({ page }) => {
-  await seedBoth();
-  await open(page, '#/game/g1');
-  const rows = page.getByTestId('result-row');
-  await expect(rows).toHaveCount(2);
-  const marked = rows.filter({ has: resultLink(page, 'g1') });
-  await expect(marked).toHaveAttribute('aria-current', 'page');
-  await expect(marked).toHaveClass(/is-open/);
-  const other = rows.filter({ has: resultLink(page, 'g2') });
-  await expect(other).not.toHaveAttribute('aria-current', 'page');
-  await resultLink(page, 'g2').click();
-  await expect(other).toHaveAttribute('aria-current', 'page');
-  await expect(marked).not.toHaveAttribute('aria-current', 'page');
-});
-
-test('browser back returns to the live game', async ({ page }) => {
+test('browser back returns from a past game to the season', async ({ page }) => {
   await seedBoth();
   await open(page);
-  await expect(opponentName(page)).toHaveText('Waves');
+  await expect(page.getByTestId('games-list')).toBeVisible();
   await resultLink(page, 'g1').click();
   await expect(opponentName(page)).toHaveText('Rivals');
   await page.goBack();
-  await expect(opponentName(page)).toHaveText('Waves');
-  await expect(page.getByTestId('all-games')).toBeVisible();
-  await expect(page.getByTestId('live-badge')).toBeVisible();
+  await expect(page.getByTestId('games-list')).toBeVisible();
+  await expect(page.getByTestId('all-games')).toBeHidden();
+  await expect(page.getByTestId('live-banner')).toBeVisible();
+  await expect(page.getByTestId('score-us')).toBeHidden();
 });
 
 test('the live banner appears, updates, and leaves when the live game ends', async ({ page }) => {
@@ -129,9 +115,9 @@ test('the live banner appears, updates, and leaves when the live game ends', asy
   const banner = page.getByTestId('live-banner');
   await expect(opponentName(page)).toHaveText('Rivals');
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText('Live: Waves 1–0 · Q1');
+  await expect(banner).toContainText('LIVE · Q1 · ANOG 1–0 Waves');
   await update('games/g2', { events: [...liveEvents, ev('oppGoal', 1)], period: 2 });
-  await expect(banner).toContainText('Live: Waves 1–1 · Q2', { timeout: 5000 });
+  await expect(banner).toContainText('LIVE · Q2 · ANOG 1–1 Waves', { timeout: 5000 });
   await update('games/g2', { status: 'final' });
   await expect(banner).toBeHidden({ timeout: 5000 });
   await expect(opponentName(page)).toHaveText('Rivals');
@@ -148,13 +134,14 @@ test('the banner does not cover the scoreboard', async ({ page }) => {
   expect(banner.y + banner.height).toBeLessThanOrEqual(board.y);
 });
 
-test('Watch opens the live game', async ({ page }) => {
+test('the banner opens the live game', async ({ page }) => {
   await seedBoth();
   await open(page, '#/game/g1');
   await expect(page.getByTestId('live-banner')).toBeVisible();
-  await expect(page.getByTestId('watch-live')).toHaveAttribute('href', '#/');
+  await expect(page.getByTestId('live-banner')).toHaveAttribute('href', '#/game/g2');
+  await expect(page.getByTestId('watch-live')).toHaveText('Watch');
   await page.getByTestId('watch-live').click();
-  await expect.poll(() => hashOf(page)).toBe('#/');
+  await expect.poll(() => hashOf(page)).toBe('#/game/g2');
   await expect(opponentName(page)).toHaveText('Waves');
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(page.getByTestId('live-banner')).toBeHidden();
@@ -184,11 +171,12 @@ test('a link to a deleted game says it isn\'t available', async ({ page }) => {
   await expect(page.getByTestId('game-unavailable')).toBeVisible();
   await expect(page.getByTestId('game-unavailable')).toContainText('That game isn\'t available.');
   await expect(page.getByTestId('all-games')).toBeVisible();
-  await expect(page.getByTestId('empty-state')).toBeHidden();
+  await expect(page.getByTestId('empty-state')).toHaveCount(0);
+  await expect(page.getByTestId('all-games')).toHaveText('This season');
   await page.getByTestId('all-games').click();
   await expect(page.getByTestId('games-list')).toBeVisible();
   await expect(page.getByTestId('game-unavailable')).toBeHidden();
-  await page.getByTestId('watch-live').click();
+  await page.getByTestId('live-banner').click();
   await expect(opponentName(page)).toHaveText('Waves');
 });
 
@@ -198,11 +186,13 @@ for (const hash of ['#/game/a%2Fb', '#/game/%E0%A4%A']) {
     await open(page, hash);
     await expect(page.getByTestId('game-unavailable')).toBeVisible();
     await expect(page.getByTestId('all-games')).toBeVisible();
-    await expect(page.getByTestId('empty-state')).toBeHidden();
-    await expect(page.getByTestId('result-link')).toHaveCount(2);
+    await expect(page.getByTestId('empty-state')).toHaveCount(0);
+    // The season's results belong to home, not under the unavailable message.
+    await expect(page.getByTestId('result-link')).toHaveCount(0);
     await page.getByTestId('all-games').click();
     await expect(page.getByTestId('games-list')).toBeVisible();
-    await page.getByTestId('watch-live').click();
+    await expect(page.getByTestId('result-link')).toHaveCount(2);
+    await page.getByTestId('live-banner').click();
     await expect(opponentName(page)).toHaveText('Waves');
   });
 }
@@ -210,13 +200,13 @@ for (const hash of ['#/game/a%2Fb', '#/game/%E0%A4%A']) {
 test('returning to the live game does not celebrate old goals', async ({ page }) => {
   await seedBoth();
   await open(page);
-  await expect(opponentName(page)).toHaveText('Waves');
+  await expect(page.getByTestId('games-list')).toBeVisible();
   await resultLink(page, 'g1').click();
   await expect(opponentName(page)).toHaveText('Rivals');
-  await expect(page.getByTestId('live-banner')).toContainText('Waves 1–0');
+  await expect(page.getByTestId('live-banner')).toContainText('ANOG 1–0 Waves');
   await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2')] });
-  await expect(page.getByTestId('live-banner')).toContainText('Waves 2–0', { timeout: 5000 });
-  await page.getByTestId('watch-live').click();
+  await expect(page.getByTestId('live-banner')).toContainText('ANOG 2–0 Waves', { timeout: 5000 });
+  await page.getByTestId('live-banner').click();
   await expect(opponentName(page)).toHaveText('Waves');
   await expect(page.getByTestId('score-us')).toHaveText('2');
   await page.waitForTimeout(1500);
@@ -228,7 +218,7 @@ test('returning to the live game does not celebrate old goals', async ({ page })
 test('opening a past game does not celebrate', async ({ page }) => {
   await seedBoth();
   await open(page);
-  await expect(opponentName(page)).toHaveText('Waves');
+  await expect(page.getByTestId('games-list')).toBeVisible();
   await resultLink(page, 'g1').click();
   await expect(opponentName(page)).toHaveText('Rivals');
   await page.waitForTimeout(1500);
@@ -254,7 +244,6 @@ test('no sideways scroll at 360 px with the banner and back link showing', async
   await open(page, '#/game/g1');
   await expect(page.getByTestId('live-banner')).toBeVisible();
   await expect(page.getByTestId('all-games')).toBeVisible();
-  await expect(page.getByTestId('result-link')).toHaveCount(2);
   const { scrollWidth, innerWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth,
   }));

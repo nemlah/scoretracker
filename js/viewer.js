@@ -27,12 +27,15 @@ document.title = t('viewerTitle', { team: teamConfig.name });
 const repo = createRepo(initFirebase({ name: 'viewer' }).db);
 const root = document.getElementById('app');
 
-// undefined = no snapshot yet, null = document absent.
+// Every watch stores { key, data, meta }: data undefined = no snapshot yet, null = document absent. A failed
+// watch (an error callback, a subscribe that threw, or no first snapshot in time) stores data null with
+// meta.error, which is never read as a confirmed absence. `viewerState` decides from these what to watch
+// and what to show.
 const state = {
-  team: undefined, teamMeta: null,
-  game: undefined, gameMeta: null,
-  live: undefined, // the current game, watched only for the banner while another game is open
-  stats: undefined,
+  team: { key: 'main', data: undefined, meta: null },
+  game: { key: null, data: undefined, meta: null }, // the routed game
+  live: { key: null, data: undefined, meta: null }, // the current game, for the banner
+  stats: { key: null, data: undefined, meta: null }, // the home season's results
   offline: !navigator.onLine,
   stale: false,
 };
@@ -51,82 +54,21 @@ let celebratingId = null; // the game whose goal is being celebrated
     celebration = createCelebration(document.body);
     goals = createGoalWatcher();
     // Loaded after the first snapshot: take the baseline now so the goals already shown are not "new".
-    if (state.game) goals.next(state.game, state.gameMeta ?? {});
+    if (state.game.data) goals.next(state.game.data, state.game.meta ?? {});
   } catch (err) {
     console.warn('Goal celebration unavailable', err);
   }
 })();
 
-// Subscriptions keyed by what they watch, so a stale one is dropped when the key changes.
-const subs = { game: { key: null, off: null }, stats: { key: null, off: null }, live: { key: null, off: null } };
-const awaitingServer = new Set();
-let staleTimer = null;
-
-function trackConnection(name, meta) {
-  if (meta?.fromCache) awaitingServer.add(name);
-  else awaitingServer.delete(name);
-  syncStaleTimer();
-}
-
-function syncStaleTimer() {
-  if (awaitingServer.size === 0) {
-    clearTimeout(staleTimer);
-    staleTimer = null;
-    if (state.stale) { state.stale = false; render(); }
-  } else if (staleTimer === null) {
-    staleTimer = setTimeout(() => {
-      staleTimer = null;
-      if (awaitingServer.size) { state.stale = true; render(); }
-    }, STALE_MS);
-  }
-}
-
-function resubscribe(name, key, subscribe) {
-  const sub = subs[name];
-  if (sub.key === key) return;
-  sub.off?.();
-  sub.key = key;
-  sub.off = null;
-  awaitingServer.delete(name);
-  state[name] = undefined;
-  if (key === null) { syncStaleTimer(); return; }
-  try {
-    sub.off = subscribe((data, meta) => {
-      if (sub.key !== key) return;
-      // Seen before the new snapshot replaces it: the live game on the landing page has just ended.
-      // The key must be the current game: right after the hash changes to home, before hashchange has
-      // run follow(), this subscription can still be the game the visitor just left.
-      const ended = name === 'game' && parseRoute(location.hash).kind === 'home' && key === currentGameId()
-        && state.game?.status === 'live' && data?.status === 'final';
-      state[name] = data;
-      if (name === 'game') state.gameMeta = meta;
-      if (name !== 'live') trackConnection(name, meta);
-      if (name === 'game') followSeason();
-      if (ended) stayOnGame(key);
-      render();
-    });
-  } catch (err) {
-    // A subscription that cannot start must not stop the rest of the viewer.
-    console.warn(`Could not watch ${name}`, err);
-  }
-}
-
-function followSeason() {
-  const season = state.game ? state.game.season : seasonFor(todayIso());
-  resubscribe('stats', season, cb => repo.watchStats(season, cb));
-}
-
-// '#/game/<id>' opens that game and '#/games' the games list; any other hash is the landing page,
-// which shows the live game, or the list when no game is live. A game route whose id could not be a
-// Firestore document id is 'invalid' ('/' can never be an id): it is shown as unavailable and never
-// reaches Firestore.
+// '#/game/<id>' opens that game; every other hash, '#/games' included, is home, the current season. A
+// game route whose id could not be a Firestore document id is 'invalid' ('/' can never be an id): it is
+// shown as unavailable and never reaches Firestore.
 function validDocId(id) {
   return id !== '' && !id.includes('/') && id !== '.' && id !== '..'
     && !/^__.*__$/.test(id) && new TextEncoder().encode(id).length <= 1500;
 }
 
 function parseRoute(hash) {
-  if (hash === '#/games') return { kind: 'games' };
   const match = /^#\/game\/(.*)$/.exec(hash);
   if (!match) return { kind: 'home' };
   try {
@@ -137,61 +79,199 @@ function parseRoute(hash) {
   }
 }
 
-const currentGameId = () => state.team?.currentGameId ?? null;
+// Subscriptions keyed by what they watch. A token tells a replaced subscription's late callbacks apart.
+const subs = {
+  team: { key: null, off: null, token: 0, deadline: null },
+  game: { key: null, off: null, token: 0, deadline: null },
+  live: { key: null, off: null, token: 0, deadline: null },
+  stats: { key: null, off: null, token: 0, deadline: null },
+};
+// The error callback is a new, optional argument: a cached previous repo.js ignores it, and the deadline
+// in startWatch covers that case.
+const openers = {
+  team: (key, next, fail) => repo.watchTeam(next, fail),
+  game: (key, next, fail) => repo.watchGame(key, next, fail),
+  live: (key, next, fail) => repo.watchGame(key, next, fail),
+  stats: (key, next, fail) => repo.watchStats(key, next, fail),
+};
+let lastToken = 0;
+let staleTimer = null;
+let lastSeason = null; // the home season last published
+let lastShown = null; // what the last render showed
+let updating = false;
+let updateAgain = false;
 
-// The game being read: the routed one, else the current game (on the landing page and the list, where
-// it decides between the two). Null for an invalid route.
-function followedGameId() {
+const isOffline = () => state.offline || state.stale;
+
+// Replaces a watch: drops the old subscription, forgets its data and, for a key, subscribes. Returns
+// nothing; a subscribe that throws leaves the watch in its error state.
+function startWatch(name, key) {
+  const sub = subs[name];
+  sub.off?.();
+  clearTimeout(sub.deadline);
+  const token = ++lastToken;
+  Object.assign(sub, { key, off: null, token, deadline: null });
+  state[name] = { key, data: undefined, meta: null };
+  if (key === null) return;
+  const store = (data, meta) => {
+    if (sub.token !== token) return;
+    clearTimeout(sub.deadline);
+    state[name] = { key, data, meta };
+    update();
+  };
+  const fail = err => {
+    console.warn(`Could not watch ${name}`, err);
+    store(null, { error: true });
+  };
+  try {
+    sub.off = openers[name](key, store, fail);
+  } catch (err) {
+    // A subscription that cannot start must not stop the rest of the viewer.
+    console.warn(`Could not watch ${name}`, err);
+    state[name] = { key, data: null, meta: { error: true } };
+    return;
+  }
+  // A watch that never answers is a failed watch, so nothing waits for it forever. A later snapshot
+  // replaces the error.
+  sub.deadline = setTimeout(() => {
+    if (sub.token !== token || state[name].data !== undefined) return;
+    state[name] = { key, data: null, meta: { error: true } };
+    update();
+  }, STALE_MS);
+}
+
+// Makes the watches match the plan. True when any changed, which changes what the plan should say.
+function applyWatches(want) {
+  let changed = false;
+  for (const name of ['game', 'live', 'stats']) {
+    if (subs[name].key === want[name]) continue;
+    startWatch(name, want[name]);
+    changed = true;
+  }
+  return changed;
+}
+
+// The previous release's model.js has no viewerState. This keeps the same plan shape with fewer rules:
+// it never guesses a season (the calendar one only when the team document is server-confirmed to have no
+// current game), so results stay 'loading' rather than show the wrong season, and has no hold rule.
+function fallbackState({ route, team, game, live, stats, offline, calendarSeason, lastSeason: retained }) {
+  const settled = watch => watch?.data !== undefined
+    && (watch.data !== null || !watch.meta?.fromCache || watch.meta?.error || offline);
+  const matching = (watch, key) => key !== null && watch.key === key ? watch : undefined;
+  const isHome = route.kind === 'home';
+  const isGame = route.kind === 'game';
+  const gameKey = isGame ? route.id : null;
+  const currentId = team.data?.currentGameId ?? null;
+  const liveKey = gameKey === currentId ? null : currentId;
+  const routedGame = matching(game, gameKey);
+  const currentGame = gameKey === currentId ? routedGame : matching(live, liveKey);
+
+  let season = isHome ? retained : null;
+  if (isHome && team.data !== undefined) {
+    if (currentId === null) {
+      if (!team.meta?.fromCache && !team.meta?.error) season = calendarSeason;
+    } else if (currentGame?.data) {
+      season = currentGame.data.season;
+    }
+  }
+
+  let mode = 'unavailable';
+  if (isHome) mode = team.data === undefined ? 'loading' : 'home';
+  else if (isGame) mode = routedGame?.data ? 'game' : settled(routedGame) ? 'unavailable' : 'loading';
+
+  let results = isHome ? 'loading' : null;
+  const seasonStats = season === null ? undefined : matching(stats, season);
+  if (seasonStats?.data !== undefined) {
+    if (seasonStats.meta?.error) results = 'failed';
+    else if (settled(seasonStats)) results = seasonStats.data?.results?.length ? 'ready' : 'empty';
+  }
+
+  const banner = liveKey !== null && mode !== 'loading' && currentGame?.data?.status === 'live'
+    ? { gameId: liveKey } : null;
+  return {
+    watch: { game: gameKey, live: liveKey, stats: season },
+    tracked: { team: true, game: isGame, live: isHome, stats: isHome && season !== null },
+    mode, season, results, banner,
+  };
+}
+
+function planFor(route) {
+  const input = {
+    route,
+    team: state.team,
+    game: state.game,
+    live: state.live,
+    stats: state.stats,
+    offline: isOffline(),
+    calendarSeason: seasonFor(todayIso()),
+    lastSeason,
+    lastShown,
+  };
+  return model.viewerState?.(input) ?? fallbackState(input);
+}
+
+// The stale timer runs while a watch the plan awaits has no server answer yet. It reconciles against the
+// watches that are active now. Returns true when it changed `state.stale`.
+function syncStaleTimer(plan) {
+  const awaiting = ['team', 'game', 'live', 'stats'].some(name => {
+    const watch = state[name];
+    if (!plan.tracked[name] || watch.key === null) return false;
+    return watch.data === undefined || watch.meta?.fromCache === true || watch.meta?.error === true;
+  });
+  if (!awaiting) {
+    clearTimeout(staleTimer);
+    staleTimer = null;
+    const was = state.stale;
+    state.stale = false;
+    return was;
+  }
+  if (staleTimer === null && !state.stale) {
+    staleTimer = setTimeout(() => {
+      staleTimer = null;
+      state.stale = true;
+      update();
+    }, STALE_MS);
+  }
+  return false;
+}
+
+// The one loop: every event ends here, and nothing renders before the plan has settled.
+function runUpdate() {
   const route = parseRoute(location.hash);
-  if (route.kind === 'game') return route.id;
-  return route.kind === 'invalid' ? null : currentGameId();
+  let plan = planFor(route);
+  // A key change resets that watch, which can change the plan again; five passes is far more than needed.
+  for (let pass = 0; pass < 5 && applyWatches(plan.watch); pass += 1) plan = planFor(route);
+  if (syncStaleTimer(plan)) updateAgain = true;
+  if (plan.season !== null) lastSeason = plan.season;
+  lastShown = {
+    gameKey: plan.watch.game, mode: plan.mode, statsKey: plan.watch.stats, results: plan.results,
+  };
+  render(plan);
 }
 
-// The current game, as far as it is known: the open one when that is it, else the banner's own watch.
-function currentGame() {
-  const id = currentGameId();
-  if (id === null) return null;
-  return followedGameId() === id ? state.game : state.live;
+// An event that arrives while an update runs (a snapshot delivered synchronously) runs after it.
+function update() {
+  if (updating) {
+    updateAgain = true;
+    return;
+  }
+  updating = true;
+  try {
+    do {
+      updateAgain = false;
+      runUpdate();
+    } while (updateAgain);
+  } finally {
+    updating = false;
+  }
 }
-
-function follow() {
-  const gameId = followedGameId();
-  resubscribe('game', gameId, cb => repo.watchGame(gameId, cb));
-  if (gameId === null) followSeason();
-  // The banner watches the current game only while the open game is another one.
-  const liveId = currentGameId() === gameId ? null : currentGameId();
-  resubscribe('live', liveId, cb => repo.watchGame(liveId, cb));
-}
-
-// The live game on the landing page has ended: keep showing it, at an address that survives a reload.
-// replaceState fires no hashchange, so the follow-up is done here.
-function stayOnGame(gameId) {
-  history.replaceState(null, '', `#/game/${encodeURIComponent(gameId)}`);
-  follow();
-}
-
-repo.watchTeam((data, meta) => {
-  // Ending a reopened older game also moves the current game on, and its team and game snapshots can
-  // arrive in either order: keep the live game on screen until its own final snapshot shows.
-  const onLive = parseRoute(location.hash).kind === 'home' && state.game?.status === 'live' ? followedGameId() : null;
-  state.team = data;
-  state.teamMeta = meta;
-  trackConnection('team', meta);
-  if (onLive !== null && currentGameId() !== onLive) stayOnGame(onLive);
-  else follow();
-  render();
-});
 
 window.addEventListener('hashchange', () => {
   window.scrollTo(0, 0);
-  follow();
-  render();
+  update();
 });
-// A shared link starts reading the game without waiting for the team document.
-if (parseRoute(location.hash).kind === 'game') follow();
-
-window.addEventListener('online', () => { state.offline = false; render(); });
-window.addEventListener('offline', () => { state.offline = true; render(); });
+window.addEventListener('online', () => { state.offline = false; update(); });
+window.addEventListener('offline', () => { state.offline = true; update(); });
 // A page restored from the back/forward cache holds a Firestore client that shut itself down when
 // the page was hidden, so its score would stay frozen. Reloading starts a fresh client.
 window.addEventListener('pageshow', event => {
@@ -222,22 +302,20 @@ const scoreboard = h('section', { class: 'scoreboard', hidden: true },
   quarterScores,
   h('div', { class: 'board-row' }, opponent, gameDate),
   h('div', { class: 'situation-figures' }, gameManUp, gameManDown));
-const empty = h('section', { class: 'empty', 'data-testid': 'empty-state', hidden: true },
-  h('h2', {}, t('emptyTitle')), h('p', {}, t('emptyBody')));
 const unavailable = h('section', { class: 'empty', 'data-testid': 'game-unavailable', hidden: true },
   h('p', {}, t('gameUnavailable')));
 const bannerText = h('span', { class: 'live-banner-text', 'data-testid': 'live-banner-text' });
-const liveBanner = h('div', { class: 'live-banner', 'data-testid': 'live-banner', hidden: true },
+const liveBanner = h('a', { class: 'live-banner', href: '#/', 'data-testid': 'live-banner', hidden: true },
   h('span', { class: 'live-dot', 'aria-hidden': 'true' }),
   bannerText,
-  h('a', { class: 'watch-live', href: '#/', 'data-testid': 'watch-live' }, t('watchLive')));
-const allGamesLink = h('a', { class: 'back-link', href: '#/games', 'data-testid': 'all-games' }, t('allGames'));
+  h('span', { class: 'watch-live', 'data-testid': 'watch-live' }, t('watchLive')));
+const allGamesLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'all-games' }, t('allGames'));
 const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, allGamesLink);
 const gamesList = h('header', { class: 'games-list', 'data-testid': 'games-list', hidden: true },
   h('h1', { class: 'team-name' }, teamConfig.name));
 const gameSections = h('div', { class: 'stack' });
 const seasonSection = h('div', { class: 'stack' });
-root.append(note, pastNav, gamesList, scoreboard, empty, unavailable, gameSections, seasonSection);
+root.append(note, pastNav, gamesList, scoreboard, unavailable, gameSections, seasonSection);
 
 function setScore(el, value) {
   const next = String(value);
@@ -259,76 +337,56 @@ function renderIfChanged(container, input, build) {
   clear(container).append(...build());
 }
 
-// 'loading' | 'list' | 'game' | 'unavailable' | 'empty'. The landing page shows the live game; with no
-// live game it is the list, which is also '#/games'. The list gives way to the empty state only when
-// there is no game to follow and the season has no results.
-function viewMode() {
-  const settled = (data, meta) => data !== undefined && (data !== null || !meta?.fromCache || isOffline());
-  if (state.team === undefined) return 'loading';
-  const route = parseRoute(location.hash);
-  if (route.kind === 'invalid') return 'unavailable';
-  if (route.kind === 'game') {
-    if (state.game === undefined) return 'loading';
-    if (state.game === null) return settled(state.game, state.gameMeta) ? 'unavailable' : 'loading';
-    return 'game';
-  }
-  if (currentGameId() === null) {
-    if (!settled(state.team, state.teamMeta)) return 'loading';
-  } else {
-    if (state.game === undefined) return 'loading';
-    if (state.game === null && !settled(state.game, state.gameMeta)) return 'loading';
-    if (state.game !== null) return route.kind === 'home' && state.game.status === 'live' ? 'game' : 'list';
-  }
-  // No current game, or it no longer exists.
-  if (state.stats === undefined) return 'loading';
-  return state.stats?.results?.length ? 'list' : 'empty';
+function setData(el, name, value) {
+  if (value == null) el.removeAttribute(name);
+  else el.setAttribute(name, value);
 }
 
-const isOffline = () => state.offline || state.stale;
-
-function render() {
-  const mode = viewMode();
+function render(plan) {
+  const { mode } = plan;
+  const game = mode === 'game' ? state.game.data : null;
   note.hidden = !isOffline();
-  empty.hidden = mode !== 'empty';
   unavailable.hidden = mode !== 'unavailable';
-  gamesList.hidden = mode !== 'list';
+  // The home element tells which season's results it holds and in what state, for the tests.
+  gamesList.hidden = mode !== 'home';
+  setData(gamesList, 'data-season', mode === 'home' ? plan.season : null);
+  setData(gamesList, 'data-results', mode === 'home' ? plan.results : null);
   scoreboard.hidden = mode !== 'game';
-  renderPastNav(mode);
-  if (mode === 'game') {
-    renderGame(state.game);
+  renderPastNav(plan);
+  if (game) {
+    renderGame(game);
     celebrateIfNew();
   } else {
     clear(gameSections), signatures.delete(gameSections);
     goals?.next(null);
   }
   // A celebration belongs to the live game on screen: leaving that game ends it.
-  if (celebratingId !== null && (mode !== 'game' || state.game.id !== celebratingId)) {
+  if (celebratingId !== null && game?.id !== celebratingId) {
     celebration?.hide();
     celebratingId = null;
   }
-  renderSeason(state.stats, mode === 'game' ? followedGameId() : null);
+  renderSeason(plan);
 }
 
-function renderPastNav(mode) {
-  const withLink = mode === 'game' || mode === 'unavailable';
+function renderPastNav(plan) {
+  const withLink = plan.mode === 'game' || plan.mode === 'unavailable';
   allGamesLink.hidden = !withLink;
   // The banner is for a live game the screen is not showing.
-  const current = currentGame();
-  const showing = mode === 'game' && followedGameId() === currentGameId();
-  const live = mode !== 'loading' && !showing && current?.status === 'live' ? current : null;
+  const live = plan.banner !== null && state.live.key === plan.banner.gameId ? state.live.data : null;
   liveBanner.hidden = live === null;
   pastNav.hidden = !withLink && live === null;
   if (live === null) return;
   const { us, them } = deriveScore(live.events);
+  liveBanner.setAttribute('href', `#/game/${encodeURIComponent(plan.banner.gameId)}`);
   bannerText.textContent = t('liveBanner', {
-    opponent: live.opponent, us, them, period: periodLabel(live.period),
+    team: teamConfig.name, opponent: live.opponent, us, them, period: periodLabel(live.period),
   });
 }
 
 // A throw here must never skip the rest of the render.
 function celebrateIfNew() {
   try {
-    if (goals) celebrateGoal(goals.next(state.game, state.gameMeta ?? {}));
+    if (goals) celebrateGoal(goals.next(state.game.data, state.game.meta ?? {}));
   } catch (err) {
     console.warn('Goal celebration failed', err);
   }
@@ -336,11 +394,12 @@ function celebrateIfNew() {
 
 function celebrateGoal(goal) {
   if (!goal) return;
-  celebratingId = state.game.id;
-  const player = state.game.lineup.find(entry => entry.playerId === goal.playerId);
+  const game = state.game.data;
+  celebratingId = game.id;
+  const player = game.lineup.find(entry => entry.playerId === goal.playerId);
   celebration.show({
     scorer: player ? t('celebrateScorer', { cap: player.cap, name: player.name }) : null,
-    manUp: manUpGoalIds(state.game).has(goal.id),
+    manUp: manUpGoalIds(game).has(goal.id),
   });
 }
 
@@ -510,35 +569,35 @@ function timelineItem(event, game, manUpGoals, out) {
     entry.side === 'them' ? icon : null);
 }
 
-function renderSeason(stats, openId) {
-  renderIfChanged(seasonSection, [stats ?? null, openId], () => {
-    const results = stats?.results ?? [];
+// Home: the season's results in the state the plan names. Anything else shows no season block.
+function renderSeason(plan) {
+  const results = plan.mode === 'home' ? plan.results : null;
+  const shown = results === 'ready' || results === 'empty';
+  const stats = shown && state.stats.key === plan.season ? state.stats.data : null;
+  renderIfChanged(seasonSection, [results, stats], () => {
+    if (results === 'loading') return [h('p', { class: 'muted', 'data-testid': 'results-loading' }, t('resultsLoading'))];
+    if (results === 'failed') return [h('p', { class: 'muted', 'data-testid': 'results-failed' }, t('resultsFailed'))];
+    if (!shown) return [];
+    const rows = stats?.results ?? [];
     const players = Object.entries(stats?.players ?? {})
       .map(([id, player]) => ({ id, ...player }))
       .sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
     const goalies = Object.entries(stats?.goalies ?? {})
       .map(([id, goalie]) => ({ id, ...goalie }))
       .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
-    if (!results.length && !players.length && !goalies.length) return [];
     return [h('section', { class: 'section' },
       h('h2', {}, t('seasonHeading')),
-      stats?.situations ? h('p', { class: 'situation-figures', 'data-testid': 'season-situations' },
-        h('span', { class: 'situation-figure' }, manUpText(stats.situations.manUp)),
-        h('span', { class: 'situation-figure' }, manDownText(stats.situations.manDown))) : null,
-      results.length ? resultsTable(results, openId) : null,
+      rows.length ? resultsTable(rows) : h('p', { class: 'muted', 'data-testid': 'results-empty' }, t('resultsEmpty')),
       players.length ? totalsTable(players) : null,
       goalies.length ? seasonGoaliesTable(goalies) : null)];
   });
 }
 
-function resultsTable(results, openId) {
+function resultsTable(results) {
   return h('table', { class: 'results', 'aria-label': t('resultsHeading') }, h('tbody', {}, results.map(result => {
     // A 0 – 0 shootout means none was played (older games recorded it that way).
     const text = scoreText(result, result.soUs != null && !(result.soUs === 0 && result.soThem === 0));
-    const isOpen = result.gameId != null && result.gameId === openId;
-    return h('tr', {
-      'data-testid': 'result-row', class: isOpen ? 'is-open' : null, 'aria-current': isOpen ? 'page' : null,
-    },
+    return h('tr', { 'data-testid': 'result-row' },
       h('td', { class: 'muted' }, formatDate(result.date)),
       h('td', {}, result.gameId == null ? result.opponent : h('a', {
         class: 'result-link',
@@ -589,4 +648,5 @@ function totalsTable(players) {
       h('td', { class: 'num', 'data-testid': 'season-pen' }, player.pens ?? 0)))));
 }
 
-render();
+startWatch('team', 'main');
+update();

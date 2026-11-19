@@ -67,7 +67,7 @@ test('no quarter line on a live game', async ({ page }) => {
 
 test('quarter scores appear when a watched game ends', async ({ page }) => {
   await seedGame([...quarter(1, 1, 0), ...quarter(2, 1, 2)], { status: 'live' });
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(line(page)).toBeHidden();
   await update('games/g1', { status: 'final', period: 4 });

@@ -7,7 +7,7 @@ export const firebaseConfig = {
   appId: '1:966929796388:web:f6b1409662c71cba9677b1',
 };
 
-export const team = { name: 'ANOG', accent: '#0057b8' };
+export const team = { name: 'ANOG', accent: '#0057b8', crest: 'img/anog-crest.png' };
 
 export const EMULATOR = {
   projectId: 'demo-scoretracker',

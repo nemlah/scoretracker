@@ -39,7 +39,8 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = page => page.goto('/index.html?emulator=1');
+// The live game is opened by its address: home no longer shows a game.
+const open = page => page.goto('/index.html?emulator=1#/game/g1');
 const celebration = page => page.getByTestId('celebration');
 
 test('a new goal of ours celebrates with the scorer, then hides', async ({ page }) => {

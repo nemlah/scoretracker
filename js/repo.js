@@ -48,12 +48,16 @@ export function createRepo(db) {
   const gameRef = id => doc(gamesRef, id);
   const updated = data => ({ ...data, updatedAt: serverTimestamp() });
 
-  function watch(ref, cb, isGame = false) {
-    return onSnapshot(ref, { includeMetadataChanges: true }, snapshot => {
+  // onError is optional; without it a failed listener behaves as before.
+  function watch(ref, cb, isGame = false, onError) {
+    const next = snapshot => {
       const data = snapshot.exists() ? (isGame ? gameData(snapshot) : snapshot.data()) : null;
       const { fromCache, hasPendingWrites } = snapshot.metadata;
       cb(data, { fromCache, hasPendingWrites });
-    });
+    };
+    return onError
+      ? onSnapshot(ref, { includeMetadataChanges: true }, next, onError)
+      : onSnapshot(ref, { includeMetadataChanges: true }, next);
   }
 
   function takeOver(uid) {
@@ -76,9 +80,9 @@ export function createRepo(db) {
   }
 
   return {
-    watchTeam: cb => watch(teamRef, cb),
-    watchGame: (gameId, cb) => watch(gameRef(gameId), cb, true),
-    watchStats: (season, cb) => watch(doc(db, 'stats', season), cb),
+    watchTeam: (cb, onError) => watch(teamRef, cb, false, onError),
+    watchGame: (gameId, cb, onError) => watch(gameRef(gameId), cb, true, onError),
+    watchStats: (season, cb, onError) => watch(doc(db, 'stats', season), cb, false, onError),
     watchControl: cb => watch(controlRef, cb),
     watchOwnEditor: (uid, cb) => watch(doc(db, 'editors', uid), cb),
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { seasonFor, todayIso, formatDate } from '../../js/model.js';
-import { closeAll, get, resetAll, seed, update } from './helpers.js';
+import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -71,12 +71,15 @@ async function endGameFromSheet(page) {
   await armThenConfirm(page, 'end-game');
 }
 
-async function withViewer(browser, fn, hash = '') {
+// The viewer opens on home, or at a hash, or (LIVE) on the live game through the home banner.
+const LIVE = Symbol('live');
+async function withViewer(browser, fn, target = '') {
   const context = await browser.newContext({ baseURL: ORIGIN });
   try {
     const viewer = await context.newPage();
     collectProblems(viewer, problems);
-    await viewer.goto(`/index.html?emulator=1${hash}`);
+    if (target === LIVE) await openLiveGame(viewer);
+    else await viewer.goto(`/index.html?emulator=1${target}`);
     await fn(viewer);
   } finally {
     await context.close();
@@ -101,7 +104,7 @@ test('delete an earlier event', async ({ page, browser }) => {
   await withViewer(browser, async viewer => {
     await expect(viewer.getByTestId('score-us')).toHaveText('2');
     await expect(viewer.getByTestId('timeline-item')).toHaveCount(2);
-  });
+  }, LIVE);
   // Escape closes the sheet and focus goes back to the button that opened it.
   await page.keyboard.press('Escape');
   await expect(sheet(page)).toBeHidden();
@@ -248,8 +251,13 @@ test('end game needs a second tap; viewer shows Final and season stats', async (
   const endedId = await currentGameId();
   await withViewer(browser, async viewer => {
     await expect(viewer.getByTestId('final-badge')).toBeVisible();
+    // The season's tables are on home, not under the game.
+    await expect(viewer.getByTestId('result-row')).toHaveCount(0);
+    await viewer.goto('/index.html?emulator=1');
     await expect(viewer.getByTestId('result-row')).toHaveCount(1);
     await expect(viewer.getByTestId('season-row')).toHaveCount(3);
+    // Opening home after the game aborts the streams that were open; that is not an app error.
+    dropNetworkNoise(problems);
   }, `#/game/${encodeURIComponent(endedId)}`);
 });
 
@@ -286,7 +294,7 @@ test('past games: reopen then delete', async ({ page, browser }) => {
   await expect.poll(async () => (await get(`stats/${SEASON}`)).results).toEqual([]);
   expect((await get(`stats/${SEASON}`)).players).toEqual({});
   await withViewer(browser, async viewer => {
-    await expect(viewer.getByTestId('empty-state')).toBeVisible();
+    await expect(viewer.getByTestId('results-empty')).toBeVisible();
   });
 });
 
