@@ -179,6 +179,10 @@ test('the moved banner is pale amber and the live screen under it is dimmed', as
   await expect(page.getByTestId('events-sheet')).toBeVisible();
   expect(await effectiveOpacity(page.getByTestId('events-sheet'))).toBe(1);
   expect(await effectiveOpacity(page.getByTestId('events-close'))).toBe(1);
+  // A disabled button in the sheet keeps the normal disabled look (0.4, once), not full strength.
+  const sheetDisabled = page.getByTestId('events-sheet').locator('button:disabled:visible');
+  expect(await sheetDisabled.count(), 'the sheet has a visible disabled button while tracking is elsewhere').toBeGreaterThan(0);
+  expect(await effectiveOpacity(sheetDisabled.first())).toBe(0.4);
   await page.getByTestId('events-close').click();
   await expect(page.getByTestId('events-sheet')).toBeHidden();
   // Take over still works through the dimmed screen: control comes back and the dimming goes.

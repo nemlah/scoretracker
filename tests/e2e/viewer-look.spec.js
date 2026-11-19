@@ -243,15 +243,20 @@ for (const scheme of ['light', 'dark']) {
       expect(ratio, `${marker} on ${fill}`).toBeGreaterThanOrEqual(3);
     });
 
-    test('the Watch link shows an ink focus ring on the amber banner', async ({ page }) => {
+    test('the Watch link shows an ink focus ring on the amber banner', async ({ page, browserName }) => {
       await seedPast();
       await open(page, '#/game/g0');
       const watch = page.getByTestId('watch-live');
       await expect(watch).toBeVisible();
-      // Keyboard first (so :focus-visible applies), then onto the link: WebKit's Tab skips links by default.
-      await page.keyboard.press('Tab');
-      await watch.focus();
-      await expect(watch).toBeFocused();
+      // Real keyboard Tab from a known start (nothing focused), however many stops come before the link.
+      await page.evaluate(() => document.activeElement?.blur());
+      let presses = 0;
+      while (!(await watch.evaluate(el => el === document.activeElement))) {
+        expect(presses, 'Tab reached the Watch link within 15 presses').toBeLessThan(15);
+        // Safari/WebKit leaves links out of the Tab order unless Option is held.
+        await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+        presses += 1;
+      }
       expect(await watch.evaluate(el => el.matches(':focus-visible')), 'focus-visible applies').toBe(true);
       const ring = await watch.evaluate(el => {
         const style = getComputedStyle(el);

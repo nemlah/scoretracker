@@ -92,10 +92,11 @@ body.tracker {
 /* Tracking moved: the live content under the banner is dimmed (the banner and Take over stay full strength). The Events
    button and the Events sheet stay at full strength too: a child cannot undo an ancestor's opacity, so the dimming sits on
    the head, the tiles, the dock's action row and Undo, never on .view or .live as a whole. Controls inside a dimmed block
-   keep their own opacity, so they are not dimmed twice. */
+   keep their own opacity, so they are not dimmed twice (the reset covers the dimmed blocks only: the sheet's disabled
+   buttons keep their normal disabled look). */
 body.on-live:has(.banner--takeover:not([hidden])) :is(.live > :not(.dock), .dock-top) { opacity: 0.4; }
 body.on-live:has(.banner--takeover:not([hidden])) .dock::before { opacity: 0.4; }
-body.on-live:has(.banner--takeover:not([hidden])) .view :is(.btn:disabled, [data-write]) { opacity: 1; }
+body.on-live:has(.banner--takeover:not([hidden])) :is(.live > :not(.dock), .dock-top) :is(.btn:disabled, [data-write]) { opacity: 1; }
 body.on-live:has(.banner--takeover:not([hidden])) .view .dock .btn--undo { opacity: 0.4; }
 
 .input {
