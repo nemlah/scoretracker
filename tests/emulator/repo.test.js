@@ -168,6 +168,23 @@ test('endGame marks final and writes stats/{season}', async () => {
   assert.ok(stats.updatedAt instanceof Timestamp);
 });
 
+test('recomputeSeason stores four quarter score maps in each result', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo);
+  await repo.addEvent(id, makeEvent('goal', 1, 'a', 1000, 'goal-1'));
+  await repo.setPeriod(id, 2);
+  await repo.addEvent(id, makeEvent('oppGoal', 2, null, 2000, 'goal-2'));
+  await repo.endGame(id);
+  await repo.recomputeSeason('2026-27');
+
+  const { results } = await read(db, 'stats/2026-27');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].gameId, id);
+  assert.deepEqual(results[0].quarters, [
+    { us: 1, them: 0 }, { us: 0, them: 1 }, { us: 0, them: 0 }, { us: 0, them: 0 },
+  ]);
+});
+
 test('recomputeSeason includes this client\'s queued writes', async () => {
   const { db, repo } = await activeClient();
   const id = await createGame(repo);

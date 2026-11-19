@@ -55,6 +55,52 @@ test('timeline: newest period first, newest event first', () => {
   const t = m.timeline([ev('goal',1,'a',1,'1'), ev('oppGoal',2,null,3,'3'), ev('goal',1,'a',2,'2')]);
   assert.deepEqual(t.map(g => [g.period, g.events.map(e => e.id)]), [[2, ['3']], [1, ['2', '1']]]);
 });
+test('timelineRows accumulates the score by period before timestamp', () => {
+  const first = ev('goal', 1, 'a', 10);
+  const second = ev('oppGoal', 1, null, 20);
+  const nextQuarter = ev('goal', 2, 'a', 30);
+  const late = ev('goal', 1, 'a', 40);
+  assert.deepEqual(m.timelineRows([first, second, nextQuarter, late]), [
+    { period: 2, goals: { us: 1, them: 0 }, events: [
+      { ...nextQuarter, score: { us: 3, them: 1 } },
+    ] },
+    { period: 1, goals: { us: 2, them: 1 }, events: [
+      { ...late, score: { us: 2, them: 1 } },
+      { ...second, score: { us: 1, them: 1 } },
+      { ...first, score: { us: 1, them: 0 } },
+    ] },
+  ]);
+});
+test('timelineRows scores timestamp ties in array order and displays them in reverse', () => {
+  const first = ev('goal', 1, 'a', 10, 'first');
+  const second = ev('oppGoal', 1, null, 10, 'second');
+  assert.deepEqual(m.timelineRows([first, second]), [
+    { period: 1, goals: { us: 1, them: 1 }, events: [
+      { ...second, score: { us: 1, them: 1 } },
+      { ...first, score: { us: 1, them: 0 } },
+    ] },
+  ]);
+});
+test('timelineRows starts the shootout score at zero', () => {
+  const first = ev('goal', 'SO', 'a', 20);
+  const second = ev('oppGoal', 'SO', null, 30);
+  const third = ev('goal', 'SO', 'a', 40);
+  const regulation = ev('goal', 4, 'a', 10);
+  assert.deepEqual(m.timelineRows([regulation, first, second, third])[0], {
+    period: 'SO', goals: { us: 2, them: 1 }, events: [
+      { ...third, score: { us: 2, them: 1 } },
+      { ...second, score: { us: 1, them: 1 } },
+      { ...first, score: { us: 1, them: 0 } },
+    ],
+  });
+});
+test('timelineRows keeps timeline membership and leaves non-goal events without scores', () => {
+  const excl = ev('excl', 1, 'a', 10);
+  const save = ev('save', 1, 'g1', 30);
+  const events = [excl, ev('manUp', 1, null, 20), save, ev('manUpEnd', 2, null, 40),
+    ev('manDownEnd', 2, null, 50), ev('gkIn', 3, 'g1', 60)];
+  assert.deepEqual(m.timelineRows(events), [{ period: 1, goals: { us: 0, them: 0 }, events: [save, excl] }]);
+});
 test('isDuplicateTap: same type + player within the window', () => {
   const prev = ev('goal', 1, 'a', 1000);
   assert.equal(m.isDuplicateTap(prev, 'goal', 'a', 1999), true);

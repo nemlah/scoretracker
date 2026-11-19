@@ -139,6 +139,27 @@ export function timeline(events) {
   });
 }
 
+export function timelineRows(events) {
+  const rows = timeline(events);
+  const regulationScore = { us: 0, them: 0 };
+  // Walk the display order backwards to score by period, timestamp and original array order.
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    const goals = { us: 0, them: 0 };
+    const score = row.period === 'SO' ? { us: 0, them: 0 } : regulationScore;
+    for (let j = row.events.length - 1; j >= 0; j--) {
+      const event = row.events[j];
+      if (event.type !== 'goal' && event.type !== 'oppGoal') continue;
+      const side = event.type === 'goal' ? 'us' : 'them';
+      goals[side]++;
+      score[side]++;
+      event.score = { ...score };
+    }
+    row.goals = goals;
+  }
+  return rows;
+}
+
 export function isDuplicateTap(prevEvent, type, playerId, now, windowMs = DUPLICATE_TAP_MS) {
   return prevEvent !== null && prevEvent.type === type
     && (prevEvent.playerId ?? null) === (playerId ?? null)
@@ -232,10 +253,30 @@ export function isValidSeason(season) {
 
 export function gameResult(game) {
   const { us, them, soUs, soThem } = deriveScore(game.events);
-  const result = { gameId: game.id, date: game.date, opponent: game.opponent, us, them };
+  const quarters = Array.from({ length: 4 }, () => ({ us: 0, them: 0 }));
+  let excl = 0;
+  let pens = 0;
+  for (const { period, type } of game.events) {
+    if (!Number.isInteger(period) || period < 1 || period > quarters.length) continue;
+    const quarter = quarters[period - 1];
+    if (type === 'goal') quarter.us++;
+    else if (type === 'oppGoal') quarter.them++;
+    else if (type === 'excl') excl++;
+    else if (type === 'pen') pens++;
+  }
+  const result = { gameId: game.id, date: game.date, opponent: game.opponent, us, them, excl, pens, quarters };
   if (hasShootout(game.period, game.events)) Object.assign(result, { soUs, soThem });
   if (isTracked(game)) Object.assign(result, situationCounts(game));
   return result;
+}
+
+export function resultOutcome(result) {
+  const { us, them, soUs, soThem } = result ?? {};
+  if (!Number.isFinite(us) || !Number.isFinite(them)) return null;
+  if (us > them) return 'W';
+  if (us < them) return 'L';
+  if (Number.isFinite(soUs) && Number.isFinite(soThem) && soUs !== soThem) return soUs > soThem ? 'W' : 'L';
+  return 'D';
 }
 
 export function aggregateSeason(games, roster) {

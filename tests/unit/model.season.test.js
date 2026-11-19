@@ -60,9 +60,36 @@ test('seasonFor: 1 August cutoff', () => {
 });
 test('gameResult includes shootout only when there was one', () => {
   const g = { id:'g1', date:'2026-11-08', opponent:'Rivals', period:4, events:[ev('goal',1,'a',1), ev('oppGoal',2,null,2)] };
-  assert.deepEqual(m.gameResult(g), { gameId:'g1', date:'2026-11-08', opponent:'Rivals', us:1, them:1 });
+  const expected = { gameId:'g1', date:'2026-11-08', opponent:'Rivals', us:1, them:1, excl:0, pens:0,
+    quarters:[{ us:1, them:0 }, { us:0, them:1 }, { us:0, them:0 }, { us:0, them:0 }] };
+  assert.deepEqual(m.gameResult(g), expected);
   assert.deepEqual(m.gameResult({ ...g, period:'SO', events:[...g.events, ev('goal','SO','a',3)] }),
-    { gameId:'g1', date:'2026-11-08', opponent:'Rivals', us:1, them:1, soUs:1, soThem:0 });
+    { ...expected, soUs:1, soThem:0 });
+});
+test('gameResult adds regulation fouls and Firestore-safe quarter scores', () => {
+  const game = { id: 'g1', date: '2026-11-08', opponent: 'Rivals', period: 'SO', situations: true,
+    events: [ev('goal', 1, 'a', 1), ev('pen', 2, 'a', 2), ev('goal', 3, 'a', 3),
+      ev('oppGoal', 3, null, 4), ev('goal', 'SO', 'a', 5), ev('excl', 'SO', 'a', 6),
+      ev('goal', 5, 'a', 7)] };
+  const result = m.gameResult(game);
+  const { excl, pens, quarters, us, them } = result;
+  assert.deepEqual({ excl, pens, us, them }, { excl: 0, pens: 1, us: 3, them: 1 });
+  assert.deepEqual(quarters, [{ us: 1, them: 0 }, { us: 0, them: 0 }, { us: 1, them: 1 }, { us: 0, them: 0 }]);
+  for (const quarter of quarters) assert.equal(Object.getPrototypeOf(quarter), Object.prototype);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
+});
+test('resultOutcome uses finite regulation scores and a decisive shootout for a tie', () => {
+  assert.equal(m.resultOutcome({ us: 9, them: 7 }), 'W');
+  assert.equal(m.resultOutcome({ us: 3, them: 5 }), 'L');
+  assert.equal(m.resultOutcome({ us: 8, them: 8 }), 'D');
+  assert.equal(m.resultOutcome({ us: 8, them: 8, soUs: 0, soThem: 0 }), 'D');
+  assert.equal(m.resultOutcome({ us: 8, them: 8, soUs: 4, soThem: 3 }), 'W');
+  assert.equal(m.resultOutcome({ us: 8, them: 8, soUs: 2, soThem: 4 }), 'L');
+  assert.equal(m.resultOutcome({ us: 'x', them: 1 }), null);
+  assert.equal(m.resultOutcome({ us: 1, them: Infinity }), null);
+  assert.equal(m.resultOutcome({ us: 8, them: 8, soUs: 3, soThem: NaN }), 'D');
+  assert.equal(m.resultOutcome({ us: 8, them: 8, soUs: 3, soThem: 3 }), 'D');
+  assert.equal(m.resultOutcome({ us: 9, them: 7, soUs: 2, soThem: 4 }), 'W');
 });
 test('aggregateSeason: final only, roster names, games played, no shootout goals', () => {
   const games = [
@@ -80,6 +107,10 @@ test('aggregateSeason: final only, roster names, games played, no shootout goals
     q: { name:'Guest', games:1, goals:0, excl:0, pens:0 },
   });
   assert.deepEqual(s.results.map(r => r.gameId), ['g2', 'g1']);
+  assert.deepEqual(s.results.map(({ excl, pens, quarters }) => ({ excl, pens, quarters })), [
+    { excl: 0, pens: 0, quarters: [{ us: 0, them: 0 }, { us: 0, them: 0 }, { us: 1, them: 0 }, { us: 0, them: 0 }] },
+    { excl: 1, pens: 1, quarters: [{ us: 1, them: 0 }, { us: 1, them: 0 }, { us: 0, them: 0 }, { us: 0, them: 0 }] },
+  ]);
 });
 
 test('defaultSelection and lineupFrom carry the goalie flag', () => {
