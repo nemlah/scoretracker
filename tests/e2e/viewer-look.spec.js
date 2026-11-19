@@ -303,6 +303,11 @@ const expectCutOnOneLine = async (locator, what, mustCut) => {
 };
 
 // `inner` lies whole inside `outer`'s box.
+// The element's text is not cut by its own box.
+const expectWhole = async (locator, what) => {
+  const { scroll, client } = await locator.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+  expect(scroll, `${what}: nothing cut`).toBeLessThanOrEqual(client + 1);
+};
 const expectInside = async (inner, outer, what) => {
   const [a, b] = await Promise.all([inner.boundingBox(), outer.boundingBox()]);
   expect(a, `${what}: inner is on the page`).not.toBeNull();
@@ -331,6 +336,7 @@ for (const scheme of ['light', 'dark']) {
         // The pill, the team and the score are whole inside the banner's text box; only the opponent is cut.
         await expect(banner.locator('.home-live-pill')).toHaveText('LIVE · Q3');
         await expectInside(banner.locator('.home-live-pill'), banner, 'pill in banner');
+        await expectWhole(banner.locator('.home-live-pill'), 'pill');
         const text = page.getByTestId('live-banner-text');
         await expectInside(banner.locator('.home-live-team'), text, 'team in banner text');
         await expectInside(banner.locator('.home-live-score'), text, 'score in banner text');
@@ -346,6 +352,25 @@ for (const scheme of ['light', 'dark']) {
         await expectCutOnOneLine(shootout.locator('.result-opp'), 'shootout opponent', width === 360);
         const rowBox = await page.getByTestId('result-row').first().boundingBox();
         expect(rowBox.x + rowBox.width, 'row right edge').toBeLessThanOrEqual(width);
+        const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
+        expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
+      });
+
+      test('in the shootout the pill and the two-digit score stay whole, and the team name and the opponent give way', async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        await seedHome();
+        await update('games/g1', { period: 'SO' });
+        await open(page);
+        const banner = page.getByTestId('live-banner');
+        await expect(banner.locator('.home-live-pill')).toHaveText('LIVE · Shootout');
+        await expect(banner.locator('.home-live-score')).toHaveText('12–11');
+        const text = page.getByTestId('live-banner-text');
+        await expectInside(banner.locator('.home-live-pill'), banner, 'pill in banner');
+        await expectWhole(banner.locator('.home-live-pill'), 'pill');
+        await expectInside(banner.locator('.home-live-score'), text, 'score in banner text');
+        const watch = await page.getByTestId('watch-live').boundingBox();
+        expect(watch.x + watch.width, 'Watch is on the screen').toBeLessThanOrEqual(width);
+        await expectCutOnOneLine(banner.locator('.home-live-opp'), 'opponent', width === 360);
         const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
         expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
       });

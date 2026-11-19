@@ -683,7 +683,7 @@ test('a level final decided on a shootout shows the shootout and the chip it dec
   await expect(page.getByTestId('season-record')).toHaveText('1 W · 1 L · 1 D');
 });
 
-test('a season with no results has no record and the old figures line is gone', async ({ page }) => {
+test('a season with no results shows the empty message and no record', async ({ page }) => {
   await open(page);
   await expect(page.getByTestId('results-empty')).toBeVisible();
   await expect(page.getByTestId('season-record')).toHaveAttribute('hidden', '');

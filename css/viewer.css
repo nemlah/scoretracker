@@ -125,7 +125,9 @@ body.viewer {
   font-variant-numeric: tabular-nums;
 }
 .home-live-text-slots { gap: 0; } /* the old template carries its own spaces */
-.home-live-team, .home-live-score, .home-live-gap { flex: none; }
+.home-live-score, .home-live-gap { flex: none; }
+/* The pill, the score and Watch never give way: the team name and the opponent shrink and are cut. */
+.home-live-team { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .home-live-gap { white-space: pre; }
 .home-live-score { font: 800 1.5rem/1 var(--font-num); }
 .home-live-opp { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
