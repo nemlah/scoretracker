@@ -336,3 +336,66 @@ export function todayIso(now = new Date(), timeZone = 'Europe/Athens') {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(now);
 }
+
+/** Plan the viewer's subscriptions and display from the latest watch snapshots. */
+export function viewerState({ route, team, game, live, stats, offline, calendarSeason, lastSeason, lastShown }) {
+  const settled = watch => watch?.data !== undefined
+    && (watch.data !== null || !watch.meta?.fromCache || watch.meta?.error || offline);
+  const matching = (watch, key) => key !== null && watch.key === key ? watch : undefined;
+
+  const isHome = route.kind === 'home';
+  const isGame = route.kind === 'game';
+  const gameKey = isGame ? route.id : null;
+  const currentId = team.data?.currentGameId ?? null;
+  const liveKey = gameKey === currentId ? null : currentId;
+  const routedGame = matching(game, gameKey);
+  const currentGame = gameKey === currentId ? routedGame : matching(live, liveKey);
+
+  let season = isHome ? lastSeason : null;
+  if (isHome && settled(team)) {
+    if (team.meta?.error) {
+      season = lastSeason ?? calendarSeason;
+    } else if (currentId === null) {
+      // A cached roster without a pointer may be older than the server's current game.
+      if (!team.meta?.fromCache || offline) season = calendarSeason;
+    } else if (settled(currentGame)) {
+      // A missing game can arrive before the team points elsewhere.
+      season = currentGame.data === null ? lastSeason ?? calendarSeason : currentGame.data.season;
+    }
+  }
+
+  let mode = 'unavailable';
+  if (isHome) {
+    mode = team.data === undefined ? 'loading' : 'home';
+  } else if (isGame) {
+    if (routedGame?.data) mode = 'game';
+    else if (!settled(routedGame)) {
+      const heldUnavailable = lastShown?.gameKey === gameKey && lastShown.mode === 'unavailable';
+      if (!heldUnavailable) mode = 'loading';
+    }
+  }
+
+  let results = isHome ? 'loading' : null;
+  if (season !== null) {
+    const seasonStats = matching(stats, season);
+    if (seasonStats?.data !== undefined) {
+      if (seasonStats.meta?.error) results = 'failed';
+      else if (settled(seasonStats)) {
+        const rows = seasonStats.data?.results;
+        results = Array.isArray(rows) && rows.length > 0 ? 'ready' : 'empty';
+      }
+    }
+    // Reconnecting can make an offline cache miss unsettled again.
+    if (results === 'loading' && lastShown?.statsKey === season) results = lastShown.results ?? results;
+  }
+
+  const banner = liveKey !== null && mode !== 'loading' && currentGame?.data?.status === 'live'
+    ? { gameId: liveKey }
+    : null;
+
+  return {
+    watch: { game: gameKey, live: liveKey, stats: season },
+    tracked: { team: true, game: isGame, live: isHome, stats: isHome },
+    mode, season, results, banner,
+  };
+}
