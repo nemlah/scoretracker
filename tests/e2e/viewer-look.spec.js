@@ -45,6 +45,8 @@ const seedLive = () => Promise.all([
         manUp: { played: 17, scored: 12 }, manDown: { played: 16, stopped: 11 },
       },
       { gameId: 'g1', date: '2026-11-08', opponent: longOpponent, us: 12, them: 11 },
+      // A one-line name: its link must still be a 44 px target.
+      { gameId: 'g5', date: '2026-10-18', opponent: 'Rivals', us: 8, them: 7 },
     ],
   }),
 ]);
@@ -128,6 +130,19 @@ for (const blockFonts of [false, true]) {
     await seedLive();
     for (const hash of ['', '#/games']) {
       await open(page, hash);
+      if (!blockFonts) {
+        // Measure with the real fonts, not the fallbacks. If the sandbox cannot reach Google Fonts this fails
+        // loudly rather than silently measuring Arial Narrow / system-ui.
+        await page.evaluate(() => document.fonts.ready);
+        await expect.poll(() => page.evaluate(async () => {
+          await document.fonts.load('800 16px "Sofia Sans Extra Condensed"');
+          await document.fonts.load('400 16px "Sofia Sans"');
+          // check() is also true for a family nobody declared, so require loaded faces too.
+          const loaded = family => [...document.fonts].some(face => face.family.replace(/"/g, '') === family && face.status === 'loaded');
+          return loaded('Sofia Sans Extra Condensed') && loaded('Sofia Sans')
+            && document.fonts.check('800 16px "Sofia Sans Extra Condensed"') && document.fonts.check('400 16px "Sofia Sans"');
+        })).toBe(true);
+      }
       if (hash === '') {
         await expect(page.getByTestId('score-us')).toHaveText('12');
         await expect(page.getByTestId('situation-badge')).toBeVisible();
@@ -143,6 +158,9 @@ for (const blockFonts of [false, true]) {
           .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
           .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
       }));
+      const links = await page.getByTestId('result-link').evaluateAll(els => els.map(el => el.getBoundingClientRect().height));
+      expect(links.length, `${hash || 'game'}: result links`).toBeGreaterThan(0);
+      expect(Math.min(...links), `${hash || 'game'}: shortest result-link target`).toBeGreaterThanOrEqual(44);
       expect(overflow.outside, `${hash || 'game'}: boxes past 360 px`).toEqual([]);
       expect(overflow.scroll, `${hash || 'game'}: scrollWidth`).toBeLessThanOrEqual(360);
     }
