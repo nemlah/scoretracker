@@ -1,0 +1,13 @@
+{
+  "name": "ANOG live score",
+  "short_name": "ANOG",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0B1320",
+  "background_color": "#F4F6F8",
+  "icons": [
+    { "src": "img/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "img/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
