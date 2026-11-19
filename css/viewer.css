@@ -15,8 +15,11 @@ body.viewer {
   --v-out: var(--out-text, #B3202F);
   --v-bar: var(--accent-on-board, var(--accent));
   --v-up: #0E7A4E;
-  --v-loss: #D7263D;
-  --v-draw: #5A6878;
+  /* Result chips: a letter on a fill, 4.5:1 for the letter and 3:1 for the fill against the card, per scheme. */
+  --v-chip-w: #0E7A4E;
+  --v-chip-l: #D7263D;
+  --v-chip-d: #5A6878;
+  --v-chip-ink: #FFFFFF;
   /* The selected-row marker: accent.js derives one colour per scheme that clears 3:1 on the row; blue is the fallback. */
   --v-open-bar: var(--accent-open-light, var(--accent));
 }
@@ -38,7 +41,13 @@ body.viewer {
     --led: #FFC23D;
     --out-text: #FF6B7D;
   }
-  body.viewer { --v-open-bar: var(--accent-open-dark, #2e75c4); }
+  body.viewer {
+    --v-open-bar: var(--accent-open-dark, #2e75c4);
+    --v-chip-w: #3DBB83;
+    --v-chip-l: #FF6B7D;
+    --v-chip-d: #9AA8B8;
+    --v-chip-ink: #0B1320;
+  }
 }
 
 .page {
@@ -74,7 +83,8 @@ body.viewer {
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
 }
-/* Home: the LIVE banner. Amber with ink text, at least 56 px tall; the text is one line, cut with an ellipsis. */
+/* Home: the LIVE banner. Amber with ink text, at least 56 px tall. A LIVE pill, the team, the score, the
+   opponent, Watch. The score and the quarter keep their room; only the opponent is cut, on one line. */
 .home-live {
   display: flex;
   align-items: center;
@@ -88,8 +98,37 @@ body.viewer {
   text-decoration: none;
 }
 .home-live:focus-visible, .home-live :focus-visible { outline-color: var(--v-on-led); } /* the aqua ring is 1.24:1 on amber */
-.home-live .live-dot { flex: none; background: var(--v-on-led); }
-.home-live-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.home-live > .live-dot { flex: none; background: var(--v-on-led); } /* only without the pill: the dot sits in the pill otherwise */
+.home-live-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--v-on-led);
+  color: var(--v-led);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+.home-live-pill .live-dot { flex: none; width: 0.45rem; height: 0.45rem; background: var(--v-led); }
+.home-live-text {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.home-live-text-slots { gap: 0; } /* the old template carries its own spaces */
+.home-live-team, .home-live-score, .home-live-gap { flex: none; }
+.home-live-gap { white-space: pre; }
+.home-live-score { font: 800 1.5rem/1 var(--font-num); }
+.home-live-opp { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .home-live-watch { flex: none; display: inline-flex; align-items: center; gap: 0.125rem; }
 
 /* Scoreboard: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
@@ -334,15 +373,31 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 .season-title h1 { min-width: 0; font-size: 1.625rem; font-weight: 700; line-height: 1.2; }
 .season-record { flex: none; font: 800 1.375rem/1.2 var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--v-led); }
 
-.result-list { list-style: none; margin: 0; padding: 0; }
-.result-item + .result-item { border-top: 1px solid var(--line); }
+.results-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; }
+.results-block > h2 {
+  font: 700 0.8125rem/1.3 var(--font-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v-muted);
+}
+/* The results card: a border and dividers that clear 3:1, on the card colour. */
+.result-card {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--v-line-strong);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
+.result-empty { padding: 0.75rem; }
+.result-item + .result-item { border-top: 1px solid var(--v-line-strong); }
 /* The whole row is the link: at least 60 px tall. */
 .result-open {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   min-height: 3.75rem;
-  padding: 0.5rem 0.25rem;
+  padding: 0.5rem 0.75rem;
   color: var(--ink);
   text-decoration: none;
 }
@@ -354,16 +409,17 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 0.375rem;
-  background: var(--v-draw);
-  color: var(--v-board-ink);
+  background: var(--v-chip-d);
+  color: var(--v-chip-ink);
   font: 800 1.125rem/1 var(--font-num);
 }
-.result-chip-W { background: var(--v-up); }
-.result-chip-L { background: var(--v-loss); }
+.result-chip-W { background: var(--v-chip-w); }
+.result-chip-L { background: var(--v-chip-l); }
 .result-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-.result-opp, .result-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.result-opp { font-weight: 600; }
-.result-meta { font-size: 0.875rem; color: var(--v-muted); }
+/* Only the opponent is cut; the date and the shootout suffix wrap before they would be clipped. */
+.result-opp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.result-meta { font-size: 0.875rem; color: var(--v-muted); overflow-wrap: anywhere; }
+.result-pen { white-space: nowrap; }
 .result-tally { flex: none; font: 800 1.5rem/1.2 var(--font-num); white-space: nowrap; }
 
 /* Goal celebration: a pool wave rises and drains, droplets splash, a water polo ball arcs into the net.

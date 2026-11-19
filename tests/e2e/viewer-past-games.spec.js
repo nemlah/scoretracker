@@ -119,9 +119,9 @@ test('the live banner appears, updates, and leaves when the live game ends', asy
   const banner = page.getByTestId('live-banner');
   await expect(opponentName(page)).toHaveText('Rivals');
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText('LIVE · Q1 · ANOG 1–0 Waves');
+  await expect(banner).toContainText('LIVE · Q1 ANOG 1–0 Waves');
   await update('games/g2', { events: [...liveEvents, ev('oppGoal', 1)], period: 2 });
-  await expect(banner).toContainText('LIVE · Q2 · ANOG 1–1 Waves', { timeout: 5000 });
+  await expect(banner).toContainText('LIVE · Q2 ANOG 1–1 Waves', { timeout: 5000 });
   await update('games/g2', { status: 'final' });
   await expect(banner).toBeHidden({ timeout: 5000 });
   await expect(opponentName(page)).toHaveText('Rivals');

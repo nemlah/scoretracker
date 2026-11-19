@@ -229,8 +229,8 @@ const STRINGS = {
   gameLiveOpen: 'Open the live screen',
   allGames: 'This season',
   liveBanner: 'Live: {opponent} {us}–{them} · {period}',
-  // Release 2's banner; a viewer without this key falls back to liveBanner above.
-  liveBannerHome: 'LIVE · {period} · {team} {us}–{them} {opponent}',
+  // Release 2's banner pill; a viewer without this key lays out liveBanner above instead.
+  liveBadge: 'LIVE · {period}',
   resultsLoading: 'Loading results…',
   resultsEmpty: 'No games yet this season.',
   resultsFailed: 'Results aren\'t available right now.',

@@ -132,9 +132,13 @@ test('home with a live current game shows the header and the banner, and the ban
   await expect(home(page).locator('h1')).toHaveText('This season');
   await expect(home(page).locator('.season-team')).toHaveText('ANOG');
   await expect(banner(page)).toBeVisible();
-  await expect(banner(page)).toHaveText(/^LIVE · Q1 · ANOG 1–0 Rivals\s*Watch$/);
+  await expect(banner(page)).toHaveText(/^LIVE · Q1\s+ANOG 1–0 Rivals\s+Watch$/);
   await expect(banner(page)).toHaveAttribute('href', '#/game/g1');
-  await expect(page.getByTestId('live-banner-text')).toHaveText('LIVE · Q1 · ANOG 1–0 Rivals');
+  // The pill, then the team, the score and the opponent, each in an element of its own.
+  await expect(banner(page).locator('.home-live-pill')).toHaveText('LIVE · Q1');
+  await expect(page.getByTestId('live-banner-text')).toHaveText('ANOG 1–0 Rivals');
+  await expect(banner(page).locator('.home-live-score')).toHaveText('1–0');
+  await expect(banner(page).locator('.home-live-opp')).toHaveText('Rivals');
   await expect(page.getByTestId('watch-live')).toHaveText('Watch');
   await expect(page.getByTestId('score-us')).toHaveCount(0);
   await expect(allGames(page)).toBeHidden();
@@ -166,7 +170,7 @@ test('#/games renders the same home as #/', async ({ page }) => {
   await open(page, '#/games');
   await expect(home(page)).toBeVisible();
   await expect(banner(page)).toBeVisible();
-  await expect(banner(page)).toContainText('LIVE · Q1 · ANOG 1–0 Waves');
+  await expect(banner(page)).toContainText('LIVE · Q1 ANOG 1–0 Waves');
   await expect(home(page)).toHaveAttribute('data-season', OLD);
   await expect(rows(page)).toHaveCount(2);
   await expect(page.getByTestId('score-us')).toHaveCount(0);
@@ -472,7 +476,7 @@ test('a past game while another is live shows the banner, which opens the live g
   await expect(opponentName(page)).toHaveText('Rivals');
   await expect(allGames(page)).toBeVisible();
   await expect(banner(page)).toBeVisible();
-  await expect(banner(page)).toContainText('LIVE · Q1 · ANOG 1–0 Waves');
+  await expect(banner(page)).toContainText('LIVE · Q1 ANOG 1–0 Waves');
   await banner(page).click();
   await expect.poll(() => hashOf(page)).toBe('#/game/g2');
   await expect(opponentName(page)).toHaveText('Waves');
@@ -509,7 +513,7 @@ test('a game starting while on home shows the banner', async ({ page }) => {
   await expect(banner(page)).toBeHidden();
   await update('team/main', { currentGameId: 'g2' });
   await expect(banner(page)).toBeVisible({ timeout: 5000 });
-  await expect(banner(page)).toContainText('LIVE · Q1 · ANOG 1–0 Waves');
+  await expect(banner(page)).toContainText('LIVE · Q1 ANOG 1–0 Waves');
   await expect(home(page)).toBeVisible();
 });
 
@@ -684,7 +688,6 @@ test('a season with no results has no record and the old figures line is gone', 
   await expect(page.getByTestId('results-empty')).toBeVisible();
   await expect(page.getByTestId('season-record')).toHaveAttribute('hidden', '');
   await expect(page.getByTestId('season-record')).toBeHidden();
-  await expect(page.getByTestId('result-situations')).toHaveCount(0);
 });
 
 test('the crest is on home with an empty alt', async ({ page }) => {

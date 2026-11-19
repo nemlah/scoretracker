@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { closeAll, resetAll, seed, update } from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
@@ -301,44 +302,75 @@ const expectCutOnOneLine = async (locator, what, mustCut) => {
   expect(box.lines, `${what}: one line`).toBe(1);
 };
 
+// `inner` lies whole inside `outer`'s box.
+const expectInside = async (inner, outer, what) => {
+  const [a, b] = await Promise.all([inner.boundingBox(), outer.boundingBox()]);
+  expect(a, `${what}: inner is on the page`).not.toBeNull();
+  expect(a.x, `${what}: left`).toBeGreaterThanOrEqual(b.x - 0.5);
+  expect(a.x + a.width, `${what}: right`).toBeLessThanOrEqual(b.x + b.width + 0.5);
+};
+
 for (const scheme of ['light', 'dark']) {
   for (const [shape, width, height] of [['portrait', 360, 740], ['landscape', 844, 390]]) {
     test.describe(`home look, ${shape}, ${scheme}`, () => {
       test.use({ colorScheme: scheme });
 
-      test('the banner is 56 px tall and cut on one line, the rows too, with no sideways scroll', async ({ page }) => {
+      test('the banner keeps its score and is 56 px tall, the rows keep theirs, only the names are cut, no sideways scroll', async ({ page }) => {
         await page.setViewportSize({ width, height });
         await seedHome();
         await open(page);
         const banner = page.getByTestId('live-banner');
         await expect(banner).toBeVisible();
-        await expect(page.getByTestId('live-banner-text')).toContainText('LIVE · Q3 · ANOG 12–11');
+        await expect(page.getByTestId('live-banner-text')).toContainText('ANOG 12–11');
         await expect(page.getByTestId('result-row')).toHaveCount(4);
         const box = await banner.boundingBox();
         expect(box.height, 'banner height').toBeGreaterThanOrEqual(56);
         const watch = await page.getByTestId('watch-live').boundingBox();
         expect(watch.x + watch.width, 'Watch is on the screen').toBeLessThanOrEqual(width);
         expect(box.x + box.width, 'banner right edge').toBeLessThanOrEqual(width);
-        await expectCutOnOneLine(page.getByTestId('live-banner-text'), 'banner text', width === 360);
+        // The pill, the team and the score are whole inside the banner's text box; only the opponent is cut.
+        await expect(banner.locator('.home-live-pill')).toHaveText('LIVE · Q3');
+        await expectInside(banner.locator('.home-live-pill'), banner, 'pill in banner');
+        const text = page.getByTestId('live-banner-text');
+        await expectInside(banner.locator('.home-live-team'), text, 'team in banner text');
+        await expectInside(banner.locator('.home-live-score'), text, 'score in banner text');
+        await expectCutOnOneLine(banner.locator('.home-live-opp'), 'banner opponent', width === 360);
         await expectCutOnOneLine(page.getByTestId('result-row').first().locator('.result-opp'), 'row opponent', width === 360);
+        // The shootout row: its score, date and "pen. 14–13" are whole while the opponent is cut.
+        const shootout = page.getByTestId('result-row').nth(1);
+        await expect(shootout.locator('.result-pen')).toHaveText('pen. 14–13');
+        const main = shootout.locator('.result-main');
+        await expectInside(shootout.locator('.result-tally'), shootout, 'shootout score in row');
+        await expectInside(shootout.locator('.result-date'), main, 'shootout date in its column');
+        await expectInside(shootout.locator('.result-pen'), main, 'shootout suffix in its column');
+        await expectCutOnOneLine(shootout.locator('.result-opp'), 'shootout opponent', width === 360);
         const rowBox = await page.getByTestId('result-row').first().boundingBox();
         expect(rowBox.x + rowBox.width, 'row right edge').toBeLessThanOrEqual(width);
         const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
         expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
       });
 
-      test('the banner text against the banner, and each chip letter against its chip, are at least 4.5:1', async ({ page }) => {
+      test('the banner texts, the chip letters, the chip fills, the card border and the dividers clear their contrast floors', async ({ page }) => {
         await seedHome();
         await open(page);
-        // A win on a shootout, a loss and a level final: all three chips.
+        // A win on a shootout, a win, a loss and a level final: all three chips.
         await expect(page.getByTestId('result-chip')).toHaveText(['W', 'W', 'L', 'D']);
-        const pairs = [];
         const bannerBg = await page.getByTestId('live-banner').evaluate(el => getComputedStyle(el).backgroundColor);
+        const banner = page.getByTestId('live-banner');
+        const card = await page.locator('.result-card').evaluate(el => ({
+          bg: getComputedStyle(el).backgroundColor, border: getComputedStyle(el).borderTopColor,
+          divider: getComputedStyle(el.querySelectorAll('.result-item')[1]).borderTopColor,
+          page: getComputedStyle(document.body).backgroundColor,
+        }));
+        const texts = [];
         for (const [name, locator] of [
-          ['banner', page.getByTestId('live-banner')],
-          // "Watch" has no fill of its own: it sits on the banner.
+          ['banner', banner],
+          // "Watch" and the text have no fill of their own: they sit on the banner.
           ['watch', page.getByTestId('watch-live')],
           ['banner text', page.getByTestId('live-banner-text')],
+          ['banner score', banner.locator('.home-live-score')],
+          ['banner opponent', banner.locator('.home-live-opp')],
+          ['pill', banner.locator('.home-live-pill')],
           ...['W', 'L', 'D'].map(letter => [`chip ${letter}`, page.getByTestId('result-chip').filter({ hasText: letter }).first()]),
         ]) {
           const colours = await locator.evaluate(el => {
@@ -346,10 +378,26 @@ for (const scheme of ['light', 'dark']) {
             return { fg: style.color, bg: style.backgroundColor };
           });
           const bg = colours.bg === 'rgba(0, 0, 0, 0)' ? bannerBg : colours.bg;
-          pairs.push([name, await hexOf(page, colours.fg), await hexOf(page, bg)]);
+          texts.push([name, await hexOf(page, colours.fg), await hexOf(page, bg)]);
         }
-        for (const [name, fg, bg] of pairs) {
+        for (const [name, fg, bg] of texts) {
           expect(contrastRatio(fg, bg), `${name}: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+        // Fills and lines: 3:1 against what they sit on.
+        const cardBg = await hexOf(page, card.bg);
+        const shapes = [
+          ['card border on the card', card.border, cardBg],
+          ['card border on the page', card.border, await hexOf(page, card.page)],
+          ['row divider on the card', card.divider, cardBg],
+        ];
+        for (const letter of ['W', 'L', 'D']) {
+          const fill = await page.getByTestId('result-chip').filter({ hasText: letter }).first()
+            .evaluate(el => getComputedStyle(el).backgroundColor);
+          shapes.push([`chip ${letter} fill on the card`, fill, cardBg]);
+        }
+        for (const [name, fg, bg] of shapes) {
+          const a = fg.startsWith('#') ? fg : await hexOf(page, fg);
+          expect(contrastRatio(a, bg), `${name}: ${a} on ${bg}`).toBeGreaterThanOrEqual(3);
         }
       });
     });
@@ -393,4 +441,34 @@ test('every result row link is at least 44 x 44, whatever the name', async ({ pa
     expect(w).toBeGreaterThanOrEqual(44);
     expect(h).toBeGreaterThanOrEqual(44);
   }
+});
+
+// The previous release's strings.js beside this viewer.js: its one-line banner template puts the opponent
+// first, so the layout has to keep the score and the quarter in view anyway.
+test.describe('banner with the previous strings.js', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('360 px, long Greek opponent: the score and the quarter are inside the banner, only the opponent is cut', async ({ page }) => {
+    const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
+    await page.route('**/js/strings.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await page.setViewportSize({ width: 360, height: 740 });
+    await seedHome();
+    await open(page);
+    const banner = page.getByTestId('live-banner');
+    await expect(banner).toBeVisible();
+    // It really is the old template: no pill, "Live:" first.
+    await expect(banner.locator('.home-live-pill')).toHaveCount(0);
+    await expect(page.getByTestId('live-banner-text')).toHaveText(`Live: ${longOpponent} 12–11 · Q3`);
+    const text = page.getByTestId('live-banner-text');
+    const scores = banner.locator('.home-live-score');
+    await expect(scores).toHaveText(['12', '11', 'Q3']);
+    for (const [i, name] of ['us', 'them', 'quarter'].entries()) {
+      await expectInside(scores.nth(i), text, `${name} in banner text`);
+      await expectInside(scores.nth(i), banner, `${name} in banner`);
+    }
+    await expectCutOnOneLine(banner.locator('.home-live-opp'), 'opponent', true);
+    expect((await banner.boundingBox()).height).toBeGreaterThanOrEqual(56);
+    const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
+    expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
+  });
 });

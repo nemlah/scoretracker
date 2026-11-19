@@ -339,11 +339,8 @@ const chevron = () => {
   svg.append(path);
   return svg;
 };
-const bannerText = h('span', { class: 'home-live-text', 'data-testid': 'live-banner-text' });
-const liveBanner = h('a', { class: 'home-live', href: '#/', 'data-testid': 'live-banner', hidden: true },
-  h('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-  bannerText,
-  h('span', { class: 'home-live-watch', 'data-testid': 'watch-live' }, t('watchLive'), chevron()));
+// Filled by renderPastNav.
+const liveBanner = h('a', { class: 'home-live', href: '#/', 'data-testid': 'live-banner', hidden: true });
 const allGamesLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'all-games' }, t('allGames'));
 const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, allGamesLink);
 const crestSrc = teamConfig.crest ?? null;
@@ -426,9 +423,36 @@ function renderPastNav(plan) {
   if (live === null) return;
   const { us, them } = deriveScore(live.events);
   liveBanner.setAttribute('href', `#/game/${encodeURIComponent(plan.banner.gameId)}`);
-  bannerText.textContent = t(strings.hasString?.('liveBannerHome') ? 'liveBannerHome' : 'liveBanner', {
-    team: teamConfig.name, opponent: live.opponent, us, them, period: periodLabel(live.period),
+  const period = periodLabel(live.period);
+  renderIfChanged(liveBanner, [teamConfig.name, live.opponent, us, them, period, strings.hasString?.('liveBadge') === true],
+    () => liveBannerContent({ team: teamConfig.name, opponent: live.opponent, us, them, period }));
+}
+
+// The score and the quarter keep their room; only the opponent's name is cut with an ellipsis. With this
+// release's strings the banner is a LIVE · Qn pill, the team, an emphasised score and the opponent. A
+// previous strings.js has only the old one-line template ("Live: {opponent} {us}–{them} · {period}"): it is
+// laid out slot by slot, so the same rule holds.
+const BANNER_SLOTS = { team: '\u0001', opponent: '\u0002', us: '\u0003', them: '\u0004', period: '\u0005' };
+function liveBannerContent(values) {
+  const watch = h('span', { class: 'home-live-watch', 'data-testid': 'watch-live' }, t('watchLive'), chevron());
+  const dot = () => h('span', { class: 'live-dot', 'aria-hidden': 'true' });
+  if (strings.hasString?.('liveBadge')) {
+    return [
+      h('span', { class: 'home-live-pill' }, dot(), t('liveBadge', { period: values.period })),
+      ' ',
+      h('span', { class: 'home-live-text', 'data-testid': 'live-banner-text' },
+        h('span', { class: 'home-live-team' }, values.team), ' ',
+        h('span', { class: 'home-live-score' }, `${values.us}–${values.them}`), ' ',
+        h('span', { class: 'home-live-opp' }, values.opponent)),
+      ' ', watch,
+    ];
+  }
+  const parts = t('liveBanner', BANNER_SLOTS).split(/([\u0001-\u0005])/).filter(part => part !== '').map(part => {
+    const slot = Object.keys(BANNER_SLOTS).find(name => BANNER_SLOTS[name] === part);
+    if (!slot) return h('span', { class: 'home-live-gap' }, part);
+    return h('span', { class: slot === 'opponent' ? 'home-live-opp' : slot === 'team' ? 'home-live-team' : 'home-live-score' }, values[slot]);
   });
+  return [dot(), ' ', h('span', { class: 'home-live-text home-live-text-slots', 'data-testid': 'live-banner-text' }, parts), ' ', watch];
 }
 
 // A throw here must never skip the rest of the render.
@@ -634,11 +658,14 @@ function renderSeason(plan) {
     const goalies = Object.entries(stats?.goalies ?? {})
       .map(([id, goalie]) => ({ id, ...goalie }))
       .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
-    return [h('section', { class: 'section' },
-      h('h2', {}, t('resultsHeading')),
-      rows.length ? resultsList(rows) : h('p', { class: 'muted', 'data-testid': 'results-empty' }, t('resultsEmpty')),
-      players.length ? totalsTable(players) : null,
-      goalies.length ? seasonGoaliesTable(goalies) : null)];
+    return [
+      h('section', { class: 'results-block' },
+        h('h2', {}, t('resultsHeading')),
+        rows.length ? resultsList(rows)
+          : h('p', { class: 'result-card result-empty muted', 'data-testid': 'results-empty' }, t('resultsEmpty'))),
+      ...(players.length || goalies.length ? [h('section', { class: 'section' },
+        players.length ? totalsTable(players) : null,
+        goalies.length ? seasonGoaliesTable(goalies) : null)] : [])];
   });
 }
 
@@ -658,7 +685,7 @@ function renderRecord(results) {
 }
 
 function resultsList(results) {
-  return h('ul', { class: 'result-list', 'aria-label': t('resultsHeading') }, results.map(resultItem));
+  return h('ul', { class: 'result-list result-card', 'aria-label': t('resultsHeading') }, results.map(resultItem));
 }
 
 function resultItem(result) {
@@ -675,7 +702,8 @@ function resultItem(result) {
       tOr(`result${outcome}`, outcome)) : null,
     h('span', { class: 'result-main' },
       h('span', { class: 'result-opp' }, result.opponent),
-      h('span', { class: 'result-meta' }, date, pen ? ` · ${pen}` : null)),
+      h('span', { class: 'result-meta' },
+        h('span', { class: 'result-date' }, date), pen ? [' · ', h('span', { class: 'result-pen' }, pen)] : null)),
     h('span', { class: 'result-tally' }, scored ? scoreText(result, false).main : tOr('resultNoScore', '–')),
   ];
   const link = result.gameId == null ? h('div', { class: 'result-open' }, body, chevron()) : h('a', {

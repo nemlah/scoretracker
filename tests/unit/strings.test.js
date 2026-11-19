@@ -177,12 +177,12 @@ test('timelineEntry for a save', () => {
   assert.equal(strings.TIMELINE_SAVES, true);
 });
 
-test('liveBanner keeps its previous template, and the home banner has a key of its own', () => {
+test('liveBanner keeps its previous template, and the home banner pill has a key of its own', () => {
   const params = { team: 'ANOG', opponent: 'Rivals', us: 12, them: 11, period: 'Q3' };
   // The previous viewer.js still reads liveBanner: it must not show a literal {team}.
   assert.equal(t('liveBanner', params), 'Live: Rivals 12–11 · Q3');
-  assert.equal(t('liveBannerHome', params), 'LIVE · Q3 · ANOG 12–11 Rivals');
-  assert.equal(strings.hasString('liveBannerHome'), true);
+  assert.equal(t('liveBadge', params), 'LIVE · Q3');
+  assert.equal(strings.hasString('liveBadge'), true);
   assert.equal(strings.hasString('noSuchString'), false);
 });
 
