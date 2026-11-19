@@ -150,7 +150,7 @@
     4. `--on-accent` on `document.documentElement` is `#ffffff`, and `--accent-on-board` is set and not `#0057b8`.
     5. With `colorScheme: 'dark'`, the body background is `rgb(11, 19, 32)` and a section card background is `rgb(19, 30, 46)`.
     6. At 360 × 740, `document.scrollingElement.scrollWidth <= 360`, both as-is and with `page.route('https://fonts.googleapis.com/**', r => r.abort())`.
-    7. After a goal, `celebration-banner` has background `rgb(11, 19, 32)` and `celebration-goal` colour `rgb(255, 194, 61)`, in light and dark. Trigger it the way `viewer-celebration.spec.js` does.
+    7. After a goal, `celebration-banner` has the `--board` background and `celebration-goal` has colour `rgb(255, 194, 61)`. The board is `rgb(11, 19, 32)` in light and `rgb(5, 9, 15)` in dark. Trigger it the way `viewer-celebration.spec.js` does.
 - [ ] **Step 2:** Run the unit test and the focused e2e file. Expected: FAIL on the colour assertions.
 - [ ] **Step 3: Restyle `css/viewer.css`.**
   - Move every remaining hex into tokens; celebration-local tokens stay local custom properties.
@@ -230,6 +230,7 @@
   - `manifest.webmanifest`;
   - `tests/unit/brand.test.js`.
 - Modify: `index.html`, `track.html`, `sw.js` (`CACHE` name `wp-shell-v1` → `wp-shell-v2`).
+- Modify: `tests/unit/sw-shell.test.js:75` and `tests/unit/sw-fetch.test.js:9,161`. They pin the literal `wp-shell-v1`; change them to `v2`. The `wp-shell-v0` "older version: removed" case stays. This is the one allowed change to an existing test in R1.
 
 **Interfaces:**
 - Consumes: `img/anog-crest.png`.
