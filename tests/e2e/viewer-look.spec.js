@@ -130,28 +130,36 @@ for (const blockFonts of [false, true]) {
     await seedLive();
     for (const hash of ['', '#/games']) {
       await open(page, hash);
-      if (!blockFonts) {
-        // Measure with the real fonts, not the fallbacks. If the sandbox cannot reach Google Fonts this fails
-        // loudly rather than silently measuring Arial Narrow / system-ui.
-        await page.evaluate(() => document.fonts.ready);
-        await expect.poll(() => page.evaluate(async () => {
-          await document.fonts.load('800 16px "Sofia Sans Extra Condensed"');
-          await document.fonts.load('400 16px "Sofia Sans"');
-          // check() is also true for a family nobody declared, so require loaded faces too.
-          const loaded = family => [...document.fonts].some(face => face.family.replace(/"/g, '') === family && face.status === 'loaded');
-          return loaded('Sofia Sans Extra Condensed') && loaded('Sofia Sans')
-            && document.fonts.check('800 16px "Sofia Sans Extra Condensed"') && document.fonts.check('400 16px "Sofia Sans"');
-        })).toBe(true);
-      }
+      // First the seeded content, so the Greek text is on the page: Google Fonts splits each family into
+      // unicode-range subsets and the browser fetches the greek one only once Greek text needs it.
       if (hash === '') {
         await expect(page.getByTestId('score-us')).toHaveText('12');
+        await expect(page.locator('p.team-name')).toHaveText(longOpponent);
         await expect(page.getByTestId('situation-badge')).toBeVisible();
         await expect(page.getByTestId('goalie-row')).toHaveCount(2);
       } else {
         await expect(page.getByTestId('games-list')).toBeVisible();
+        await expect(page.getByTestId('result-link').first()).toHaveText(longOpponent);
         await expect(page.getByTestId('result-situations').first()).toBeVisible();
       }
       await expect(page.getByTestId('season-row').first()).toBeVisible();
+      if (!blockFonts) {
+        // Then the fonts, for that very text. check() alone is true when no face matches, so also require a
+        // loaded face whose unicode-range covers Greek (U+0370-03FF) in both families.
+        const greek = `${longOpponent} Παπαδόπουλος-Αθανασίου Κωνσταντινίδης`;
+        await page.evaluate(() => document.fonts.ready);
+        await expect.poll(() => page.evaluate(async text => {
+          await Promise.all([
+            document.fonts.load('800 16px "Sofia Sans Extra Condensed"', text),
+            document.fonts.load('400 16px "Sofia Sans"', text),
+          ]);
+          const greekFace = family => [...document.fonts].some(face => face.family.replace(/"/g, '') === family
+            && face.status === 'loaded' && /U\+0?370/i.test(face.unicodeRange));
+          return greekFace('Sofia Sans Extra Condensed') && greekFace('Sofia Sans')
+            && document.fonts.check('800 16px "Sofia Sans Extra Condensed"', text)
+            && document.fonts.check('400 16px "Sofia Sans"', text);
+        }, greek)).toBe(true);
+      }
       const overflow = await page.evaluate(() => ({
         scroll: document.scrollingElement.scrollWidth,
         outside: [...document.querySelectorAll('.scoreboard, .games-list, .section, .score, table')]
