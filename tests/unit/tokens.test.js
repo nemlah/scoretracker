@@ -125,3 +125,11 @@ test('Sofia fonts are linked', () => {
     assert.doesNotMatch(html, /Fira\+Sans/, path);
   }
 });
+
+test('viewer.css colours live in tokens', () => {
+  const loose = viewerCss.split('\n')
+    .map((line, index) => ({ line, number: index + 1 }))
+    .filter(({ line }) => /#[0-9a-f]{3,8}\b/i.test(line) && !/--[\w-]+\s*:/.test(line))
+    .map(({ line, number }) => `${number}: ${line.trim()}`);
+  assert.deepEqual(loose, [], 'hex colours outside a custom property declaration');
+});

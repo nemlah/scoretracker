@@ -1,6 +1,22 @@
 :root { color-scheme: light dark; }
 
-body.viewer { background: var(--pool); }
+body.viewer {
+  background: var(--pool);
+  /* Direction B properties, read once with their fallback: this file can load beside a cached base.css that
+     predates them. Everything below uses these aliases. */
+  --v-board: var(--board, #0B1320);
+  --v-board-line: var(--board-line, #24324A);
+  --v-board-muted: var(--board-muted, #A9B4C2);
+  --v-board-ink: #FFFFFF;
+  --v-led: var(--led, #FFC23D);
+  --v-on-led: #0B1320;
+  --v-muted: var(--muted, #4A5868);
+  --v-line-strong: var(--line-strong, #7A8796);
+  --v-out: var(--out-text, #B3202F);
+  --v-bar: var(--accent-on-board, var(--accent));
+  --v-up: #0E7A4E;
+  --v-open-bar: var(--accent);
+}
 
 @media (prefers-color-scheme: dark) {
   :root {
@@ -19,30 +35,34 @@ body.viewer { background: var(--pool); }
     --led: #FFC23D;
     --out-text: #FF6B7D;
   }
+  body.viewer { --v-open-bar: var(--accent-on-board, var(--accent)); }
 }
 
 .page {
   max-width: 40rem;
   margin: 0 auto;
-  padding: 1rem 1rem calc(3rem + env(safe-area-inset-bottom, 0px));
+  padding: 0 1rem calc(3rem + env(safe-area-inset-bottom, 0px));
   text-align: left;
 }
 
-.page > * + * { margin-top: 2rem; }
+/* Every visible block sits 16 px below the one above it (the page has no top padding of its own). */
+.page > * { margin-top: 1rem; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 
 .connection-note {
   padding: 0.5rem 0.75rem;
-  border-left: 4px solid var(--water);
+  border: 1px solid var(--v-line-strong);
+  border-radius: 0.5rem;
   background: var(--paper);
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
 }
 
 /* Past games: back link and the live banner sit above the scoreboard, in the flow. */
 .past-nav > * + * { margin-top: 0.5rem; }
-.page > .past-nav + * { margin-top: 1rem; }
 .back-link {
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
   min-height: 2.75rem;
   color: var(--ink);
   font-weight: 600;
@@ -51,92 +71,170 @@ body.viewer { background: var(--pool); }
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
 }
+/* The live banner: amber with ink text, at least 56 px tall. */
 .live-banner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 0.75rem;
-  padding: 0.5rem 0.5rem 0.5rem 0.875rem;
+  min-height: 3.5rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
   border-radius: 0.5rem;
-  background: var(--ink);
-  color: var(--pool);
-  font-weight: 600;
+  background: var(--v-led);
+  color: var(--v-on-led);
+  font-weight: 700;
 }
-.live-banner .live-dot { flex: none; background: var(--pool); }
-.live-banner-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.live-banner .live-dot { flex: none; background: var(--v-on-led); }
+.live-banner-text { flex: 1 1 9rem; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .watch-live {
   flex: none;
   display: inline-flex;
   align-items: center;
   min-height: 2.75rem;
   padding: 0 1.25rem;
-  border-radius: 999px;
-  background: var(--pool);
-  color: var(--ink);
+  border-radius: 0.375rem;
+  background: var(--v-on-led);
+  color: var(--v-led);
   font-weight: 700;
   text-decoration: none;
 }
 
-/* Scoreboard */
-.scoreboard > * + * { margin-top: 0.25rem; }
+/* Scoreboard: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
+.scoreboard {
+  padding: 0.875rem 1rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--v-board);
+  box-shadow: inset 0 0 0 1px var(--v-board-line);
+  color: var(--v-board-ink);
+}
+.scoreboard > * + * { margin-top: 0.5rem; }
 .board-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.25rem 1rem;
 }
-.team-name { font-size: 1.25rem; font-weight: 600; overflow-wrap: anywhere; }
-.status { display: flex; align-items: baseline; gap: 0.5rem; font-weight: 600; }
-.status .period::before { content: "· "; color: var(--ink); }
-.live-badge { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--water-text); }
+.team-name {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.scoreboard p.team-name { color: var(--v-board-muted); }
+.scoreboard h1.team-name::before, .games-list .team-name::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 1.1em;
+  margin-right: 0.75rem;
+  border-radius: 3px;
+  background: var(--v-bar);
+  vertical-align: -0.2em;
+}
+.scoreboard .muted { color: var(--v-board-muted); }
+.status { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+/* Every badge is a 4 px box on the board; the final badge is the one element with no class. */
+.status > * {
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--v-board-line);
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.status > span:not([class]) { background: var(--v-board-line); color: var(--v-board-ink); }
+.live-badge { display: inline-flex; align-items: center; gap: 0.375rem; border-color: var(--v-led); color: var(--v-led); }
 .live-dot {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  background: var(--water);
+  background: var(--v-led);
   animation: pulse 1.6s ease-in-out infinite;
+}
+.status .period {
+  min-width: 2.75rem;
+  padding: 0 0.5rem;
+  text-align: center;
+  font: 800 1.625rem/1.2 var(--font-num);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--v-led);
 }
 .score {
   margin: 0;
-  font: 700 7rem/0.95 var(--font-num);
+  font: 800 4.75rem/0.9 var(--font-num);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
+  color: var(--v-led);
   white-space: nowrap;
 }
-.score .dash { padding: 0 0.12em; }
-.shootout { font: 600 1.5rem/1.2 var(--font-num); }
-.quarter-scores {
-  font: 600 1rem/1.4 var(--font-num);
+.score .dash { padding: 0 0.12em; color: var(--v-board-muted); }
+.shootout { font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
+.scoreboard .quarter-scores {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--v-board-line);
+  font: 700 1.125rem/1.4 var(--font-num);
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--ink) 75%, var(--pool));
+  letter-spacing: 0.02em;
+  color: var(--v-board-ink);
 }
 .quarter-scores .quarter { white-space: nowrap; }
 .flash { animation: flash 600ms ease-out; }
 
 @keyframes pulse { 50% { opacity: 0.25; } }
-@keyframes flash { from { color: var(--accent); } to { color: var(--ink); } }
+@keyframes flash { from { color: var(--v-board-ink); } to { color: var(--v-led); } }
 
 @media (prefers-reduced-motion: reduce) {
   .live-dot, .flash { animation: none; }
 }
 
 /* Empty state */
-.empty { padding: 1.5rem 0; border-top: 1px solid var(--line); }
+.empty { padding: 1rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--paper); }
+.empty h2 { font-size: 1.375rem; font-weight: 700; line-height: 1.25; }
+.empty h2 + p { margin-top: 0.5rem; color: var(--v-muted); }
 .empty p { max-width: 28rem; }
 
 /* Tables and lists */
+.section {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
 .section > * + * { margin-top: 0.75rem; }
-.section > h2 { padding-top: 1rem; border-top: 1px solid var(--line); }
+.section > h2 {
+  font: 700 0.8125rem/1.3 var(--font-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v-muted);
+}
 table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font-weight: 400; font-size: 0.875rem; padding: 0 0 0.25rem; }
-th.num, td.num { text-align: right; width: 4.5rem; white-space: nowrap; }
-td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middle; }
-.who { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.75rem; overflow-wrap: anywhere; }
-.pen { margin-left: 0.25rem; font-size: 0.875rem; }
+th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--v-muted);
+  padding: 0 0 0.25rem;
+}
+th.num, td.num { text-align: right; width: 3rem; white-space: nowrap; }
+td { padding: 0.375rem 0; border-top: 1px solid var(--line); vertical-align: middle; }
+td.num { font: 700 1.25rem/1.2 var(--font-num); font-variant-numeric: tabular-nums; }
+.who { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.625rem; overflow-wrap: anywhere; }
+.cap { width: 2.125rem; height: 2.125rem; border-radius: 0.5rem; font-weight: 800; }
+.out-label { color: var(--v-out); font-weight: 700; }
+.pen { margin-left: 0.25rem; font: 400 0.875rem/1.2 var(--font-body); }
 /* Goalkeepers: up to five number columns, so they get less room each than the player tables */
-table.goalies th.num, table.goalies td.num { width: auto; padding-left: 0.625rem; }
-table.goalies th { vertical-align: bottom; }
+table.goalies th.num, table.goalies td.num { width: auto; padding-left: 0.375rem; }
+table.goalies th { vertical-align: bottom; letter-spacing: 0.02em; }
+table.goalies th.num { white-space: normal; }
+table.goalies td.num { font-size: 1.125rem; }
 table.goalies td:first-child { overflow-wrap: anywhere; }
 .in-goal { display: inline-flex; align-items: center; }
 .in-goal-dot {
@@ -147,27 +245,30 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--water-text) 30%, transparent);
 }
 
+/* A quarter heading is a small board band, so it stays readable while it sticks above the rows. */
 .timeline h3 {
-  font: 700 1.5rem/1.1 var(--font-num);
+  /* 24 px: viewer.spec.js pins it. The board draws it at 17 px. */
+  font: 800 1.5rem/1.2 var(--font-num);
   font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  margin-top: 1.5rem;
-  padding-top: 0.5rem;
-  border-top: 2px solid var(--ink);
+  letter-spacing: 0.04em;
+  color: var(--v-led);
+  margin-top: 0.75rem;
+  padding: 0.125rem 0.75rem;
+  border-radius: 0.25rem;
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--pool);
+  background: var(--v-board);
 }
 .timeline-scroll > div:first-child h3 { margin-top: 0; }
 .timeline-scroll {
   max-height: 18rem;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  /* Scroll hint: the shadow strip is fixed to the box (scroll) and covered by a pool-coloured strip that moves with
+  /* Scroll hint: the shadow strip is fixed to the box (scroll) and covered by a card-coloured strip that moves with
      the content (local), so it shows only while more content is below. */
   background:
-    linear-gradient(transparent, var(--pool) 70%) 0 100% / 100% 2rem no-repeat local,
+    linear-gradient(transparent, var(--paper) 70%) 0 100% / 100% 2rem no-repeat local,
     linear-gradient(transparent, color-mix(in srgb, var(--ink) 22%, transparent)) 0 100% / 100% 0.75rem no-repeat scroll;
 }
 .timeline ul { list-style: none; margin: 0.25rem 0 0; padding: 0; }
@@ -181,16 +282,16 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.3em;
-  background: color-mix(in srgb, var(--ink) 12%, var(--pool));
-  color: color-mix(in srgb, var(--ink) 80%, var(--pool));
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--ink) 12%, var(--paper));
+  color: color-mix(in srgb, var(--ink) 80%, var(--paper));
   font-size: 0.75em;
   font-weight: 600;
   align-self: center;
 }
 .tl-text { overflow-wrap: anywhere; }
-/* Ordinary saves read lighter than goals and exclusions: the same softer ink as .quarter-scores. */
-.tl-minor { color: color-mix(in srgb, var(--ink) 75%, var(--pool)); }
+/* Ordinary saves read lighter than goals and exclusions. */
+.tl-minor { color: var(--v-muted); }
 
 .results a.result-link {
   color: var(--ink);
@@ -200,31 +301,31 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
 }
-.results tr.is-open { background: var(--paper); }
-.results tr.is-open td:first-child { box-shadow: inset 4px 0 0 var(--accent); padding-left: 0.75rem; }
+.results tr.is-open { background: color-mix(in srgb, var(--accent) 8%, var(--paper)); }
+.results tr.is-open td:first-child { box-shadow: inset 4px 0 0 var(--v-open-bar); padding-left: 0.75rem; }
 
-.result-score { font: 600 1.25rem/1.2 var(--font-num); white-space: nowrap; text-align: right; }
+.result-score { font: 800 1.5rem/1.2 var(--font-num); white-space: nowrap; text-align: right; }
 .result-score .pen { font-family: var(--font-body); }
-.muted { font-size: 0.875rem; }
-
-@media (max-width: 26rem) {
-  .score { font-size: 5.5rem; }
-}
+.muted { font-size: 0.875rem; color: var(--v-muted); }
 
 /* Man-up / man-down */
-.status .situation-badge::before { content: "· "; }
-.situation-badge { color: var(--water-text); }
+/* Man-up and man-down read the same here (they differ by their text); the green chip is on the timeline tag. */
+.status .situation-badge { border-color: var(--v-board-muted); color: var(--v-board-ink); }
 .situation-figures { display: flex; flex-wrap: wrap; gap: 0 1.5rem; margin-top: 0.5rem; }
+.scoreboard .situation-figures { margin-top: 0.75rem; color: var(--v-board-muted); }
+.scoreboard .situation-figures:not(:has(.situation-figure:not(:empty))) { display: none; }
 .situation-figure { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .tl-tag {
   flex: none;
   align-self: center;
   padding: 0 0.4rem;
-  border: 1px solid var(--water-text);
-  border-radius: 999px;
-  color: var(--water-text);
-  font-size: 0.75rem;
-  line-height: 1.4;
+  border-radius: 0.25rem;
+  background: var(--v-up);
+  color: var(--v-board-ink);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
 }
 .result-situations { text-align: right; white-space: nowrap; padding-left: 0.5rem; }
 
@@ -244,6 +345,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   .results tr.is-open { box-shadow: inset 4px 0 0 var(--accent); padding-inline: 0.75rem 0.5rem; }
   .results tr.is-open td:first-child { box-shadow: none; padding-left: 0; }
   .results .result-score { white-space: normal; }
+  .results .result-score .pen { display: block; margin-left: 0; }
   .results .result-situations {
     grid-column: 1 / -1;
     text-align: left;
@@ -256,8 +358,11 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
    Everything animates transform/opacity only, in --celebration-ms (set from celebrate.js). */
 .celebration {
   --ball-size: 3.5rem;
-  --banner-bg: var(--paper);
-  --banner-ink: var(--ink);
+  --banner-bg: var(--v-board);
+  --banner-ink: var(--v-led);
+  --white: #FFFFFF;
+  --net-deep: #06182B;
+  --shadow-ink: #000000;
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -266,10 +371,6 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 .celebration[hidden] { display: none; }
 .celebration.is-playing { animation: celebration-out var(--celebration-ms) linear both; }
-
-@media (prefers-color-scheme: dark) {
-  .celebration { --banner-bg: var(--ink); --banner-ink: var(--paper); }
-}
 
 /* Wave */
 .wave-layer {
@@ -314,7 +415,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 .drop-water { background: var(--water); }
 .drop-accent { background: var(--accent); }
-.drop-light { background: color-mix(in srgb, var(--water) 45%, #FFFFFF); box-shadow: 0 0 0 1px var(--water); }
+.drop-light { background: color-mix(in srgb, var(--water) 45%, var(--white)); box-shadow: 0 0 0 1px var(--water); }
 .is-playing .celebration-drop {
   animation: drop-splash 1500ms cubic-bezier(0.2, 0.7, 0.4, 1) var(--delay) both;
 }
@@ -322,7 +423,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 /* Goal and ball */
 .celebration-scene {
   position: absolute;
-  top: 14.5rem; /* below the scoreboard, so the new score stays readable */
+  top: 17.5rem; /* below the scoreboard, so the new score stays readable */
   left: 50%;
   width: min(70vw, 18rem);
   aspect-ratio: 2 / 1;
@@ -333,7 +434,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   position: absolute;
   inset: 4% 4% 6%;
   border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--accent) 35%, #06182B);
+  background: color-mix(in srgb, var(--accent) 35%, var(--net-deep));
 }
 .celebration-net, .celebration-ball { position: absolute; }
 .celebration-net { inset: 0; transform-origin: 50% 0; }
@@ -341,7 +442,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 .net-mesh path { fill: none; stroke: rgb(255 255 255 / 0.7); stroke-width: 1.2; }
 .net-frame, .net-frame-edge { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .net-frame-edge { stroke: var(--ink); stroke-width: 9; }
-.net-frame { stroke: #FFFFFF; stroke-width: 5.5; }
+.net-frame { stroke: var(--white); stroke-width: 5.5; }
 .celebration-ball {
   top: 50%;
   left: 50%;
@@ -357,10 +458,10 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 .is-playing .celebration-net { animation: net-catch var(--celebration-ms) ease-out both; }
 
-/* Banner: a card in the pool's lane-rope stripes, so the team colour stays legible over the water. */
+/* Banner: the board, with an amber GOAL, under a strip of the pool's lane-rope stripes. */
 .celebration-banner {
   position: absolute;
-  top: max(1rem, min(25rem, calc(100% - 11rem)));
+  top: max(1rem, min(27rem, calc(100% - 11rem)));
   left: 0;
   right: 0;
   width: min(90vw, 24rem);
@@ -371,7 +472,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   background: var(--banner-bg);
   color: var(--banner-ink);
   border-radius: 0.75rem;
-  box-shadow: 0 0.5rem 2rem color-mix(in srgb, #000000 35%, transparent);
+  box-shadow: 0 0.5rem 2rem color-mix(in srgb, var(--shadow-ink) 35%, transparent);
   pointer-events: auto;
   cursor: pointer;
 }
@@ -380,14 +481,21 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   position: absolute;
   inset: 0 0 auto;
   height: 0.5rem;
-  background: repeating-linear-gradient(90deg, var(--accent) 0 14px, #FFFFFF 14px 20px, var(--accent) 20px 34px, var(--rope) 34px 40px);
+  background: repeating-linear-gradient(90deg, var(--v-bar) 0 14px, var(--white) 14px 20px, var(--v-bar) 20px 34px, var(--rope) 34px 40px);
 }
 .celebration-goal {
-  font: 700 clamp(4.5rem, 24vw, 7rem)/0.9 var(--font-num);
+  font: 800 clamp(4.5rem, 24vw, 6.5rem)/0.9 var(--font-num);
   letter-spacing: 0.02em;
-  color: var(--accent);
+  color: var(--v-led);
 }
-.celebration-scorer { margin-top: 0.5rem; font-size: 1.5rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.celebration-scorer {
+  margin-top: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--v-board-ink);
+  overflow-wrap: anywhere;
+}
 .is-playing .celebration-banner { animation: banner-pop var(--celebration-ms) cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
 
 @keyframes celebration-out { 0%, 90% { opacity: 1; } 100% { opacity: 0; } }
@@ -462,5 +570,12 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   @keyframes banner-fade { 0% { opacity: 0; } 8%, 88% { opacity: 1; } 100% { opacity: 0; } }
 }
 
-/* Games list: the team name heads the season results. */
+/* Games list: the team name heads the season results, on the board. */
+.games-list {
+  padding: 0.875rem 1rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--v-board);
+  box-shadow: inset 0 0 0 1px var(--v-board-line);
+  color: var(--v-board-ink);
+}
 .games-list .team-name { margin: 0; font-size: 1.5rem; }
