@@ -159,7 +159,8 @@ Google Fonts link in `index.html` and `track.html`: Sofia Sans 400;600;700 and S
   - `apple-touch-icon` at 180 px, the crest on the `--board` colour, as on board `VIcon`;
   - a web app manifest with 192 and 512 px icons, `theme_color` #0B1320 and `background_color` #F4F6F8.
 - **Link preview:** an `og:image` at 1200×630 as on board `VLinkPreview`, plus `og:title` and `og:description`, on `index.html`.
-- **Precache:** add the new files to `sw.js`'s precache list and bump the cache name.
+- **Precache:** add the new files to `sw.js`'s precache list and bump the cache name. As built: the manifest and the three icons are in SHELL; `img/anog-crest.png` (used from R2) and `img/og.png` (only link crawlers fetch it) are not. The crest ships at its source size, 333 × 332 px.
+- **As built, club-colour helper:** `js/accent.js`, loaded through a caught dynamic `import()` instead of being inlined, so it can be unit-tested; a missing file leaves the CSS fallbacks. It also sets `--accent-open-light` / `--accent-open-dark` for the selected-result marker (3:1 against the selected row for the four test club colours).
 
 ### R1 done when
 
@@ -312,6 +313,23 @@ The module needs unit tests for:
 
 The crest beside ANOG on the game scoreboard (40 px) and in the season header (40 px); plate rules per the Tokens page.
 
+
+### R1 findings: viewer items that need markup (from the R1 build, 19/11/2026)
+
+1. Two score rows (ANOG / opponent each with its own score) and the 52 px accent bar spanning the row; today the bar is a small inline bar before the name.
+2. Crest (40 px) after "ANOG".
+3. Period and man-up/man-down chips in a top row; separate classes for MAN-UP (green fill) and MAN-DOWN (orange fill, ink text). Today both share one neutral outline chip because the element has no up/down class.
+4. FINAL badge plus date in the top row (the date is in the opponent row today).
+5. Quarter grid (head row Q1-Q4 with current quarter amber, ANOG/VOU rows) instead of the one-line quarter scores.
+6. Tabs (Timeline | Players | Team / Results | Players | Team) and the season header with "3 W - 1 L".
+7. Centre-line timeline (score pill in the middle, our events left, theirs right, quarter pill markers, SVG icon boxes, 28 px).
+8. Result rows as W/L chip + opponent/date stack + chevron links; photo/cap chip variants.
+9. Full-bleed board and "This season" nav bar above it (board is an inset panel in R1).
+10. "Reconnecting..." status row restyle only needs CSS; the Team-tab pieces (foul pips, goal bars, game flow) need new markup and data.
+
+11. Lane-rope markup (index.html, track.html, live.js) is hidden by CSS in R1; remove it here.
+12. `.timeline h3` stays 24 px in R1 because `viewer.spec.js:91` pins it; the board draws 17 px. Change the test when the element is replaced.
+
 ### R2 done when
 
 - **Routing:** the table above holds.
@@ -335,7 +353,21 @@ Everything on the tracker boards that R1 could not reach with CSS, built in mark
 - the landscape split layout (`TLandscape`): scoreboard and dock on the left, tiles in two columns on the right;
 - **game detail** (`TGameDetail`): restyled in place to the viewer game look. It keeps today's back button, game info form, reopen, delete and inline event editing (`js/tracker/views/games.js:68`), and does not embed viewer code.
 
-R1 adds the final list of items found while restyling. Each item keeps its existing test ids, or replaces them in the same commit as its e2e update.
+Each item keeps its existing test ids, or replaces them in the same commit as its e2e update.
+
+### R1 findings: tracker items that need markup (from the R1 build, 19/11/2026)
+
+1. Crest next to ANOG in the header (TLive, THome, TUnlock: large crest above the unlock title).
+2. Situation band inside the header with "MAN-UP"/"MAN-DOWN" label and seconds (today: strip plus the dock button).
+3. Header split: first row crest/ANOG/Home, second row score + period (today one `.bar` and a separate score block).
+4. Home: live-game card on the board (LIVE badge, score row, Continue tracking) and the nav as one card of rows with icons, chevrons and counts ("16 players", "4").
+5. W/L result chips and a chevron on past-game rows; game-detail look (TGameDetail).
+6. Events sheet: grabber bar, icon boxes per event type, "Change scorer" as a button on the row, "Q3 - newest first" heading, close as an X icon, Adjust lineup/End game as one row.
+7. Goalie sheet: grabber, cap + name + IN GOAL header row inside the sheet.
+8. Unsaved banner: warning icon and the first failed tap's description line; moved banner: two-line title/subtitle ("Taps here are paused"); toast: coloured square (foul) before the text.
+9. Foul pips as 12 px squares (3 of them) and a plain "7" tally without the "goals" label; cap chip with 26 px digits is done, but the roster photo placeholder/badge variants (TRoster) need photo markup.
+10. Landscape split (TLandscape): score and controls in two columns need a wrapper.
+11. New game as a two-step form with "Next: who is playing" (today one page).
 
 ## Testing (every release)
 

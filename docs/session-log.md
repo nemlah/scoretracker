@@ -1,5 +1,14 @@
 # Session log
 
+## 19/11/2026 - Direction B, Release 1 (the look) built on branch direction-b-r1
+- Built in the worktree `.worktrees/direction-b-r1` from the plan `docs/superpowers/plans/2026-11-19-direction-b-r1-look.md`: club-colour helper `js/accent.js` (Codex), tokens + Sofia fonts + contrast test (Codex), viewer and tracker CSS restyle with look e2e specs (sonnet), home-screen icons, manifest and link preview, service-worker cache v2 (sonnet). No DOM, class or test-id changes.
+- Every task had a Codex review; final whole-branch reviews by Codex (high) and Claude (sonnet), then one fix wave (Events sheet stays undimmed under takeover, selected-result marker and Watch focus contrast, 44 px targets, brand script checks).
+- Tests at the end: unit 243/243, emulator 28/28, e2e 496 passed (chromium + webkit). Mixed-cache check (new CSS beside the previous base.css; accent.js missing) passed.
+- Canvas page "R1 build" has 24 design-vs-build pairs for the owner's approval. R2/R3 markup lists are in the spec.
+- Two small residuals parked: the Watch focus test should Tab to the link instead of calling focus(); disabled buttons inside the Events sheet show at full opacity under takeover (scope the opacity reset to the dimmed live content).
+- E2e needs host port 8080 free (CVAT's traefik container uses it; owner stopped CVAT for this run).
+- Next: owner approves on the canvas; fix the two residuals; then merge and deploy per the release routine.
+
 ## 19/11/2026 - Design workflow: direction B, pages 2–4
 - Owner picked B · Shot Clock. Their canvas comments (names left, logo after the name, man-up/man-down as a plain line in the scoreboard, no cards) were applied on page 1 by the canvas's own Claude; page 1 is otherwise unchanged.
 - Built page 2 Viewer (22 boards, light and dark, plus icon and link preview), page 3 Tracker (19 boards: live states, banners, toast, sheets, setup screens, landscape) and page 4 Tokens (colours with live contrast ratios, type, space, radii, targets, icons, logo, photos) on https://claude.ai/artifact/7yCTLzZXoQdD4UdnyXLGBb.
