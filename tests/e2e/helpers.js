@@ -80,7 +80,7 @@ export const recordHome = page => page.addInitScript(() => {
   new MutationObserver(() => {
     const el = document.querySelector('[data-testid="games-list"]');
     if (!el || el.hidden) return;
-    const first = document.querySelector('[data-testid="result-row"] td:nth-child(2)')?.textContent ?? '';
+    const first = document.querySelector('[data-testid="result-row"] .result-opp')?.textContent ?? '';
     push(window.__states, { season: el.getAttribute('data-season') ?? '', results: el.getAttribute('data-results') ?? '', first });
   }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
 });
@@ -90,7 +90,7 @@ export const restartHomeRecord = page => page.evaluate(() => {
   const el = document.querySelector('[data-testid="games-list"]');
   const season = el.getAttribute('data-season') ?? '';
   const results = el.getAttribute('data-results') ?? '';
-  const first = document.querySelector('[data-testid="result-row"] td:nth-child(2)')?.textContent ?? '';
+  const first = document.querySelector('[data-testid="result-row"] .result-opp')?.textContent ?? '';
   window.__pairs.splice(0, window.__pairs.length, { season, results });
   window.__states.splice(0, window.__states.length, { season, results, first });
 });

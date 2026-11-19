@@ -425,9 +425,11 @@ test('per-game figures and Pen. columns on the season', async ({ page }) => {
     }),
   ]);
   await open(page);
+  // The rows are on the page before anything is said to be gone from them.
+  await expect(page.getByTestId('result-row')).toHaveCount(2);
   // The season's man-up and man-down line is gone from the season block.
   await expect(page.getByTestId('season-situations')).toHaveCount(0);
-  await expect(page.getByTestId('result-situations')).toHaveText(['MU 3/7 · MD 4/6', '—']);
+  await expect(page.getByTestId('result-situations')).toHaveCount(0); // retired; the season Team tab carries the figures (Task 9)
   await expect(page.getByTestId('season-pen')).toHaveText(['2', '0']);
 });
 
@@ -442,7 +444,6 @@ test('an old stats document without the new fields still renders', async ({ page
   await open(page);
   await expect(page.getByTestId('result-row')).toHaveCount(1);
   await expect(page.getByTestId('season-situations')).toHaveCount(0);
-  await expect(page.getByTestId('result-situations')).toHaveText('—');
   await expect(page.getByTestId('season-pen')).toHaveText('0');
 });
 
@@ -465,8 +466,9 @@ test('narrow screens: long opponent, shootout and figures do not cause sideways 
     }),
   ]);
   await open(page);
-  await expect(page.getByTestId('result-situations').first()).toBeVisible();
-  await expect(page.getByTestId('result-situations').last()).toBeVisible();
+  await expect(page.getByTestId('result-row')).toHaveCount(2);
+  await expect(page.getByTestId('result-link').first()).toBeVisible();
+  await expect(page.getByTestId('result-link').last()).toBeVisible();
   const [scrollWidth, clientWidth] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 });

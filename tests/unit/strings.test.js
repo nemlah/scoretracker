@@ -176,3 +176,19 @@ test('timelineEntry for a save', () => {
     { side: 'us', icon: '✋', sr: 'Save', text: 'Save · #? Unknown player', badge: false, minor: true });
   assert.equal(strings.TIMELINE_SAVES, true);
 });
+
+test('liveBanner keeps its previous template, and the home banner has a key of its own', () => {
+  const params = { team: 'ANOG', opponent: 'Rivals', us: 12, them: 11, period: 'Q3' };
+  // The previous viewer.js still reads liveBanner: it must not show a literal {team}.
+  assert.equal(t('liveBanner', params), 'Live: Rivals 12–11 · Q3');
+  assert.equal(t('liveBannerHome', params), 'LIVE · Q3 · ANOG 12–11 Rivals');
+  assert.equal(strings.hasString('liveBannerHome'), true);
+  assert.equal(strings.hasString('noSuchString'), false);
+});
+
+test('the season header and result row strings', () => {
+  assert.equal(t('seasonRecord', { w: 3, l: 1 }), '3 W · 1 L');
+  assert.equal(t('seasonRecordDraws', { w: 3, l: 1, d: 2 }), '3 W · 1 L · 2 D');
+  assert.equal(t('resultPen', { us: 4, them: 3 }), 'pen. 4–3');
+  assert.deepEqual(['resultW', 'resultL', 'resultD'].map(key => t(key)), ['W', 'L', 'D']);
+});

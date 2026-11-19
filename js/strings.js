@@ -228,17 +228,33 @@ const STRINGS = {
   gameLiveNote: 'This game is live. Use the live screen to track it.',
   gameLiveOpen: 'Open the live screen',
   allGames: 'This season',
-  liveBanner: 'LIVE · {period} · {team} {us}–{them} {opponent}',
+  liveBanner: 'Live: {opponent} {us}–{them} · {period}',
+  // Release 2's banner; a viewer without this key falls back to liveBanner above.
+  liveBannerHome: 'LIVE · {period} · {team} {us}–{them} {opponent}',
   resultsLoading: 'Loading results…',
   resultsEmpty: 'No games yet this season.',
   resultsFailed: 'Results aren\'t available right now.',
   watchLive: 'Watch',
   gameUnavailable: 'That game isn\'t available.',
   openGameFor: 'Open the game against {opponent} on {date}',
+  // Season header and result rows
+  seasonRecord: '{w} W · {l} L',
+  seasonRecordDraws: '{w} W · {l} L · {d} D',
+  resultW: 'W',
+  resultL: 'L',
+  resultD: 'D',
+  resultPen: 'pen. {us}–{them}',
+  resultNoScore: '–',
 };
 
 // The viewer checks this before rendering saves in the timeline.
 export const TIMELINE_SAVES = true;
+
+// Whether this strings.js has the key. The viewer asks for strings added after the previous release this
+// way, so a phone holding the old file shows a fallback, not a key name.
+export function hasString(key) {
+  return Object.hasOwn(STRINGS, key);
+}
 
 export function t(key, params = {}) {
   if (!Object.hasOwn(STRINGS, key)) {

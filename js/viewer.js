@@ -12,7 +12,7 @@ import { goalieStats, savePct } from './goalies.js';
 import { createRepo } from './repo.js';
 import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
 import {
-  manDownText, manUpText, periodLabel, scoreText, situationShort, t, timelineEntry,
+  manDownText, manUpText, periodLabel, scoreText, t, timelineEntry,
 } from './strings.js';
 import { clear, h } from './ui/dom.js';
 
@@ -327,15 +327,34 @@ const scoreboard = h('section', { class: 'scoreboard', hidden: true },
   h('div', { class: 'situation-figures' }, gameManUp, gameManDown));
 const unavailable = h('section', { class: 'empty', 'data-testid': 'game-unavailable', hidden: true },
   h('p', {}, t('gameUnavailable')));
-const bannerText = h('span', { class: 'live-banner-text', 'data-testid': 'live-banner-text' });
-const liveBanner = h('a', { class: 'live-banner', href: '#/', 'data-testid': 'live-banner', hidden: true },
+// A string added in this release: a phone holding the previous strings.js gets the fallback, not a key name.
+const tOr = (key, fallback, params) => (strings.hasString?.(key) ? t(key, params) : fallback);
+const chevron = () => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [name, value] of [['viewBox', '0 0 24 24'], ['width', '18'], ['height', '18'], ['fill', 'none'],
+    ['stroke', 'currentColor'], ['stroke-width', '2'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'],
+    ['aria-hidden', 'true']]) svg.setAttribute(name, value);
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M9 18l6-6-6-6');
+  svg.append(path);
+  return svg;
+};
+const bannerText = h('span', { class: 'home-live-text', 'data-testid': 'live-banner-text' });
+const liveBanner = h('a', { class: 'home-live', href: '#/', 'data-testid': 'live-banner', hidden: true },
   h('span', { class: 'live-dot', 'aria-hidden': 'true' }),
   bannerText,
-  h('span', { class: 'watch-live', 'data-testid': 'watch-live' }, t('watchLive')));
+  h('span', { class: 'home-live-watch', 'data-testid': 'watch-live' }, t('watchLive'), chevron()));
 const allGamesLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'all-games' }, t('allGames'));
 const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, allGamesLink);
-const gamesList = h('header', { class: 'games-list', 'data-testid': 'games-list', hidden: true },
-  h('h1', { class: 'team-name' }, teamConfig.name));
+const crestSrc = teamConfig.crest ?? null;
+const crest = crestSrc ? h('img', {
+  class: 'season-crest', src: crestSrc, alt: '', width: 40, height: 40, 'data-testid': 'crest',
+  onerror: () => { crest.hidden = true; },
+}) : null;
+const seasonRecord = h('p', { class: 'season-record', 'data-testid': 'season-record', hidden: true });
+const gamesList = h('header', { class: 'season-head', 'data-testid': 'games-list', hidden: true },
+  h('div', { class: 'season-brand' }, crest, h('p', { class: 'season-team' }, teamConfig.name)),
+  h('div', { class: 'season-title' }, h('h1', {}, t('seasonHeading')), seasonRecord));
 const gameSections = h('div', { class: 'stack' });
 const seasonSection = h('div', { class: 'stack' });
 root.append(note, pastNav, gamesList, unavailable, gameSections, seasonSection);
@@ -407,7 +426,7 @@ function renderPastNav(plan) {
   if (live === null) return;
   const { us, them } = deriveScore(live.events);
   liveBanner.setAttribute('href', `#/game/${encodeURIComponent(plan.banner.gameId)}`);
-  bannerText.textContent = t('liveBanner', {
+  bannerText.textContent = t(strings.hasString?.('liveBannerHome') ? 'liveBannerHome' : 'liveBanner', {
     team: teamConfig.name, opponent: live.opponent, us, them, period: periodLabel(live.period),
   });
 }
@@ -603,6 +622,7 @@ function renderSeason(plan) {
   const results = plan.mode === 'home' ? plan.results : null;
   const shown = results === 'ready' || results === 'empty';
   const stats = shown && state.stats.key === plan.season ? state.stats.data : null;
+  renderRecord(shown ? stats?.results : null);
   renderIfChanged(seasonSection, [results, stats], () => {
     if (results === 'loading') return [h('p', { class: 'muted', 'data-testid': 'results-loading' }, t('resultsLoading'))];
     if (results === 'failed') return [h('p', { class: 'muted', 'data-testid': 'results-failed' }, t('resultsFailed'))];
@@ -615,30 +635,56 @@ function renderSeason(plan) {
       .map(([id, goalie]) => ({ id, ...goalie }))
       .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
     return [h('section', { class: 'section' },
-      h('h2', {}, t('seasonHeading')),
-      rows.length ? resultsTable(rows) : h('p', { class: 'muted', 'data-testid': 'results-empty' }, t('resultsEmpty')),
+      h('h2', {}, t('resultsHeading')),
+      rows.length ? resultsList(rows) : h('p', { class: 'muted', 'data-testid': 'results-empty' }, t('resultsEmpty')),
       players.length ? totalsTable(players) : null,
       goalies.length ? seasonGoaliesTable(goalies) : null)];
   });
 }
 
-function resultsTable(results) {
-  return h('table', { class: 'results', 'aria-label': t('resultsHeading') }, h('tbody', {}, results.map(result => {
-    // A 0 – 0 shootout means none was played (older games recorded it that way).
-    const text = scoreText(result, result.soUs != null && !(result.soUs === 0 && result.soThem === 0));
-    return h('tr', { 'data-testid': 'result-row' },
-      h('td', { class: 'muted' }, formatDate(result.date)),
-      h('td', {}, result.gameId == null ? result.opponent : h('a', {
-        class: 'result-link',
-        href: `#/game/${encodeURIComponent(result.gameId)}`,
-        'data-testid': 'result-link',
-        'aria-label': t('openGameFor', { opponent: result.opponent, date: formatDate(result.date) }),
-      }, result.opponent)),
-      h('td', { class: 'result-score' }, text.main,
-        text.shootout ? h('span', { class: 'pen' }, text.shootout) : null),
-      h('td', { class: 'muted result-situations', 'data-testid': 'result-situations' },
-        situationShort(result.manUp ? { manUp: result.manUp, manDown: result.manDown } : null)));
-  })));
+// "3 W · 1 L", with "· 1 D" when a game was level. Results without a score count for nothing; without
+// model.resultOutcome (the previous model.js) there is no record.
+function renderRecord(results) {
+  const tally = { W: 0, L: 0, D: 0 };
+  for (const result of Array.isArray(results) ? results : []) {
+    const outcome = model.resultOutcome?.(result);
+    if (outcome in tally) tally[outcome] += 1;
+  }
+  const played = tally.W + tally.L + tally.D;
+  seasonRecord.hidden = played === 0;
+  seasonRecord.textContent = played === 0 ? '' : tally.D > 0
+    ? tOr('seasonRecordDraws', `${tally.W} W · ${tally.L} L · ${tally.D} D`, { w: tally.W, l: tally.L, d: tally.D })
+    : tOr('seasonRecord', `${tally.W} W · ${tally.L} L`, { w: tally.W, l: tally.L });
+}
+
+function resultsList(results) {
+  return h('ul', { class: 'result-list', 'aria-label': t('resultsHeading') }, results.map(resultItem));
+}
+
+function resultItem(result) {
+  const scored = Number.isFinite(result.us) && Number.isFinite(result.them);
+  // A 0 – 0 shootout means none was played (older games recorded it that way).
+  const shootedOut = Number.isFinite(result.soUs) && Number.isFinite(result.soThem)
+    && !(result.soUs === 0 && result.soThem === 0);
+  const outcome = scored ? model.resultOutcome?.(result) ?? null : null;
+  const date = typeof result.date === 'string' ? formatDate(result.date) : '';
+  const pen = shootedOut
+    ? tOr('resultPen', scoreText(result, true).shootout, { us: result.soUs, them: result.soThem }) : null;
+  const body = [
+    outcome ? h('span', { class: `result-chip result-chip-${outcome}`, 'data-testid': 'result-chip' },
+      tOr(`result${outcome}`, outcome)) : null,
+    h('span', { class: 'result-main' },
+      h('span', { class: 'result-opp' }, result.opponent),
+      h('span', { class: 'result-meta' }, date, pen ? ` · ${pen}` : null)),
+    h('span', { class: 'result-tally' }, scored ? scoreText(result, false).main : tOr('resultNoScore', '–')),
+  ];
+  const link = result.gameId == null ? h('div', { class: 'result-open' }, body, chevron()) : h('a', {
+    class: 'result-open',
+    href: `#/game/${encodeURIComponent(result.gameId)}`,
+    'data-testid': 'result-link',
+    'aria-label': t('openGameFor', { opponent: result.opponent, date }),
+  }, body, chevron());
+  return h('li', { class: 'result-item', 'data-testid': 'result-row' }, link);
 }
 
 function seasonGoaliesTable(goalies) {

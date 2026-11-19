@@ -152,8 +152,7 @@ for (const blockFonts of [false, true]) {
         await expect(page.getByTestId('goalie-row')).toHaveCount(2);
       } else {
         await expect(page.getByTestId('games-list')).toBeVisible();
-        await expect(page.getByTestId('result-link').first()).toHaveText(longOpponent);
-        await expect(page.getByTestId('result-situations').first()).toBeVisible();
+        await expect(page.getByTestId('result-link').first().locator('.result-opp')).toHaveText(longOpponent);
         await expect(page.getByTestId('season-row').first()).toBeVisible();
       }
       if (!blockFonts) {
@@ -175,7 +174,7 @@ for (const blockFonts of [false, true]) {
       }
       const overflow = await page.evaluate(() => ({
         scroll: document.scrollingElement.scrollWidth,
-        outside: [...document.querySelectorAll('.scoreboard, .games-list, .section, .score, table')]
+        outside: [...document.querySelectorAll('.scoreboard, .season-head, .section, .score, table, .result-link')]
           .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
           .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
       }));
@@ -259,7 +258,7 @@ for (const [width, height] of [[360, 740], [1280, 800]]) {
     await seedLive();
     await open(page, '#/games');
     for (const name of ['OFI', 'Rivals']) {
-      const link = page.getByTestId('result-link').filter({ hasText: new RegExp(`^${name}$`) });
+      const link = page.getByTestId('result-link').filter({ has: page.locator('.result-opp', { hasText: new RegExp(`^${name}$`) }) });
       await expect(link).toHaveCount(1);
       const box = await link.boundingBox();
       expect(box.width, `${name} width`).toBeGreaterThanOrEqual(44);
@@ -267,3 +266,131 @@ for (const [width, height] of [[360, 740], [1280, 800]]) {
     }
   });
 }
+
+// Home look: the LIVE banner, the season header and the result rows.
+// The seeded season has a win on a shootout, a win, a loss and a level final, all against long Greek names;
+// the live game (12-11 in the third quarter) is the banner's worst case.
+const seedHome = async () => {
+  await seedLive();
+  await seed('stats/2026-27', {
+    players: { p11: { name: 'Παπαδόπουλος-Αθανασίου', games: 4, goals: 27, excl: 11, pens: 12 } },
+    results: [
+      { gameId: 'g1', date: '2026-11-08', opponent: longOpponent, us: 12, them: 11 },
+      { gameId: 'g0', date: '2026-11-01', opponent: longOpponent, us: 10, them: 10, soUs: 14, soThem: 13 },
+      { gameId: 'g5', date: '2026-10-18', opponent: 'Rivals', us: 8, them: 9 },
+      { gameId: 'g6', date: '2026-10-11', opponent: 'OFI', us: 5, them: 5 },
+    ],
+  });
+};
+
+// The text is on one line and set to cut with an ellipsis, never to wrap; with `mustCut` the long name is
+// really cut (on a screen too narrow to hold it).
+const expectCutOnOneLine = async (locator, what, mustCut) => {
+  const box = await locator.evaluate(el => {
+    const style = getComputedStyle(el);
+    const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5;
+    return {
+      whiteSpace: style.whiteSpace, overflow: style.overflow, textOverflow: style.textOverflow,
+      cut: el.scrollWidth > el.clientWidth, lines: Math.round(el.getBoundingClientRect().height / line),
+    };
+  });
+  expect(box.whiteSpace, `${what}: white-space`).toBe('nowrap');
+  expect(box.textOverflow, `${what}: text-overflow`).toBe('ellipsis');
+  expect(box.overflow, `${what}: overflow`).toBe('hidden');
+  if (mustCut) expect(box.cut, `${what}: the long name is cut`).toBe(true);
+  expect(box.lines, `${what}: one line`).toBe(1);
+};
+
+for (const scheme of ['light', 'dark']) {
+  for (const [shape, width, height] of [['portrait', 360, 740], ['landscape', 844, 390]]) {
+    test.describe(`home look, ${shape}, ${scheme}`, () => {
+      test.use({ colorScheme: scheme });
+
+      test('the banner is 56 px tall and cut on one line, the rows too, with no sideways scroll', async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        await seedHome();
+        await open(page);
+        const banner = page.getByTestId('live-banner');
+        await expect(banner).toBeVisible();
+        await expect(page.getByTestId('live-banner-text')).toContainText('LIVE · Q3 · ANOG 12–11');
+        await expect(page.getByTestId('result-row')).toHaveCount(4);
+        const box = await banner.boundingBox();
+        expect(box.height, 'banner height').toBeGreaterThanOrEqual(56);
+        const watch = await page.getByTestId('watch-live').boundingBox();
+        expect(watch.x + watch.width, 'Watch is on the screen').toBeLessThanOrEqual(width);
+        expect(box.x + box.width, 'banner right edge').toBeLessThanOrEqual(width);
+        await expectCutOnOneLine(page.getByTestId('live-banner-text'), 'banner text', width === 360);
+        await expectCutOnOneLine(page.getByTestId('result-row').first().locator('.result-opp'), 'row opponent', width === 360);
+        const rowBox = await page.getByTestId('result-row').first().boundingBox();
+        expect(rowBox.x + rowBox.width, 'row right edge').toBeLessThanOrEqual(width);
+        const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
+        expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
+      });
+
+      test('the banner text against the banner, and each chip letter against its chip, are at least 4.5:1', async ({ page }) => {
+        await seedHome();
+        await open(page);
+        // A win on a shootout, a loss and a level final: all three chips.
+        await expect(page.getByTestId('result-chip')).toHaveText(['W', 'W', 'L', 'D']);
+        const pairs = [];
+        const bannerBg = await page.getByTestId('live-banner').evaluate(el => getComputedStyle(el).backgroundColor);
+        for (const [name, locator] of [
+          ['banner', page.getByTestId('live-banner')],
+          // "Watch" has no fill of its own: it sits on the banner.
+          ['watch', page.getByTestId('watch-live')],
+          ['banner text', page.getByTestId('live-banner-text')],
+          ...['W', 'L', 'D'].map(letter => [`chip ${letter}`, page.getByTestId('result-chip').filter({ hasText: letter }).first()]),
+        ]) {
+          const colours = await locator.evaluate(el => {
+            const style = getComputedStyle(el);
+            return { fg: style.color, bg: style.backgroundColor };
+          });
+          const bg = colours.bg === 'rgba(0, 0, 0, 0)' ? bannerBg : colours.bg;
+          pairs.push([name, await hexOf(page, colours.fg), await hexOf(page, bg)]);
+        }
+        for (const [name, fg, bg] of pairs) {
+          expect(contrastRatio(fg, bg), `${name}: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+    });
+  }
+}
+
+test('the crest is 40 px wide, visible, with no alt text', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await seedHome();
+  await open(page);
+  const crest = page.getByTestId('crest');
+  await expect(crest).toBeVisible();
+  await expect(crest).toHaveAttribute('alt', '');
+  expect((await crest.boundingBox()).width).toBe(40);
+  // It is loaded, not a broken image.
+  await expect.poll(() => crest.evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+});
+
+test('the banner dot pulses, and stands still with reduced motion', async ({ page }) => {
+  await seedHome();
+  await open(page);
+  const dot = page.getByTestId('live-banner').locator('.live-dot');
+  await expect(dot).toBeVisible();
+  await expect.poll(() => dot.evaluate(el => getComputedStyle(el).animationName)).not.toBe('none');
+  expect(await dot.evaluate(el => getComputedStyle(el).animationPlayState)).toBe('running');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(() => dot.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+});
+
+test('every result row link is at least 44 x 44, whatever the name', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await seedHome();
+  await open(page);
+  await expect(page.getByTestId('result-row')).toHaveCount(4);
+  const sizes = await page.getByTestId('result-link').evaluateAll(els => els.map(el => {
+    const box = el.getBoundingClientRect();
+    return [Math.round(box.width), Math.round(box.height)];
+  }));
+  expect(sizes).toHaveLength(4);
+  for (const [w, h] of sizes) {
+    expect(w).toBeGreaterThanOrEqual(44);
+    expect(h).toBeGreaterThanOrEqual(44);
+  }
+});

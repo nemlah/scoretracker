@@ -129,7 +129,8 @@ test('home with a live current game shows the header and the banner, and the ban
   ]);
   await open(page);
   await expect(home(page)).toBeVisible();
-  await expect(home(page).locator('h1')).toHaveText('ANOG');
+  await expect(home(page).locator('h1')).toHaveText('This season');
+  await expect(home(page).locator('.season-team')).toHaveText('ANOG');
   await expect(banner(page)).toBeVisible();
   await expect(banner(page)).toHaveText(/^LIVE · Q1 · ANOG 1–0 Rivals\s*Watch$/);
   await expect(banner(page)).toHaveAttribute('href', '#/game/g1');
@@ -259,7 +260,7 @@ test.describe('transitions', () => {
       await expect(banner(page)).toContainText('Rivals');
       await expect(home(page)).toHaveAttribute('data-season', OLD);
       await expect(home(page)).toHaveAttribute('data-results', 'ready');
-      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Rivals');
+      await expect(rows(page).first().locator('.result-opp')).toHaveText('Rivals');
       await restartHomeRecord(page);
       if (order === 'the team first') {
         await update('team/main', { currentGameId: 'g2' });
@@ -275,7 +276,7 @@ test.describe('transitions', () => {
       }
       await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
       await expect(home(page)).toHaveAttribute('data-results', 'ready');
-      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
+      await expect(rows(page).first().locator('.result-opp')).toHaveText('Waves');
       expect((await get('games/g1')).status).toBe('final');
       expect((await get('team/main')).currentGameId).toBe('g2');
       const record = await recordedHome(page);
@@ -342,7 +343,7 @@ test.describe('transitions', () => {
       await open(page);
       await expect(home(page)).toHaveAttribute('data-season', OLD);
       await expect(home(page)).toHaveAttribute('data-results', 'ready');
-      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Rivals');
+      await expect(rows(page).first().locator('.result-opp')).toHaveText('Rivals');
       await restartHomeRecord(page);
       if (order === 'the game first') {
         await remove('games/g1');
@@ -355,7 +356,7 @@ test.describe('transitions', () => {
       }
       await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
       await expect(home(page)).toHaveAttribute('data-results', 'ready');
-      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
+      await expect(rows(page).first().locator('.result-opp')).toHaveText('Waves');
       expect(await get('games/g1')).toBeUndefined();
       const record = await recordedHome(page);
       expectNoForbiddenState(record);
@@ -402,14 +403,14 @@ test.describe('transitions', () => {
     await recordHome(page);
     await open(page);
     await expect(home(page)).toHaveAttribute('data-results', 'ready');
-    await expect(rows(page).first().locator('td').nth(1)).toHaveText('Rivals');
+    await expect(rows(page).first().locator('.result-opp')).toHaveText('Rivals');
     await expect(page.getByTestId('connection-note')).toBeVisible({ timeout: 10000 });
     await restartHomeRecord(page);
     await update('team/main', { currentGameId: 'g2' });
     await delivered(page, 'team/main', 'pointer', 'g2');
     await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
     await expect(home(page)).toHaveAttribute('data-results', 'ready', { timeout: 8000 });
-    await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
+    await expect(rows(page).first().locator('.result-opp')).toHaveText('Waves');
     const record = await recordedHome(page);
     expectNoForbiddenState(record);
     // The new season's wait was shown as loading, never as no games.
@@ -632,4 +633,63 @@ test('no sideways scroll at 360 px on home with the banner', async ({ page }) =>
     scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth,
   }));
   expect(scrollWidth).toBeLessThanOrEqual(innerWidth);
+});
+
+// Season header and results rows (the home look). The results are the calendar season's, so no team document.
+const seedResults = results => seed(`stats/${CALENDAR}`, {
+  players: { p5: { name: 'Alexiou', games: results.length, goals: 1, excl: 0 } },
+  results: results.map(([opponent, us, them, extra = {}], i) => ({
+    gameId: `r${i}`, date: `2026-11-${String(20 - i).padStart(2, '0')}`, opponent, us, them, ...extra,
+  })),
+});
+
+test('the season record and the chips read the results in order', async ({ page }) => {
+  await seedResults([['A', 12, 10], ['B', 9, 3], ['C', 7, 6], ['D', 5, 8], ['E', 6, 6]]);
+  await open(page);
+  await expect(rows(page)).toHaveCount(5);
+  await expect(page.getByTestId('season-record')).toHaveText('3 W · 1 L · 1 D');
+  await expect(page.getByTestId('result-chip')).toHaveText(['W', 'W', 'W', 'L', 'D']);
+  await expect(home(page).locator('h1')).toHaveText('This season');
+});
+
+test('the record has no draws part when there are none, and a result without a score has no chip', async ({ page }) => {
+  await seedResults([['A', 12, 10], ['B', 9, 3], ['C', 7, 6], ['D', 5, 8], ['Broken', null, 4]]);
+  await open(page);
+  await expect(rows(page)).toHaveCount(5);
+  await expect(page.getByTestId('season-record')).toHaveText('3 W · 1 L');
+  await expect(page.getByTestId('result-chip')).toHaveText(['W', 'W', 'W', 'L']);
+  await expect(rows(page).last().getByTestId('result-chip')).toHaveCount(0);
+  await expect(rows(page).last()).toContainText('–');
+  await expect(rows(page).last()).not.toContainText(/undefined|NaN/);
+  await expect(rows(page).last().locator('.result-opp')).toHaveText('Broken');
+});
+
+test('a level final decided on a shootout shows the shootout and the chip it decides', async ({ page }) => {
+  await seedResults([
+    ['Won on pens', 10, 10, { soUs: 4, soThem: 3 }],
+    ['Lost on pens', 8, 8, { soUs: 2, soThem: 5 }],
+    ['No shootout', 7, 7, { soUs: 0, soThem: 0 }],
+  ]);
+  await open(page);
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.getByTestId('result-chip')).toHaveText(['W', 'L', 'D']);
+  await expect(rows(page).nth(0)).toContainText('pen. 4–3');
+  await expect(rows(page).nth(1)).toContainText('pen. 2–5');
+  await expect(rows(page).nth(2)).not.toContainText('pen.');
+  await expect(page.getByTestId('season-record')).toHaveText('1 W · 1 L · 1 D');
+});
+
+test('a season with no results has no record and the old figures line is gone', async ({ page }) => {
+  await open(page);
+  await expect(page.getByTestId('results-empty')).toBeVisible();
+  await expect(page.getByTestId('season-record')).toHaveAttribute('hidden', '');
+  await expect(page.getByTestId('season-record')).toBeHidden();
+  await expect(page.getByTestId('result-situations')).toHaveCount(0);
+});
+
+test('the crest is on home with an empty alt', async ({ page }) => {
+  await seedResults([['A', 1, 0]]);
+  await open(page);
+  await expect(page.getByTestId('crest')).toBeVisible();
+  await expect(page.getByTestId('crest')).toHaveAttribute('alt', '');
 });

@@ -15,6 +15,8 @@ body.viewer {
   --v-out: var(--out-text, #B3202F);
   --v-bar: var(--accent-on-board, var(--accent));
   --v-up: #0E7A4E;
+  --v-loss: #D7263D;
+  --v-draw: #5A6878;
   /* The selected-row marker: accent.js derives one colour per scheme that clears 3:1 on the row; blue is the fallback. */
   --v-open-bar: var(--accent-open-light, var(--accent));
 }
@@ -72,35 +74,23 @@ body.viewer {
   text-decoration-thickness: 2px;
   text-underline-offset: 0.2em;
 }
-/* The live banner: amber with ink text, at least 56 px tall. */
-.live-banner {
+/* Home: the LIVE banner. Amber with ink text, at least 56 px tall; the text is one line, cut with an ellipsis. */
+.home-live {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
+  gap: 0.625rem;
   min-height: 3.5rem;
-  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
   border-radius: 0.5rem;
   background: var(--v-led);
   color: var(--v-on-led);
   font-weight: 700;
-}
-.live-banner { text-decoration: none; } /* the banner is a link */
-.live-banner:focus-visible, .live-banner :focus-visible { outline-color: var(--v-on-led); } /* the aqua ring is 1.24:1 on amber */
-.live-banner .live-dot { flex: none; background: var(--v-on-led); }
-.live-banner-text { flex: 1 1 9rem; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.watch-live {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.75rem;
-  padding: 0 1.25rem;
-  border-radius: 0.375rem;
-  background: var(--v-on-led);
-  color: var(--v-led);
-  font-weight: 700;
   text-decoration: none;
 }
+.home-live:focus-visible, .home-live :focus-visible { outline-color: var(--v-on-led); } /* the aqua ring is 1.24:1 on amber */
+.home-live .live-dot { flex: none; background: var(--v-on-led); }
+.home-live-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.home-live-watch { flex: none; display: inline-flex; align-items: center; gap: 0.125rem; }
 
 /* Scoreboard: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
 .scoreboard {
@@ -127,7 +117,7 @@ body.viewer {
   overflow-wrap: anywhere;
 }
 .scoreboard p.team-name { color: var(--v-board-muted); }
-.scoreboard h1.team-name::before, .games-list .team-name::before {
+.scoreboard h1.team-name::before {
   content: "";
   display: inline-block;
   width: 6px;
@@ -296,23 +286,6 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 /* Ordinary saves read lighter than goals and exclusions. */
 .tl-minor { color: var(--v-muted); }
 
-.results a.result-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 2.75rem; /* the only way into a game: a 44 px target, however short the name */
-  min-width: 2.75rem;
-  color: var(--ink);
-  font-weight: 600;
-  text-decoration: underline;
-  text-decoration-color: var(--water-text);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.2em;
-}
-.results tr.is-open { background: color-mix(in srgb, var(--accent) 8%, var(--paper)); }
-.results tr.is-open td:first-child { box-shadow: inset 4px 0 0 var(--v-open-bar); padding-left: 0.75rem; }
-
-.result-score { font: 800 1.5rem/1.2 var(--font-num); white-space: nowrap; text-align: right; }
-.result-score .pen { font-family: var(--font-body); }
 .muted { font-size: 0.875rem; color: var(--v-muted); }
 
 /* Man-up / man-down */
@@ -334,32 +307,64 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   letter-spacing: 0.06em;
   line-height: 1.5;
 }
-.result-situations { text-align: right; white-space: nowrap; padding-left: 0.5rem; }
-
-/* Narrow screens: a result row becomes date + opponent + score, with the figures on a line of their own. */
-.results td:nth-child(2) { overflow-wrap: anywhere; }
-@media (max-width: 40rem) {
-  .results, .results tbody { display: block; }
-  .results tr {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    column-gap: 0.75rem;
-    align-items: baseline;
-    border-top: 1px solid var(--line);
-    padding: 0.5rem 0;
-  }
-  .results td { border-top: 0; padding: 0; min-width: 0; }
-  .results tr.is-open { box-shadow: inset 4px 0 0 var(--v-open-bar); padding-inline: 0.75rem 0.5rem; }
-  .results tr.is-open td:first-child { box-shadow: none; padding-left: 0; }
-  .results .result-score { white-space: normal; }
-  .results .result-score .pen { display: block; margin-left: 0; }
-  .results .result-situations {
-    grid-column: 1 / -1;
-    text-align: left;
-    padding: 0.125rem 0 0;
-    white-space: normal;
-  }
+/* Home: the season header on the board, then the results as rows. */
+.season-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--v-board);
+  box-shadow: inset 0 0 0 1px var(--v-board-line);
+  color: var(--v-board-ink);
 }
+.season-brand { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.season-crest { flex: none; width: 40px; height: 40px; object-fit: contain; } /* as is on the board */
+.season-team {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.season-title { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+.season-title h1 { min-width: 0; font-size: 1.625rem; font-weight: 700; line-height: 1.2; }
+.season-record { flex: none; font: 800 1.375rem/1.2 var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--v-led); }
+
+.result-list { list-style: none; margin: 0; padding: 0; }
+.result-item + .result-item { border-top: 1px solid var(--line); }
+/* The whole row is the link: at least 60 px tall. */
+.result-open {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.75rem;
+  padding: 0.5rem 0.25rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+.result-open svg { flex: none; color: var(--v-muted); }
+.result-chip {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  background: var(--v-draw);
+  color: var(--v-board-ink);
+  font: 800 1.125rem/1 var(--font-num);
+}
+.result-chip-W { background: var(--v-up); }
+.result-chip-L { background: var(--v-loss); }
+.result-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.result-opp, .result-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-opp { font-weight: 600; }
+.result-meta { font-size: 0.875rem; color: var(--v-muted); }
+.result-tally { flex: none; font: 800 1.5rem/1.2 var(--font-num); white-space: nowrap; }
 
 /* Goal celebration: a pool wave rises and drains, droplets splash, a water polo ball arcs into the net.
    Everything animates transform/opacity only, in --celebration-ms (set from celebrate.js). */
@@ -577,6 +582,82 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   @keyframes banner-fade { 0% { opacity: 0; } 8%, 88% { opacity: 1; } 100% { opacity: 0; } }
 }
 
+/* R1 markup, kept for mixed caches; remove in R3 */
+/* The live banner: amber with ink text, at least 56 px tall. */
+.live-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--v-led);
+  color: var(--v-on-led);
+  font-weight: 700;
+}
+.live-banner { text-decoration: none; } /* the banner is a link */
+.live-banner:focus-visible, .live-banner :focus-visible { outline-color: var(--v-on-led); } /* the aqua ring is 1.24:1 on amber */
+.live-banner .live-dot { flex: none; background: var(--v-on-led); }
+.live-banner-text { flex: 1 1 9rem; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.watch-live {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  border-radius: 0.375rem;
+  background: var(--v-on-led);
+  color: var(--v-led);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.results a.result-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem; /* the only way into a game: a 44 px target, however short the name */
+  min-width: 2.75rem;
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--water-text);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+.results tr.is-open { background: color-mix(in srgb, var(--accent) 8%, var(--paper)); }
+.results tr.is-open td:first-child { box-shadow: inset 4px 0 0 var(--v-open-bar); padding-left: 0.75rem; }
+
+.result-score { font: 800 1.5rem/1.2 var(--font-num); white-space: nowrap; text-align: right; }
+.result-score .pen { font-family: var(--font-body); }
+
+.result-situations { text-align: right; white-space: nowrap; padding-left: 0.5rem; }
+
+/* Narrow screens: a result row becomes date + opponent + score, with the figures on a line of their own. */
+.results td:nth-child(2) { overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  .results, .results tbody { display: block; }
+  .results tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+    align-items: baseline;
+    border-top: 1px solid var(--line);
+    padding: 0.5rem 0;
+  }
+  .results td { border-top: 0; padding: 0; min-width: 0; }
+  .results tr.is-open { box-shadow: inset 4px 0 0 var(--v-open-bar); padding-inline: 0.75rem 0.5rem; }
+  .results tr.is-open td:first-child { box-shadow: none; padding-left: 0; }
+  .results .result-score { white-space: normal; }
+  .results .result-score .pen { display: block; margin-left: 0; }
+  .results .result-situations {
+    grid-column: 1 / -1;
+    text-align: left;
+    padding: 0.125rem 0 0;
+    white-space: normal;
+  }
+}
+
 /* Games list: the team name heads the season results, on the board. */
 .games-list {
   padding: 0.75rem 1rem 1rem;
@@ -586,3 +667,14 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   color: var(--v-board-ink);
 }
 .games-list .team-name { margin: 0; font-size: 1.5rem; }
+
+.games-list .team-name::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 1.1em;
+  margin-right: 0.75rem;
+  border-radius: 3px;
+  background: var(--v-bar);
+  vertical-align: -0.2em;
+}

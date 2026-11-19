@@ -78,11 +78,15 @@ test('a results row opens that past game, the back link returns to the season, a
   await expect(page.getByTestId('score-us')).toHaveText('1');
 });
 
-test('result links are real links with a descriptive label', async ({ page }) => {
+test('the whole result row is a real link with a descriptive label', async ({ page }) => {
   await seedBoth();
   await open(page);
   const link = resultLink(page, 'g1');
-  await expect(link).toHaveText('Rivals');
+  // The opponent, the date and the score are inside the link: the row is the target.
+  await expect(link.locator('.result-opp')).toHaveText('Rivals');
+  await expect(link).toContainText('01/11/2026');
+  await expect(link).toContainText('2 – 1');
+  await expect(page.getByTestId('result-row').filter({ has: link })).toHaveCount(1);
   await expect(link).toHaveAttribute('aria-label', 'Open the game against Rivals on 01/11/2026');
   expect(await link.evaluate(el => el.tagName)).toBe('A');
 });
