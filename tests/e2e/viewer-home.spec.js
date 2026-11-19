@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { seasonFor, todayIso } from '../../js/model.js';
 import {
-  closeAll, delivered, get, instrumentRepo, recordedHome, recordHome, remove, resetAll, seed, update,
+  closeAll, delivered, get, instrumentRepo, recordedHome, recordHome, remove, resetAll, restartHomeRecord, seed, update,
 } from './helpers.js';
 
 const roster = [
@@ -93,23 +93,21 @@ const celebrated = page => page.evaluate(() => window.__celebrated);
 const OPPONENT = { [OLD]: 'Rivals', [NEW]: 'Waves' };
 const firstReady = list => list.findIndex(entry => entry.results === 'ready');
 
-// A recording of home moving between two seasons that both have results. From the first results shown on:
-// only those two seasons (never the calendar one, never none), never 'empty', the season the page started
-// on keeps its results (no loading), and the rows always belong to the season shown.
+// A recording of home taken from the moment the old season's results showed, while it moved to a season that
+// also has results. Every entry counts, from the first: it starts on the old season's results; only those two
+// seasons ever show (never the calendar one, never none); never 'empty'; the old season keeps its results (no
+// loading); and the rows always belong to the season shown (none while loading).
 function expectNoForbiddenState({ pairs, states }) {
-  expect(firstReady(pairs), 'home showed results').toBeGreaterThanOrEqual(0);
-  const after = pairs.slice(firstReady(pairs));
-  const start = after[0].season;
-  for (const entry of after) {
+  expect(pairs[0], 'recording starts on the old results').toEqual({ season: OLD, results: 'ready' });
+  expect(states[0], 'recording starts on the old rows').toEqual({ season: OLD, results: 'ready', first: OPPONENT[OLD] });
+  for (const entry of pairs) {
     expect([OLD, NEW], `season of ${JSON.stringify(entry)}`).toContain(entry.season);
     expect(entry.results, `results of ${JSON.stringify(entry)}`).not.toBe('empty');
-    if (entry.season === start) expect(entry.results, `results of ${JSON.stringify(entry)}`).toBe('ready');
+    if (entry.season === OLD) expect(entry.results, `results of ${JSON.stringify(entry)}`).toBe('ready');
   }
-  expect(firstReady(states), 'home rendered results').toBeGreaterThanOrEqual(0);
-  for (const entry of states.slice(firstReady(states))) {
+  for (const entry of states) {
     expect([OLD, NEW], `season of ${JSON.stringify(entry)}`).toContain(entry.season);
     expect(entry.results, `results of ${JSON.stringify(entry)}`).not.toBe('empty');
-    // Rows are the season's own while shown, and gone while loading.
     expect(entry.first, `first row of ${JSON.stringify(entry)}`).toBe(entry.results === 'ready' ? OPPONENT[entry.season] : '');
   }
 }
@@ -260,6 +258,9 @@ test.describe('transitions', () => {
       await open(page);
       await expect(banner(page)).toContainText('Rivals');
       await expect(home(page)).toHaveAttribute('data-season', OLD);
+      await expect(home(page)).toHaveAttribute('data-results', 'ready');
+      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Rivals');
+      await restartHomeRecord(page);
       if (order === 'the team first') {
         await update('team/main', { currentGameId: 'g2' });
         await delivered(page, 'team/main', 'pointer', 'g2');
@@ -341,6 +342,8 @@ test.describe('transitions', () => {
       await open(page);
       await expect(home(page)).toHaveAttribute('data-season', OLD);
       await expect(home(page)).toHaveAttribute('data-results', 'ready');
+      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Rivals');
+      await restartHomeRecord(page);
       if (order === 'the game first') {
         await remove('games/g1');
         await delivered(page, 'games/g1', 'exists', false);
@@ -380,9 +383,9 @@ test.describe('transitions', () => {
   });
 
   // A watch that started after another had waited for the server in vain must not inherit that wait: its
-  // own cache miss is not yet a missing document. Here the old season's stats are never confirmed by the
-  // server (for 9 s), so that watch goes stale; the new season's first answer is a cache miss, and the
-  // server answers 2.5 s later.
+  // own cache miss is not yet a missing document, and neither may the team watch's silence settle it. Here
+  // the team document is never confirmed by the server and the old season's stats are not for 9 s, so both
+  // go stale; the new season's first answer is a cache miss, and the server answers 2.5 s later.
   test('a season watch that starts after another went stale does not settle its cache miss as empty', async ({ page }) => {
     await Promise.all([
       team('g1'),
@@ -392,13 +395,16 @@ test.describe('transitions', () => {
       stats(NEW, [['g2', 'Waves', '2020-11-08']]),
     ]);
     await instrumentRepo(page, {
+      'team/main': { cached: true },
       [`stats/${OLD}`]: { holdMs: 9000 },
       [`stats/${NEW}`]: { miss: true, holdMs: 2500 },
     });
     await recordHome(page);
     await open(page);
     await expect(home(page)).toHaveAttribute('data-results', 'ready');
+    await expect(rows(page).first().locator('td').nth(1)).toHaveText('Rivals');
     await expect(page.getByTestId('connection-note')).toBeVisible({ timeout: 10000 });
+    await restartHomeRecord(page);
     await update('team/main', { currentGameId: 'g2' });
     await delivered(page, 'team/main', 'pointer', 'g2');
     await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });

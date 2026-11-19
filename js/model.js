@@ -337,10 +337,14 @@ export function todayIso(now = new Date(), timeZone = 'Europe/Athens') {
   }).format(now);
 }
 
-/** Plan the viewer's subscriptions and display from the latest watch snapshots. */
+/**
+ * Plan the viewer's subscriptions and display from the latest watch snapshots.
+ * `offline` is the browser's own connection state. A watch that has waited for the server in vain carries
+ * `meta.stale` itself, so one silent watch does not make another watch's cache miss count as absence.
+ */
 export function viewerState({ route, team, game, live, stats, offline, calendarSeason, lastSeason, lastShown }) {
   const settled = watch => watch?.data !== undefined
-    && (watch.data !== null || !watch.meta?.fromCache || watch.meta?.error || offline);
+    && (watch.data !== null || !watch.meta?.fromCache || watch.meta?.error || watch.meta?.stale || offline);
   const matching = (watch, key) => key !== null && watch.key === key ? watch : undefined;
 
   const isHome = route.kind === 'home';
@@ -357,7 +361,7 @@ export function viewerState({ route, team, game, live, stats, offline, calendarS
       season = lastSeason ?? calendarSeason;
     } else if (currentId === null) {
       // A cached roster without a pointer may be older than the server's current game.
-      if (!team.meta?.fromCache || offline) season = calendarSeason;
+      if (!team.meta?.fromCache || team.meta?.stale || offline) season = calendarSeason;
     } else if (settled(currentGame)) {
       // A missing game can arrive before the team points elsewhere.
       season = currentGame.data === null ? lastSeason ?? calendarSeason : currentGame.data.season;

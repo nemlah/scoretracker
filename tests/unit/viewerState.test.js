@@ -169,6 +169,31 @@ test('offline resolves a cached miss for the current game', () => {
   step('reconnect before server replies', { offline: false }, homePlan({ live: 'g1', season: calendarSeason }));
 });
 
+test('one stale watch does not settle another watch\'s cache miss', () => {
+  const step = sequence();
+  const staleCached = { fromCache: true, stale: true };
+  step('the team is cached and has waited in vain', {
+    team: teamWatch({ currentGameId: 'g1' }, staleCached), live: watch('g1', finalGame('g1'), cached),
+  }, homePlan({ live: 'g1', season: pastSeason }));
+  step('a fresh season stats watch answers with a cached miss', { stats: watch(pastSeason, null, cached) },
+    homePlan({ live: 'g1', season: pastSeason, results: 'loading' }));
+  step('the pointer moves on, still stale, and the new season starts with a cached miss', {
+    team: teamWatch({ currentGameId: 'g2' }, staleCached), live: watch('g2', finalGame('g2', calendarSeason), cached),
+    stats: watch(calendarSeason, null, cached),
+  }, homePlan({ live: 'g2', season: calendarSeason, results: 'loading' }));
+  step('that stats watch has itself waited in vain', { stats: watch(calendarSeason, null, staleCached) },
+    homePlan({ live: 'g2', season: calendarSeason, results: 'empty' }));
+  step('the server answers', { stats: watch(calendarSeason, statsWith('g2')) },
+    homePlan({ live: 'g2', season: calendarSeason, results: 'ready' }));
+});
+
+test('a stale cached roster-only team resolves the calendar season', () => {
+  const step = sequence();
+  step('cached roster, no pointer', { team: teamWatch({ roster: [] }, cached) }, homePlan());
+  step('the team watch has waited in vain', { team: teamWatch({ roster: [] }, { fromCache: true, stale: true }) },
+    homePlan({ season: calendarSeason }));
+});
+
 test('reconnect holds an unavailable routed game only for the same id', () => {
   const step = sequence();
   step('game is missing in the online cache', { route: gameRoute('g1'), game: watch('g1', null, cached) },

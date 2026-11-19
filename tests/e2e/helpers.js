@@ -84,6 +84,16 @@ export const recordHome = page => page.addInitScript(() => {
     push(window.__states, { season: el.getAttribute('data-season') ?? '', results: el.getAttribute('data-results') ?? '', first });
   }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
 });
+// Starts the recording over from what home shows now, so a test can judge only what happens after a point
+// it has waited for.
+export const restartHomeRecord = page => page.evaluate(() => {
+  const el = document.querySelector('[data-testid="games-list"]');
+  const season = el.getAttribute('data-season') ?? '';
+  const results = el.getAttribute('data-results') ?? '';
+  const first = document.querySelector('[data-testid="result-row"] td:nth-child(2)')?.textContent ?? '';
+  window.__pairs.splice(0, window.__pairs.length, { season, results });
+  window.__states.splice(0, window.__states.length, { season, results, first });
+});
 export const recordedHome = async page => ({
   pairs: await page.evaluate(() => window.__pairs),
   states: await page.evaluate(() => window.__states),
@@ -91,8 +101,9 @@ export const recordedHome = async page => ({
 
 // Serves a copy of repo.js that tells the page when each snapshot has been delivered AND processed
 // (`window.__snaps`), so a test can wait for the viewer to handle one write before making the next.
-// `slow` holds back a document's first server answer: { 'stats/2019-20': { holdMs, miss } } first
-// delivers a cached snapshot (a cache miss when `miss`), then the real one after holdMs.
+// `slow` shapes a document's answers: { holdMs, miss } first delivers a cached snapshot (a cache miss when
+// `miss`), then the real one after holdMs; { cached: true } delivers every snapshot as if from the cache,
+// so the server never seems to confirm it (the record still says what the server really sent).
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
   const real = readFileSync('js/repo.js', 'utf8');
@@ -104,12 +115,13 @@ export async function instrumentRepo(page, slow = {}) {
       });
       const rule = window.__slow?.[ref.path];
       const seen = (window.__seen ??= new Set());
-      if (rule && !seen.has(ref.path)) {
+      const meta = { fromCache: rule?.cached ? true : fromCache, hasPendingWrites };
+      if (rule?.holdMs && !seen.has(ref.path)) {
         seen.add(ref.path);
         cb(rule.miss ? null : data, { fromCache: true, hasPendingWrites });
-        setTimeout(() => { cb(data, { fromCache, hasPendingWrites }); record(); }, rule.holdMs);
+        setTimeout(() => { cb(data, meta); record(); }, rule.holdMs);
       } else {
-        cb(data, { fromCache, hasPendingWrites });
+        cb(data, meta);
         record();
       }
     }`);

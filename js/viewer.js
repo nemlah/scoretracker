@@ -197,19 +197,27 @@ function fallbackState({ route, team, game, live, stats, offline, calendarSeason
   };
 }
 
+// A watch that has waited STALE_MS for the server carries `meta.stale` into the plan, so only its own cache
+// miss counts as absence. `offline` in the plan is the browser's own state.
+const withStale = name => {
+  const watch = state[name];
+  return subs[name].stale ? { ...watch, meta: { ...watch.meta, stale: true } } : watch;
+};
+
 function planFor(route) {
   const input = {
     route,
-    team: state.team,
-    game: state.game,
-    live: state.live,
-    stats: state.stats,
-    offline: isOffline(),
+    team: withStale('team'),
+    game: withStale('game'),
+    live: withStale('live'),
+    stats: withStale('stats'),
+    offline: state.offline,
     calendarSeason: seasonFor(todayIso()),
     lastSeason,
     lastShown,
   };
-  return model.viewerState?.(input) ?? fallbackState(input);
+  // The inline rules of an R1 model.js have no per-watch staleness: any stale watch means offline there.
+  return model.viewerState?.(input) ?? fallbackState({ ...input, offline: state.offline || isStale() });
 }
 
 // Each watch the plan tracks and has no server answer for yet runs its own stale timer; a watch that
