@@ -166,6 +166,8 @@ test('missing and garbage season documents give empty statistics', () => {
 });
 
 test('malformed season fields are absent and do not contaminate other totals', () => {
+  const unsafeCount = Number.MAX_VALUE;
+  const unsafeQuarters = [{ us: unsafeCount, them: unsafeCount }, ...Array.from({ length: 3 }, () => ({ us: 0, them: 0 }))];
   const stats = seasonTeamStats({ results: [
     { us: 3, them: NaN, excl: -1, quarters: [[1, 2]], manUp: { played: 2, scored: 5 }, manDown: { played: 2, stopped: 1 } },
     {
@@ -173,10 +175,22 @@ test('malformed season fields are absent and do not contaminate other totals', (
       quarters: [{ us: 0, them: 0 }, { us: 1, them: 2 }, { us: 1, them: -1 }, { us: 2, them: 0 }],
       manUp: { played: 1, scored: 1 }, manDown: { played: 3, stopped: 1.5 },
     },
+    {
+      us: unsafeCount, them: unsafeCount, excl: unsafeCount, quarters: unsafeQuarters,
+      manUp: { played: unsafeCount, scored: unsafeCount }, manDown: { played: 2, stopped: 1 },
+    },
+    {
+      us: unsafeCount, them: unsafeCount, excl: unsafeCount, quarters: unsafeQuarters,
+      manUp: { played: 2, scored: 1 }, manDown: { played: unsafeCount, stopped: unsafeCount },
+    },
     null,
   ] });
+  assert.deepEqual(stats.quarters, {
+    for: [0, 0, 0, 0], against: [0, 0, 0, 0], diff: [0, 0, 0, 0],
+    totalFor: 0, totalAgainst: 0, totalDiff: 0, covered: 0, of: 5,
+  });
   assertDefinedStats(stats);
-  assert.equal(stats.games.length, 3);
+  assert.equal(stats.games.length, 5);
   for (const row of stats.games) {
     assert.equal(row.manUp, null);
     assert.equal(row.manDown, null);
@@ -185,9 +199,7 @@ test('malformed season fields are absent and do not contaminate other totals', (
   assert.deepEqual(stats.total, {
     manUp: { played: 0, scored: 0 }, manDown: { played: 0, stopped: 0 }, situationGames: 0, excl: 0, exclGames: 0,
   });
-  assert.equal(stats.quarters.covered, 0);
-  assert.equal(stats.quarters.of, 3);
-  assert.deepEqual(stats.goals, { for: 3, against: 2, manUpFor: 0, manDownAgainst: 0, situationGames: 0, of: 3 });
+  assert.deepEqual(stats.goals, { for: 3, against: 2, manUpFor: 0, manDownAgainst: 0, situationGames: 0, of: 5 });
 });
 
 test('pct rounds finite ratios and rejects invalid inputs', () => {

@@ -101,7 +101,7 @@ export function gameTeamStats(game) {
 }
 
 function isCount(value) {
-  return Number.isInteger(value) && value >= 0;
+  return Number.isSafeInteger(value) && value >= 0;
 }
 
 function validSituation(played, successful) {
@@ -162,8 +162,8 @@ export function seasonTeamStats(stats) {
         quarterAgainst[index] += them;
       });
     }
-    if (Number.isFinite(us)) goalsFor += us;
-    if (Number.isFinite(them)) goalsAgainst += them;
+    if (isCount(us)) goalsFor += us;
+    if (isCount(them)) goalsAgainst += them;
     games.push(row);
   }
 
