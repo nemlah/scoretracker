@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { seasonFor, todayIso } from '../../js/model.js';
-import { closeAll, get, remove, resetAll, seed, update } from './helpers.js';
+import {
+  closeAll, delivered, get, instrumentRepo, recordedHome, recordHome, remove, resetAll, seed, update,
+} from './helpers.js';
 
 const roster = [
   { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
@@ -50,6 +52,8 @@ test.beforeEach(async ({ page }) => {
   await resetAll();
 });
 test.afterEach(() => {
+  // The transition tests block the service worker on purpose; the browser says so once.
+  problems = problems.filter(problem => problem !== 'console: Service Worker registration blocked by Playwright');
   expect(problems).toEqual([]);
 });
 test.afterAll(closeAll);
@@ -74,19 +78,6 @@ function expectWarning(pattern) {
   problems = problems.filter(problem => !pattern.test(problem));
 }
 
-// Records each distinct (season, results state, first result's opponent) the home element shows, in a
-// MutationObserver so that a state shown for a single frame is still caught.
-const recordHome = page => page.addInitScript(() => {
-  window.__home = [];
-  const read = () => {
-    const el = document.querySelector('[data-testid="games-list"]');
-    if (!el) return;
-    const first = document.querySelector('[data-testid="result-row"] td:nth-child(2)')?.textContent ?? '';
-    const entry = [el.dataset.season ?? '', el.dataset.results ?? '', first].join('|');
-    if (window.__home.at(-1) !== entry) window.__home.push(entry);
-  };
-  new MutationObserver(read).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-});
 // Whether the celebration was ever shown. The overlay hides itself after 2.5 s, so checking it at the end
 // of a wait would miss a celebration that came and went.
 const recordCelebration = page => page.addInitScript(() => {
@@ -97,13 +88,40 @@ const recordCelebration = page => page.addInitScript(() => {
   }).observe(document, { subtree: true, attributes: true, childList: true });
 });
 const celebrated = page => page.evaluate(() => window.__celebrated);
-const recorded = async page => (await page.evaluate(() => window.__home))
-  .map(entry => {
-    const [season, results, first] = entry.split('|');
-    return { season, results, first };
-  })
-  .filter(entry => entry.season !== '');
-const seasonsOf = record => [...new Set(record.map(entry => entry.season))];
+
+// What the first result row says for each season in the transition tests.
+const OPPONENT = { [OLD]: 'Rivals', [NEW]: 'Waves' };
+const firstReady = list => list.findIndex(entry => entry.results === 'ready');
+
+// A recording of home moving between two seasons that both have results. From the first results shown on:
+// only those two seasons (never the calendar one, never none), never 'empty', the season the page started
+// on keeps its results (no loading), and the rows always belong to the season shown.
+function expectNoForbiddenState({ pairs, states }) {
+  expect(firstReady(pairs), 'home showed results').toBeGreaterThanOrEqual(0);
+  const after = pairs.slice(firstReady(pairs));
+  const start = after[0].season;
+  for (const entry of after) {
+    expect([OLD, NEW], `season of ${JSON.stringify(entry)}`).toContain(entry.season);
+    expect(entry.results, `results of ${JSON.stringify(entry)}`).not.toBe('empty');
+    if (entry.season === start) expect(entry.results, `results of ${JSON.stringify(entry)}`).toBe('ready');
+  }
+  expect(firstReady(states), 'home rendered results').toBeGreaterThanOrEqual(0);
+  for (const entry of states.slice(firstReady(states))) {
+    expect([OLD, NEW], `season of ${JSON.stringify(entry)}`).toContain(entry.season);
+    expect(entry.results, `results of ${JSON.stringify(entry)}`).not.toBe('empty');
+    // Rows are the season's own while shown, and gone while loading.
+    expect(entry.first, `first row of ${JSON.stringify(entry)}`).toBe(entry.results === 'ready' ? OPPONENT[entry.season] : '');
+  }
+}
+
+// A switch within one season changes nothing the visitor can see.
+function expectUnchanged({ pairs, states }) {
+  for (const list of [pairs, states]) {
+    expect(firstReady(list), 'home showed results').toBeGreaterThanOrEqual(0);
+    const after = list.slice(firstReady(list));
+    expect(after, JSON.stringify(after)).toEqual([after[0]]);
+  }
+}
 
 test('home with a live current game shows the header and the banner, and the banner opens the game', async ({ page }) => {
   await Promise.all([
@@ -119,8 +137,7 @@ test('home with a live current game shows the header and the banner, and the ban
   await expect(banner(page)).toHaveAttribute('href', '#/game/g1');
   await expect(page.getByTestId('live-banner-text')).toHaveText('LIVE · Q1 · ANOG 1–0 Rivals');
   await expect(page.getByTestId('watch-live')).toHaveText('Watch');
-  await expect(page.getByTestId('score-us')).toHaveCount(1);
-  await expect(page.getByTestId('score-us')).toBeHidden();
+  await expect(page.getByTestId('score-us')).toHaveCount(0);
   await expect(allGames(page)).toBeHidden();
   await expect(home(page)).toHaveAttribute('data-season', OLD);
   await expect(home(page)).toHaveAttribute('data-results', 'ready');
@@ -130,6 +147,7 @@ test('home with a live current game shows the header and the banner, and the ban
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(opponentName(page)).toHaveText('Rivals');
+  await expect(page.getByTestId('score-us')).toHaveCount(1);
   await expect(allGames(page)).toHaveText('This season');
   await expect(allGames(page)).toHaveAttribute('href', '#/');
   await expect(banner(page)).toBeHidden();
@@ -140,6 +158,8 @@ test('home with a live current game shows the header and the banner, and the ban
   await expect.poll(() => hashOf(page)).toBe('#/');
   await expect(home(page)).toBeVisible();
   await expect(banner(page)).toBeVisible();
+  // The scoreboard leaves the page with the game screen.
+  await expect(page.getByTestId('score-us')).toHaveCount(0);
 });
 
 test('#/games renders the same home as #/', async ({ page }) => {
@@ -150,7 +170,7 @@ test('#/games renders the same home as #/', async ({ page }) => {
   await expect(banner(page)).toContainText('LIVE · Q1 · ANOG 1–0 Waves');
   await expect(home(page)).toHaveAttribute('data-season', OLD);
   await expect(rows(page)).toHaveCount(2);
-  await expect(page.getByTestId('score-us')).toBeHidden();
+  await expect(page.getByTestId('score-us')).toHaveCount(0);
   await expect(allGames(page)).toBeHidden();
   await open(page, '#/');
   await expect(home(page)).toBeVisible();
@@ -181,120 +201,215 @@ test('home with no games says so', async ({ page }) => {
   await expect(page.getByTestId('results-empty')).toBeVisible();
 });
 
-test('the live game ending on home removes the banner and its result arrives with the stats', async ({ page }) => {
-  await Promise.all([
-    team('g2'),
-    game('g1', { opponent: 'Rivals' }),
-    game('g2', { opponent: 'Waves', status: 'live', date: '2019-11-08', events: liveEvents, period: 1 }),
-    stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
-  ]);
-  await recordHome(page);
-  await open(page);
-  await expect(banner(page)).toContainText('Waves');
-  await expect(rows(page)).toHaveCount(1);
-  await update('games/g2', { status: 'final' });
-  await expect.poll(async () => (await get('games/g2')).status).toBe('final');
-  await expect(banner(page)).toBeHidden({ timeout: 5000 });
-  await expect(home(page)).toBeVisible();
-  await expect(rows(page)).toHaveCount(1);
-  expect(await hashOf(page)).toBe('');
-  // The tracker's recount writes the stats document after the game ends.
-  await update('stats/' + OLD, {
-    results: [
-      { gameId: 'g1', date: '2019-11-01', opponent: 'Rivals', us: 2, them: 1 },
-      { gameId: 'g2', date: '2019-11-08', opponent: 'Waves', us: 1, them: 0 },
-    ],
-  });
-  await expect(rows(page)).toHaveCount(2, { timeout: 5000 });
-  const record = await recorded(page);
-  expect(seasonsOf(record)).toEqual([OLD]);
-  const firstReady = record.findIndex(entry => entry.results === 'ready');
-  expect(firstReady).toBeGreaterThanOrEqual(0);
-  expect(record.slice(firstReady).map(entry => entry.results)).not.toContain('loading');
-  expect(record.slice(firstReady).map(entry => entry.results)).not.toContain('empty');
-});
+// Home and the game screen while the current game ends or moves on. The viewer's listeners can fire in
+// either order, and a recording only proves an order if the viewer has handled the first write before the
+// second is made: `delivered` waits for the snapshot to be delivered and processed in the page.
+test.describe('transitions', () => {
+  test.use({ serviceWorkers: 'block' });
 
-// Ending a reopened older game also moves currentGameId to the newest game, in one batch; the viewer's
-// team and game listeners can fire in either order. Two sequential writes pin each order.
-const seedReopened = () => Promise.all([
-  team('g1'),
-  game('g1', { opponent: 'Rivals', status: 'live', period: 4 }),
-  game('g2', { opponent: 'Waves', season: NEW, status: 'final', date: '2020-11-08', events: liveEvents }),
-  stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
-  stats(NEW, [['g2', 'Waves', '2020-11-08']]),
-]);
-
-for (const order of ['the team first', 'the game first']) {
-  test(`ending the live game on home while the pointer moves to a newer game (${order}) settles on the newer season`, async ({ page }) => {
-    await seedReopened();
+  test('the live game ending on home removes the banner and its result arrives with the stats', async ({ page }) => {
+    await Promise.all([
+      team('g2'),
+      game('g1', { opponent: 'Rivals' }),
+      game('g2', { opponent: 'Waves', status: 'live', date: '2019-11-08', events: liveEvents, period: 1 }),
+      stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
+    ]);
+    await instrumentRepo(page);
     await recordHome(page);
     await open(page);
-    await expect(banner(page)).toContainText('Rivals');
-    await expect(home(page)).toHaveAttribute('data-season', OLD);
-    if (order === 'the team first') {
-      await update('team/main', { currentGameId: 'g2' });
-      // g1 is no longer the current game, so its banner goes while g1 is still live.
-      await expect(banner(page)).toBeHidden({ timeout: 5000 });
-      await update('games/g1', { status: 'final' });
-    } else {
-      await update('games/g1', { status: 'final' });
-      await expect(banner(page)).toBeHidden({ timeout: 5000 });
-      await update('team/main', { currentGameId: 'g2' });
-    }
-    await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
-    await expect(home(page)).toHaveAttribute('data-results', 'ready');
-    await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
-    expect((await get('games/g1')).status).toBe('final');
-    expect((await get('team/main')).currentGameId).toBe('g2');
-    const record = await recorded(page);
-    expect(seasonsOf(record).sort()).toEqual([OLD, NEW]);
-    // Both seasons have results: neither may show as empty at any point.
-    expect(record.map(entry => entry.results)).not.toContain('empty');
-    // Once the old season's results showed, nothing but the new season's loading may replace them.
-    const oldEntries = record.filter(entry => entry.season === OLD).map(entry => entry.results);
-    expect(oldEntries.slice(oldEntries.indexOf('ready')).every(state => state === 'ready')).toBe(true);
+    await expect(banner(page)).toContainText('Waves');
+    await expect(rows(page)).toHaveCount(1);
+    await update('games/g2', { status: 'final' });
+    expect((await get('games/g2')).status).toBe('final');
+    await delivered(page, 'games/g2', 'status', 'final');
     await expect(banner(page)).toBeHidden();
+    await expect(home(page)).toBeVisible();
+    await expect(rows(page)).toHaveCount(1);
+    expect(await hashOf(page)).toBe('');
+    // The tracker's recount writes the stats document after the game ends.
+    await update(`stats/${OLD}`, {
+      results: [
+        { gameId: 'g1', date: '2019-11-01', opponent: 'Rivals', us: 2, them: 1 },
+        { gameId: 'g2', date: '2019-11-08', opponent: 'Waves', us: 1, them: 0 },
+      ],
+    });
+    await expect(rows(page)).toHaveCount(2, { timeout: 5000 });
+    const { pairs, states } = await recordedHome(page);
+    // One season, results never leave 'ready' once shown.
+    for (const list of [pairs, states]) {
+      const after = list.slice(firstReady(list));
+      expect(firstReady(list)).toBeGreaterThanOrEqual(0);
+      expect(after.every(entry => entry.season === OLD && entry.results === 'ready'), JSON.stringify(after)).toBe(true);
+    }
   });
 
-  test(`ending the game while on its screen with the pointer moved (${order}) stays on the final score`, async ({ page }) => {
+  // Ending a reopened older game also moves currentGameId to the newest game, in one batch.
+  const seedReopened = () => Promise.all([
+    team('g1'),
+    game('g1', { opponent: 'Rivals', status: 'live', period: 4 }),
+    game('g2', { opponent: 'Waves', season: NEW, status: 'final', date: '2020-11-08', events: liveEvents }),
+    stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
+    stats(NEW, [['g2', 'Waves', '2020-11-08']]),
+  ]);
+
+  for (const order of ['the team first', 'the game first']) {
+    test(`ending the live game on home while the pointer moves to a newer game (${order}) settles on the newer season`, async ({ page }) => {
+      await seedReopened();
+      await instrumentRepo(page);
+      await recordHome(page);
+      await open(page);
+      await expect(banner(page)).toContainText('Rivals');
+      await expect(home(page)).toHaveAttribute('data-season', OLD);
+      if (order === 'the team first') {
+        await update('team/main', { currentGameId: 'g2' });
+        await delivered(page, 'team/main', 'pointer', 'g2');
+        // g1 is no longer the current game, so its banner goes while g1 is still live.
+        await expect(banner(page)).toBeHidden();
+        await update('games/g1', { status: 'final' });
+      } else {
+        await update('games/g1', { status: 'final' });
+        await delivered(page, 'games/g1', 'status', 'final');
+        await expect(banner(page)).toBeHidden();
+        await update('team/main', { currentGameId: 'g2' });
+      }
+      await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
+      await expect(home(page)).toHaveAttribute('data-results', 'ready');
+      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
+      expect((await get('games/g1')).status).toBe('final');
+      expect((await get('team/main')).currentGameId).toBe('g2');
+      const record = await recordedHome(page);
+      expectNoForbiddenState(record);
+      expect(record.pairs.at(-1)).toEqual({ season: NEW, results: 'ready' });
+      await expect(banner(page)).toBeHidden();
+    });
+
+    test(`ending the game while on its screen with the pointer moved (${order}) stays on the final score`, async ({ page }) => {
+      await Promise.all([
+        team('g1'),
+        game('g1', { opponent: 'Rivals', status: 'live', period: 4 }),
+        game('g2', { opponent: 'Waves', season: NEW, status: 'live', date: '2020-11-08', events: liveEvents, period: 1 }),
+      ]);
+      await instrumentRepo(page);
+      await open(page, '#/game/g1');
+      await expect(opponentName(page)).toHaveText('Rivals');
+      await expect(page.getByTestId('live-badge')).toBeVisible();
+      await page.evaluate(() => {
+        window.__gone = false;
+        new MutationObserver(() => {
+          const homeEl = document.querySelector('[data-testid="games-list"]');
+          const unavailable = document.querySelector('[data-testid="game-unavailable"]');
+          if ((homeEl && !homeEl.hidden) || (unavailable && !unavailable.hidden)
+            || !document.querySelector('[data-testid="score-us"]')) window.__gone = true;
+        }).observe(document.body, { subtree: true, attributes: true, childList: true });
+      });
+      const before = await page.evaluate(() => history.length);
+      if (order === 'the team first') {
+        await update('team/main', { currentGameId: 'g2' });
+        await delivered(page, 'team/main', 'pointer', 'g2');
+        await expect(banner(page)).toContainText('Waves');
+        await update('games/g1', { status: 'final' });
+      } else {
+        await update('games/g1', { status: 'final' });
+        await delivered(page, 'games/g1', 'status', 'final');
+        await expect(page.getByTestId('final-badge')).toBeVisible();
+        await update('team/main', { currentGameId: 'g2' });
+        await delivered(page, 'team/main', 'pointer', 'g2');
+        await expect(banner(page)).toContainText('Waves');
+      }
+      await expect(page.getByTestId('final-badge')).toBeVisible({ timeout: 5000 });
+      await expect(opponentName(page)).toHaveText('Rivals');
+      await expect(page.getByTestId('score-us')).toHaveText('2');
+      expect(await hashOf(page)).toBe('#/game/g1');
+      expect(await page.evaluate(() => history.length)).toBe(before);
+      expect(await page.evaluate(() => window.__gone)).toBe(false);
+      expect((await get('games/g1')).status).toBe('final');
+      expect((await get('team/main')).currentGameId).toBe('g2');
+    });
+  }
+
+  for (const order of ['the game first', 'the team first']) {
+    test(`the current game deleted while on home with the pointer moving to another season (${order})`, async ({ page }) => {
+      await Promise.all([
+        team('g1'),
+        game('g1', { opponent: 'Rivals' }),
+        game('g2', { opponent: 'Waves', season: NEW, date: '2020-11-08', events: liveEvents }),
+        stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
+        stats(NEW, [['g2', 'Waves', '2020-11-08']]),
+      ]);
+      await instrumentRepo(page);
+      await recordHome(page);
+      await open(page);
+      await expect(home(page)).toHaveAttribute('data-season', OLD);
+      await expect(home(page)).toHaveAttribute('data-results', 'ready');
+      if (order === 'the game first') {
+        await remove('games/g1');
+        await delivered(page, 'games/g1', 'exists', false);
+        await update('team/main', { currentGameId: 'g2' });
+      } else {
+        await update('team/main', { currentGameId: 'g2' });
+        await delivered(page, 'team/main', 'pointer', 'g2');
+        await remove('games/g1');
+      }
+      await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
+      await expect(home(page)).toHaveAttribute('data-results', 'ready');
+      await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
+      expect(await get('games/g1')).toBeUndefined();
+      const record = await recordedHome(page);
+      expectNoForbiddenState(record);
+      expect(record.pairs.at(-1)).toEqual({ season: NEW, results: 'ready' });
+    });
+  }
+
+  test('a pointer switch within one season changes nothing on home', async ({ page }) => {
     await Promise.all([
       team('g1'),
-      game('g1', { opponent: 'Rivals', status: 'live', period: 4 }),
-      game('g2', { opponent: 'Waves', season: NEW, status: 'live', date: '2020-11-08', events: liveEvents, period: 1 }),
+      game('g1', { opponent: 'Rivals' }),
+      game('g2', { opponent: 'Waves', date: '2019-11-08', events: liveEvents }),
+      stats(OLD, [['g1', 'Rivals', '2019-11-01'], ['g2', 'Waves', '2019-11-08']]),
     ]);
-    await open(page, '#/game/g1');
-    await expect(opponentName(page)).toHaveText('Rivals');
-    await expect(page.getByTestId('live-badge')).toBeVisible();
-    await page.evaluate(() => {
-      window.__gone = false;
-      new MutationObserver(() => {
-        const home = document.querySelector('[data-testid="games-list"]');
-        const unavailable = document.querySelector('[data-testid="game-unavailable"]');
-        if ((home && !home.hidden) || (unavailable && !unavailable.hidden)) window.__gone = true;
-      }).observe(document.body, { subtree: true, attributes: true, childList: true });
-    });
-    const before = await page.evaluate(() => history.length);
-    if (order === 'the team first') {
-      await update('team/main', { currentGameId: 'g2' });
-      // The team snapshot has arrived once the banner shows the newer game.
-      await expect(banner(page)).toContainText('Waves', { timeout: 5000 });
-      await update('games/g1', { status: 'final' });
-    } else {
-      await update('games/g1', { status: 'final' });
-      await expect(page.getByTestId('final-badge')).toBeVisible({ timeout: 5000 });
-      await update('team/main', { currentGameId: 'g2' });
-      await expect(banner(page)).toContainText('Waves', { timeout: 5000 });
-    }
-    await expect(page.getByTestId('final-badge')).toBeVisible({ timeout: 5000 });
-    await expect(opponentName(page)).toHaveText('Rivals');
-    await expect(page.getByTestId('score-us')).toHaveText('2');
-    expect(await hashOf(page)).toBe('#/game/g1');
-    expect(await page.evaluate(() => history.length)).toBe(before);
-    expect(await page.evaluate(() => window.__gone)).toBe(false);
-    expect((await get('games/g1')).status).toBe('final');
+    await instrumentRepo(page);
+    await recordHome(page);
+    await open(page);
+    await expect(home(page)).toHaveAttribute('data-results', 'ready');
+    await update('team/main', { currentGameId: 'g2' });
+    await delivered(page, 'team/main', 'pointer', 'g2');
+    await delivered(page, 'games/g2', 'status', 'final');
     expect((await get('team/main')).currentGameId).toBe('g2');
+    await expect(rows(page)).toHaveCount(2);
+    expectUnchanged(await recordedHome(page));
   });
-}
+
+  // A watch that started after another had waited for the server in vain must not inherit that wait: its
+  // own cache miss is not yet a missing document. Here the old season's stats are never confirmed by the
+  // server (for 9 s), so that watch goes stale; the new season's first answer is a cache miss, and the
+  // server answers 2.5 s later.
+  test('a season watch that starts after another went stale does not settle its cache miss as empty', async ({ page }) => {
+    await Promise.all([
+      team('g1'),
+      game('g1', { opponent: 'Rivals' }),
+      game('g2', { opponent: 'Waves', season: NEW, date: '2020-11-08', events: liveEvents }),
+      stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
+      stats(NEW, [['g2', 'Waves', '2020-11-08']]),
+    ]);
+    await instrumentRepo(page, {
+      [`stats/${OLD}`]: { holdMs: 9000 },
+      [`stats/${NEW}`]: { miss: true, holdMs: 2500 },
+    });
+    await recordHome(page);
+    await open(page);
+    await expect(home(page)).toHaveAttribute('data-results', 'ready');
+    await expect(page.getByTestId('connection-note')).toBeVisible({ timeout: 10000 });
+    await update('team/main', { currentGameId: 'g2' });
+    await delivered(page, 'team/main', 'pointer', 'g2');
+    await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
+    await expect(home(page)).toHaveAttribute('data-results', 'ready', { timeout: 8000 });
+    await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
+    const record = await recordedHome(page);
+    expectNoForbiddenState(record);
+    // The new season's wait was shown as loading, never as no games.
+    expect(record.pairs.filter(entry => entry.season === NEW).map(entry => entry.results)).toContain('loading');
+  });
+});
 
 test('a shared link opens the game before the team document exists, and seeding the team changes nothing', async ({ page }) => {
   await game('g1', { opponent: 'Rivals', status: 'live', period: 1, events: liveEvents });
@@ -318,39 +433,6 @@ test('a shared link opens the game before the team document exists, and seeding 
   await expect(banner(page)).toBeHidden();
 });
 
-for (const order of ['the game first', 'the team first']) {
-  test(`the current game deleted while on home with the pointer moving to another season (${order})`, async ({ page }) => {
-    await Promise.all([
-      team('g1'),
-      game('g1', { opponent: 'Rivals' }),
-      game('g2', { opponent: 'Waves', season: NEW, date: '2020-11-08', events: liveEvents }),
-      stats(OLD, [['g1', 'Rivals', '2019-11-01']]),
-      stats(NEW, [['g2', 'Waves', '2020-11-08']]),
-    ]);
-    await recordHome(page);
-    await open(page);
-    await expect(home(page)).toHaveAttribute('data-season', OLD);
-    await expect(home(page)).toHaveAttribute('data-results', 'ready');
-    if (order === 'the game first') {
-      await remove('games/g1');
-      await update('team/main', { currentGameId: 'g2' });
-    } else {
-      await update('team/main', { currentGameId: 'g2' });
-      await remove('games/g1');
-    }
-    await expect(home(page)).toHaveAttribute('data-season', NEW, { timeout: 5000 });
-    await expect(home(page)).toHaveAttribute('data-results', 'ready');
-    await expect(rows(page).first().locator('td').nth(1)).toHaveText('Waves');
-    expect(await get('games/g1')).toBeUndefined();
-    const record = await recorded(page);
-    expect(seasonsOf(record).sort()).toEqual([OLD, NEW]);
-    expect(seasonsOf(record)).not.toContain(CALENDAR);
-    expect(record.map(entry => entry.results)).not.toContain('empty');
-    const oldEntries = record.filter(entry => entry.season === OLD).map(entry => entry.results);
-    expect(oldEntries.slice(oldEntries.indexOf('ready')).every(state => state === 'ready')).toBe(true);
-  });
-}
-
 test('offline on home keeps the cached results with the connection note, and reconnecting does not flash', async ({ page, context }) => {
   await Promise.all([
     team('g1'),
@@ -368,10 +450,12 @@ test('offline on home keeps the cached results with the connection note, and rec
   await context.setOffline(false);
   await expect(page.getByTestId('connection-note')).toBeHidden({ timeout: 15000 });
   await expect(rows(page)).toHaveCount(1);
-  const record = await recorded(page);
-  const firstReady = record.findIndex(entry => entry.results === 'ready');
-  expect(firstReady).toBeGreaterThanOrEqual(0);
-  expect(record.slice(firstReady)).toEqual(record.slice(firstReady).map(() => ({ season: OLD, results: 'ready', first: 'Rivals' })));
+  const { pairs, states } = await recordedHome(page);
+  for (const list of [pairs, states]) {
+    expect(firstReady(list), 'home showed results').toBeGreaterThanOrEqual(0);
+    const after = list.slice(firstReady(list));
+    expect(after, JSON.stringify(after)).toEqual([after[0]]);
+  }
   dropNoise();
 });
 
@@ -528,8 +612,6 @@ test.describe('watches that never answer', () => {
     await expect(page.getByTestId('connection-note')).toBeVisible();
     await expect(home(page)).toHaveAttribute('data-results', 'failed');
     await expect(page.getByTestId('results-loading')).toHaveCount(0);
-    // The worker is blocked on purpose; the browser says so once.
-    problems = problems.filter(problem => problem !== 'console: Service Worker registration blocked by Playwright');
   });
 });
 

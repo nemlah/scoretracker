@@ -37,7 +37,6 @@ const state = {
   live: { key: null, data: undefined, meta: null }, // the current game, for the banner
   stats: { key: null, data: undefined, meta: null }, // the home season's results
   offline: !navigator.onLine,
-  stale: false,
 };
 
 // The celebration is optional and loaded off the critical path: if either module fails to load
@@ -81,10 +80,10 @@ function parseRoute(hash) {
 
 // Subscriptions keyed by what they watch. A token tells a replaced subscription's late callbacks apart.
 const subs = {
-  team: { key: null, off: null, token: 0, deadline: null },
-  game: { key: null, off: null, token: 0, deadline: null },
-  live: { key: null, off: null, token: 0, deadline: null },
-  stats: { key: null, off: null, token: 0, deadline: null },
+  team: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
+  game: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
+  live: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
+  stats: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
 };
 // The error callback is a new, optional argument: a cached previous repo.js ignores it, and the deadline
 // in startWatch covers that case.
@@ -95,13 +94,15 @@ const openers = {
   stats: (key, next, fail) => repo.watchStats(key, next, fail),
 };
 let lastToken = 0;
-let staleTimer = null;
 let lastSeason = null; // the home season last published
 let lastShown = null; // what the last render showed
 let updating = false;
 let updateAgain = false;
 
-const isOffline = () => state.offline || state.stale;
+// A watch is stale when it has waited STALE_MS for a server answer. That belongs to the watch's own key:
+// replacing a watch (a new season, a new game) starts it afresh, and one watch's silence is not another's.
+const isStale = () => Object.values(subs).some(sub => sub.stale);
+const isOffline = () => state.offline || isStale();
 
 // Replaces a watch: drops the old subscription, forgets its data and, for a key, subscribes. Returns
 // nothing; a subscribe that throws leaves the watch in its error state.
@@ -109,8 +110,9 @@ function startWatch(name, key) {
   const sub = subs[name];
   sub.off?.();
   clearTimeout(sub.deadline);
+  clearTimeout(sub.staleTimer);
   const token = ++lastToken;
-  Object.assign(sub, { key, off: null, token, deadline: null });
+  Object.assign(sub, { key, off: null, token, deadline: null, stale: false, staleTimer: null });
   state[name] = { key, data: undefined, meta: null };
   if (key === null) return;
   const store = (data, meta) => {
@@ -210,38 +212,51 @@ function planFor(route) {
   return model.viewerState?.(input) ?? fallbackState(input);
 }
 
-// The stale timer runs while a watch the plan awaits has no server answer yet. It reconciles against the
-// watches that are active now. Returns true when it changed `state.stale`.
-function syncStaleTimer(plan) {
-  const awaiting = ['team', 'game', 'live', 'stats'].some(name => {
+// Each watch the plan tracks and has no server answer for yet runs its own stale timer; a watch that
+// is answered, replaced or no longer tracked loses its stale status. True when a status was cleared,
+// which can change the plan.
+function syncStale(plan) {
+  let cleared = false;
+  for (const name of ['team', 'game', 'live', 'stats']) {
+    const sub = subs[name];
     const watch = state[name];
-    if (!plan.tracked[name] || watch.key === null) return false;
-    return watch.data === undefined || watch.meta?.fromCache === true || watch.meta?.error === true;
-  });
-  if (!awaiting) {
-    clearTimeout(staleTimer);
-    staleTimer = null;
-    const was = state.stale;
-    state.stale = false;
-    return was;
+    const awaiting = plan.tracked[name] && sub.key !== null
+      && (watch.data === undefined || watch.meta?.fromCache === true || watch.meta?.error === true);
+    if (awaiting) {
+      if (!sub.stale && sub.staleTimer === null) {
+        const { token } = sub;
+        sub.staleTimer = setTimeout(() => {
+          if (sub.token !== token) return;
+          sub.staleTimer = null;
+          sub.stale = true;
+          update();
+        }, STALE_MS);
+      }
+    } else {
+      clearTimeout(sub.staleTimer);
+      sub.staleTimer = null;
+      if (sub.stale) {
+        sub.stale = false;
+        cleared = true;
+      }
+    }
   }
-  if (staleTimer === null && !state.stale) {
-    staleTimer = setTimeout(() => {
-      staleTimer = null;
-      state.stale = true;
-      update();
-    }, STALE_MS);
-  }
-  return false;
+  return cleared;
 }
 
-// The one loop: every event ends here, and nothing renders before the plan has settled.
+// The one loop: every event ends here. A change of watches or of stale status can change the plan, so the
+// plan is recomputed until it holds still (five passes is far more than needed), and only then rendered:
+// one event, one render.
 function runUpdate() {
   const route = parseRoute(location.hash);
-  let plan = planFor(route);
-  // A key change resets that watch, which can change the plan again; five passes is far more than needed.
-  for (let pass = 0; pass < 5 && applyWatches(plan.watch); pass += 1) plan = planFor(route);
-  if (syncStaleTimer(plan)) updateAgain = true;
+  let plan;
+  for (let pass = 0; pass < 5; pass += 1) {
+    plan = planFor(route);
+    const watchesChanged = applyWatches(plan.watch);
+    const staleChanged = syncStale(plan);
+    if (!watchesChanged && !staleChanged) break;
+    if (pass === 4) plan = planFor(route);
+  }
   if (plan.season !== null) lastSeason = plan.season;
   lastShown = {
     gameKey: plan.watch.game, mode: plan.mode, statsKey: plan.watch.stats, results: plan.results,
@@ -315,7 +330,7 @@ const gamesList = h('header', { class: 'games-list', 'data-testid': 'games-list'
   h('h1', { class: 'team-name' }, teamConfig.name));
 const gameSections = h('div', { class: 'stack' });
 const seasonSection = h('div', { class: 'stack' });
-root.append(note, pastNav, gamesList, scoreboard, unavailable, gameSections, seasonSection);
+root.append(note, pastNav, gamesList, unavailable, gameSections, seasonSection);
 
 function setScore(el, value) {
   const next = String(value);
@@ -351,7 +366,13 @@ function render(plan) {
   gamesList.hidden = mode !== 'home';
   setData(gamesList, 'data-season', mode === 'home' ? plan.season : null);
   setData(gamesList, 'data-results', mode === 'home' ? plan.results : null);
-  scoreboard.hidden = mode !== 'game';
+  // The scoreboard is in the page only on the game screen; the node is kept for the next game.
+  if (mode === 'game') {
+    scoreboard.hidden = false;
+    if (!scoreboard.isConnected) unavailable.before(scoreboard);
+  } else {
+    scoreboard.remove();
+  }
   renderPastNav(plan);
   if (game) {
     renderGame(game);

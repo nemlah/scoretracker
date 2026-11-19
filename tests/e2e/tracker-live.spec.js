@@ -225,6 +225,10 @@ test('viewer updates live from tracker taps', async ({ page, browser }) => {
     await tile(page, 5).getByTestId('tile-goal').click();
     await tile(page, 2).getByTestId('tile-goal').click();
     await expect(viewer.getByTestId('score-us')).toHaveText('2', { timeout: 5000 });
+    // The viewer reads what the server has: check the game there too.
+    const gameId = await currentGameId();
+    await expect.poll(async () => (await get(`games/${gameId}`)).events.map(e => [e.type, e.playerId]))
+      .toEqual([['goal', 'p5'], ['goal', 'p2']]);
   } finally {
     await viewerContext.close();
   }

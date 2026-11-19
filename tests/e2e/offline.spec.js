@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
+import { closeAll, get, openLiveGame, recordedHome, recordHome, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -100,6 +100,40 @@ test('the viewer reopens offline from the cached shell', async ({ page, context 
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByTestId('connection-note')).toBeVisible();
+  await context.setOffline(false);
+  dropNetworkNoise(problems);
+});
+
+test('home reopens offline from cached results, with the connection note and no empty or loading flash', async ({ page, context }) => {
+  await seed('team/main', { roster, currentGameId: 'g1' });
+  await seed('games/g1', {
+    opponent: 'Rivals', date: '2019-11-01', season: '2019-20', status: 'final', period: 4,
+    lineup: [{ playerId: 'p5', name: 'Alexiou', cap: 5 }], events: [],
+  });
+  await seed('stats/2019-20', { results: [{ gameId: 'g1', date: '2019-11-01', opponent: 'Rivals', us: 2, them: 1 }] });
+  await page.goto(VIEWER_URL);
+  await expect(page.getByTestId('games-list')).toHaveAttribute('data-results', 'ready');
+  await swReady(page);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+  // Firestore keeps what it has seen; the page after this reload is a new load with no connection.
+  await context.setOffline(true);
+  await recordHome(page);
+  await page.reload();
+  await expect(page.getByTestId('connection-note')).toBeVisible();
+  await expect(page.getByTestId('games-list')).toHaveAttribute('data-results', 'ready');
+  await expect(page.getByTestId('games-list')).toHaveAttribute('data-season', '2019-20');
+  await expect(page.getByTestId('result-row')).toHaveCount(1);
+  const { pairs, states } = await recordedHome(page);
+  // A new load starts on loading; from the first results on nothing else may be shown.
+  for (const list of [pairs, states]) {
+    const first = list.findIndex(entry => entry.results === 'ready');
+    expect(first, JSON.stringify(list)).toBeGreaterThanOrEqual(0);
+    expect(list.slice(first), JSON.stringify(list)).toEqual([list[first]]);
+    // (The attributes are set one at a time, so a loading entry can briefly have no results value yet.)
+    expect(list.slice(0, first).every(entry => ['', 'loading'].includes(entry.results)), JSON.stringify(list)).toBe(true);
+  }
+  expect(states.at(-1)).toEqual({ season: '2019-20', results: 'ready', first: 'Rivals' });
   await context.setOffline(false);
   dropNetworkNoise(problems);
 });

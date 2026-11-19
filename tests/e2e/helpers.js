@@ -53,3 +53,72 @@ export async function openLiveGame(page) {
   await page.getByTestId('live-banner').click();
   await expect(page.getByTestId('score-us')).toBeVisible();
 }
+
+// Records what the home element shows, for transition tests. Two lists, both only while home is visible:
+// `pairs` holds each (season, results) the attributes take, caught as they are set, so two renders in one
+// task are both seen; `states` holds each (season, results, first result's opponent) the DOM shows once a
+// render is done, caught by a MutationObserver. Entries with no season are kept.
+export const recordHome = page => page.addInitScript(() => {
+  window.__pairs = [];
+  window.__states = [];
+  const push = (list, entry) => {
+    if (JSON.stringify(list.at(-1)) !== JSON.stringify(entry)) list.push(entry);
+  };
+  const isHome = el => el.dataset?.testid === 'games-list';
+  const snapshot = el => {
+    if (!el.hidden) push(window.__pairs, { season: el.getAttribute('data-season') ?? '', results: el.getAttribute('data-results') ?? '' });
+  };
+  const { setAttribute, removeAttribute } = Element.prototype;
+  Element.prototype.setAttribute = function set(name, value) {
+    setAttribute.call(this, name, value);
+    if (isHome(this) && (name === 'data-season' || name === 'data-results')) snapshot(this);
+  };
+  Element.prototype.removeAttribute = function remove(name) {
+    removeAttribute.call(this, name);
+    if (isHome(this) && (name === 'data-season' || name === 'data-results')) snapshot(this);
+  };
+  new MutationObserver(() => {
+    const el = document.querySelector('[data-testid="games-list"]');
+    if (!el || el.hidden) return;
+    const first = document.querySelector('[data-testid="result-row"] td:nth-child(2)')?.textContent ?? '';
+    push(window.__states, { season: el.getAttribute('data-season') ?? '', results: el.getAttribute('data-results') ?? '', first });
+  }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+});
+export const recordedHome = async page => ({
+  pairs: await page.evaluate(() => window.__pairs),
+  states: await page.evaluate(() => window.__states),
+});
+
+// Serves a copy of repo.js that tells the page when each snapshot has been delivered AND processed
+// (`window.__snaps`), so a test can wait for the viewer to handle one write before making the next.
+// `slow` holds back a document's first server answer: { 'stats/2019-20': { holdMs, miss } } first
+// delivers a cached snapshot (a cache miss when `miss`), then the real one after holdMs.
+// Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
+export async function instrumentRepo(page, slow = {}) {
+  const real = readFileSync('js/repo.js', 'utf8');
+  const call = 'cb(data, { fromCache, hasPendingWrites });';
+  if (!real.includes(call)) throw new Error('repo.js changed: update instrumentRepo');
+  const body = real.replace(call, `{
+      const record = () => (window.__snaps ??= []).push({
+        path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache,
+      });
+      const rule = window.__slow?.[ref.path];
+      const seen = (window.__seen ??= new Set());
+      if (rule && !seen.has(ref.path)) {
+        seen.add(ref.path);
+        cb(rule.miss ? null : data, { fromCache: true, hasPendingWrites });
+        setTimeout(() => { cb(data, { fromCache, hasPendingWrites }); record(); }, rule.holdMs);
+      } else {
+        cb(data, { fromCache, hasPendingWrites });
+        record();
+      }
+    }`);
+  await page.addInitScript(rules => { window.__slow = rules; }, slow);
+  await page.route('**/js/repo.js', route => route.fulfill({ contentType: 'text/javascript', body }));
+}
+
+// Resolves once a server snapshot of `path` with `field` equal to `value` has been delivered and handled.
+export const delivered = (page, path, field, value) => page.waitForFunction(
+  ([p, f, v]) => window.__snaps?.some(snap => snap.path === p && snap[f] === v && snap.fromCache === false),
+  [path, field, value],
+);
