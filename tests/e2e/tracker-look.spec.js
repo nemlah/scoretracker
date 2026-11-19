@@ -111,8 +111,24 @@ test('foul pips: red for a foul, purple for a penalty foul, grey outline when em
   expect(await css(empty, 'borderTopColor')).toBe('rgb(122, 135, 150)');
 });
 
+// A new game with situations tracked, started through the UI, so the open states are reached by real taps.
+async function startGame(page) {
+  await seed('team/main', { roster });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.getByTestId('live-situations')).toHaveText('MU 0/0 · MD 0/0');
+  await expect(situation(page)).toHaveAttribute('data-state', 'none');
+}
+
 test('a man-up is a solid green band with white text on a green page', async ({ page }) => {
-  await openGame(page, { events: [{ id: 'open', type: 'manUp', period: 1, ts: Date.now() - 5000 }] });
+  await startGame(page);
+  // Nothing open yet: the page is the plain deck.
+  expect(await css(page.locator('body'), 'backgroundColor')).toBe('rgb(244, 246, 248)');
+  await situation(page).click();
   await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
   expect(await css(situation(page), 'backgroundColor')).toBe('rgb(14, 122, 78)');
   expect(await css(situation(page), 'color')).toBe('rgb(255, 255, 255)');
@@ -121,7 +137,8 @@ test('a man-up is a solid green band with white text on a green page', async ({ 
 });
 
 test('a man-down is a hatched orange band with ink text on an orange page', async ({ page }) => {
-  await openGame(page, { events: [{ id: 'x1', type: 'excl', period: 1, ts: Date.now() - 5000, playerId: 'p5' }] });
+  await startGame(page);
+  await tile(page, 5).getByTestId('tile-excl').click();
   await expect(situation(page)).toHaveAttribute('data-state', 'manDown');
   expect(await css(situation(page), 'backgroundImage')).toContain('repeating-linear-gradient');
   expect(await css(situation(page), 'color')).toBe('rgb(11, 19, 32)');
@@ -131,18 +148,35 @@ test('a man-down is a hatched orange band with ink text on an orange page', asyn
   expect(band).toContain('repeating-linear-gradient');
 });
 
-test('the moved banner is pale amber and the screen under it is dimmed', async ({ page }) => {
+// The opacity a user sees: an element's own opacity times that of every ancestor.
+const effectiveOpacity = locator => locator.evaluate(el => {
+  let opacity = 1;
+  for (let node = el; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity);
+  return opacity;
+});
+
+test('the moved banner is pale amber and the live screen under it is dimmed', async ({ page }) => {
   await openGame(page, { events: [ev('gkIn', 1, 'g1')] });
+  // Before the banner nothing is dimmed, so the assertion below can only pass because of it.
+  expect(await effectiveOpacity(page.locator('.live-score'))).toBe(1);
   await update('control/tracker', { activeUid: 'another-device' });
   const banner = page.getByTestId('takeover-banner');
   await expect(banner).toBeVisible();
   expect(await css(banner, 'backgroundColor')).toBe('rgb(255, 244, 214)');
   expect(await css(page.getByTestId('take-over'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
   expect(await css(page.getByTestId('take-over'), 'color')).toBe('rgb(255, 194, 61)');
-  // The write controls stay visible but dimmed.
+  // The banner and its button stay at full strength; the score row (not a write control) and a tile are at 0.4.
+  expect(await effectiveOpacity(banner)).toBe(1);
+  expect(await effectiveOpacity(page.getByTestId('take-over'))).toBe(1);
+  expect(await effectiveOpacity(page.locator('.live-score'))).toBe(0.4);
+  expect(await effectiveOpacity(tile(page, 5))).toBe(0.4);
+  // A disabled write control is dimmed once, not twice.
   await expect(tile(page, 5).getByTestId('tile-goal')).toBeDisabled();
-  expect(Number(await css(page.locator('#app'), 'opacity'))).toBe(1);
-  expect(Number(await css(tile(page, 5).getByTestId('tile-goal'), 'opacity'))).toBeLessThan(0.5);
+  expect(await effectiveOpacity(tile(page, 5).getByTestId('tile-goal'))).toBe(0.4);
+  // Take over still works through the dimmed screen: control comes back and the dimming goes.
+  await page.getByTestId('take-over').click();
+  await expect(banner).toBeHidden();
+  await expect.poll(() => effectiveOpacity(page.locator('.live-score'))).toBe(1);
 });
 
 test('the unsaved banner is pale red with Retry and Discard', async ({ page }) => {
@@ -177,7 +211,19 @@ for (const [width, height, name] of viewports) {
   for (const blockFonts of [false, true]) {
     test(`${width} x ${height} (${name}): no sideways scroll, controls 44 px${blockFonts ? ', fonts blocked' : ''}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
-      if (blockFonts) await page.route('https://fonts.googleapis.com/**', route => route.abort());
+      const blockedUrls = [];
+      const fontErrors = [];
+      if (blockFonts) {
+        await page.route('https://fonts.googleapis.com/**', route => {
+          blockedUrls.push(route.request().url());
+          return route.abort();
+        });
+        // Chromium logs an aborted stylesheet as a console error whose location is the blocked URL.
+        page.on('console', message => {
+          if (message.type() === 'error' && /ERR_FAILED/.test(message.text())
+            && /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(message.location().url)) fontErrors.push(`console: ${message.text()}`);
+        });
+      }
       await openGame(page, { opponent: longOpponent, period: 3, events: richEvents('up') });
       // First the seeded content, so the Greek text is on the page: Google Fonts splits each family into
       // unicode-range subsets and the browser fetches the greek one only once Greek text needs it.
@@ -227,9 +273,10 @@ for (const [width, height, name] of viewports) {
       expect(measured.outside, 'boxes past the right edge').toEqual([]);
       expect(measured.short, 'buttons under 44 px').toEqual([]);
       expect(measured.scroll, 'scrollWidth').toBeLessThanOrEqual(width);
-      // A blocked stylesheet is logged by Chromium as a failed resource: expected here, nothing else is.
       if (blockFonts) {
-        for (let i = problems.length - 1; i >= 0; i -= 1) if (/net::ERR_FAILED/.test(problems[i])) problems.splice(i, 1);
+        // The block really happened, and only the failures it caused are forgiven (each by its own URL).
+        expect(blockedUrls.length, 'font requests aborted').toBeGreaterThan(0);
+        for (const error of fontErrors) problems.splice(problems.indexOf(error), 1);
       }
     });
   }

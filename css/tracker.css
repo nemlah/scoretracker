@@ -88,6 +88,10 @@ body.tracker {
 /* Read-only mode: write controls stay visible but plainly dimmed. */
 .is-readonly [data-write] { opacity: 0.4; cursor: not-allowed; }
 .is-readonly .roster-row .cap { opacity: 0.7; }
+/* Tracking moved: the live screen under the banner is dimmed as a whole (the banner and Take over stay full strength).
+   Controls inside it keep their own opacity, so they are not dimmed twice. */
+body.on-live:has(.banner--takeover:not([hidden])) .view { opacity: 0.4; }
+body.on-live:has(.banner--takeover:not([hidden])) .view :is(.btn:disabled, [data-write]) { opacity: 1; }
 
 .input {
   width: 100%;
