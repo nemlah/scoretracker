@@ -7,7 +7,8 @@
 - Canvas page "R1 build" has 24 design-vs-build pairs for the owner's approval. R2/R3 markup lists are in the spec.
 - Second fix round (9be1e1b) closed the last two re-review items: the Watch focus test now reaches the link by keyboard Tab (Alt+Tab in WebKit); disabled buttons in the Events sheet keep their disabled look under takeover. Codex re-review clean.
 - E2e needs host port 8080 free (CVAT's traefik container uses it; owner stopped CVAT for this run).
-- Merged locally into main (fast-forward) on 19/11/2026; not pushed, not deployed. Next: "merge and deploy" means push + Pages + headless live check per the release routine; then plan Release 2 (viewer structure, Team tab).
+- Deployed 19/11/2026: no live game (3 games, all final); main pushed at 982605e; Pages built it in ~35 s. Headless live check: viewer in the new look with real data, Sofia fonts (Greek) loaded, no sideways scroll at 390 px, club colour applied; tracker reaches the unlock screen in the viewer's browser context; no console errors. Service-worker cache is now v2: open tracker and viewer once on Wi-Fi on every phone before the next game.
+- Next: plan Release 2 (viewer structure: season home with LIVE banner, tabs, centre-line timeline, Team tab; spec has the R2 markup list).
 
 ## 19/11/2026 - Design workflow: direction B, pages 2–4
 - Owner picked B · Shot Clock. Their canvas comments (names left, logo after the name, man-up/man-down as a plain line in the scoreboard, no cards) were applied on page 1 by the canvas's own Claude; page 1 is otherwise unchanged.
