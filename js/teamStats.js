@@ -66,7 +66,7 @@ export function gameTeamStats(game) {
   // Array sort is stable, so equal timestamps keep their original array order.
   const events = game.events.filter(event => regulationPeriods.includes(event.period))
     .sort((a, b) => a.ts - b.ts);
-  const { us, them, excl, pens } = gameResult({ ...game, events });
+  const { us, them } = gameResult({ ...game, events });
   const tracked = isTracked(game);
   const { manUp, manDown } = tracked ? gameSituations(game) : { manUp: null, manDown: null };
   const goals = {
@@ -83,6 +83,10 @@ export function gameTeamStats(game) {
     else if (type === 'pen') quarters[period - 1].pens++;
     else if (type === 'penSave') saved++;
   }
+  // Totals come from the quarter counts, not from gameResult: the previous model.js has no excl or pens
+  // there. remove in R3 (read them from gameResult again)
+  const excl = quarters.reduce((sum, quarter) => sum + quarter.excl, 0);
+  const pens = quarters.reduce((sum, quarter) => sum + quarter.pens, 0);
   const trouble = playerLines(game.lineup, game.events)
     .map(({ playerId, name, cap, excl, pens }) => {
       const fouls = excl + pens;

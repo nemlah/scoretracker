@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import {
   closeAll, delivered, instrumentRepo, resetAll, seed, update,
@@ -509,6 +510,45 @@ test.describe('the stats module fails to load', () => {
       // The failure was the one the test injected: Chromium reports it as a console error (filtered above), WebKit
       // does not log it at all.
       if (browserName === 'chromium') expect(blockedErrors.length).toBeGreaterThan(0);
+    });
+  }
+});
+
+// A phone may hold the previous model.js beside this release's teamStats.js and teamView.js: the previous
+// gameResult has no excl or pens, so the foul totals come from the quarter counts.
+test.describe('the previous model.js beside the Team tab', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  for (const screen of [
+    { name: 'a game', hash: '#/game/team-g1', ready: 'score-us' },
+    { name: 'home', hash: '', ready: 'result-row' },
+  ]) {
+    test(`on ${screen.name} the Team tab has real figures and no undefined`, async ({ page }) => {
+      const previous = execFileSync('git', ['show', '58f859d:js/model.js'], { encoding: 'utf8', maxBuffer: 1 << 20 });
+      let served = 0;
+      await page.route('**/js/model.js*', route => {
+        served++;
+        return route.fulfill({ contentType: 'text/javascript', body: previous });
+      });
+      await seedHome(seasonStatsFull);
+      await open(page, screen.hash);
+      await expect(page.getByTestId(screen.ready).first()).toBeVisible();
+      // The previous file is the one running: it has no excl or pens in gameResult.
+      expect(served, 'the previous model.js was served').toBeGreaterThan(0);
+      await tab(page, 'team').click();
+      if (screen.name === 'a game') {
+        await expect(page.getByTestId('team-fouls-excl').getByTestId('team-total')).toHaveText(String(expected.fouls.excl));
+        await expect(page.getByTestId('team-fouls-pens').getByTestId('team-total')).toHaveText(String(expected.fouls.pens));
+        await expect(page.getByTestId('team-fouls-excl').getByTestId('team-q'))
+          .toHaveText(expected.fouls.quarters.map(quarter => dashed(quarter.excl)));
+        await expect(page.getByTestId('team-pens-against')).toHaveText(
+          `${expected.pensAgainst.faced} faced · ${expected.pensAgainst.saved} saved`);
+        await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText(String(expected.goals.for));
+      } else {
+        const total = page.getByTestId('season-team-total');
+        await expect(total.getByTestId('season-team-excl-total')).toHaveText(String(seasonStatsFullExpected.total.excl));
+      }
+      await noBadText(page);
     });
   }
 });
