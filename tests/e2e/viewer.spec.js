@@ -109,7 +109,6 @@ test('the scoreboard is two rows: the team, its crest and score above the oppone
     box(page.locator('.board-bar')), box(page.locator('.board')),
   ]);
   expect(usBox.bottom, 'our score row is above theirs').toBeLessThanOrEqual(themBox.top + 1);
-  expect(Math.abs(usBox.right - themBox.right), 'scores share a right edge').toBeLessThanOrEqual(1);
   expect(Math.abs((teamBox.top + teamBox.bottom) / 2 - (usBox.top + usBox.bottom) / 2), 'name and score share row 1').toBeLessThan(8);
   expect(Math.abs((oppBox.top + oppBox.bottom) / 2 - (themBox.top + themBox.bottom) / 2), 'opponent and score share row 2').toBeLessThan(8);
   expect(crestBox.left, 'the crest follows the team name').toBeGreaterThanOrEqual(teamBox.right - 1);

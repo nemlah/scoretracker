@@ -705,24 +705,44 @@ for (const scheme of ['light', 'dark']) {
 }
 
 // The grid label is a cell of fixed width. Whatever the label holds, the cell holds it: a label wider than
-// its column is cut, and the number columns keep their size.
-test('a grid label wider than its column is cut by the cell and does not push the numbers', async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 740 });
-  await seedWorstBoard();
-  await open(page, '#/game/g1');
-  await expect(page.getByTestId('score-us')).toHaveText('33');
-  const before = await page.getByTestId('quarter-us').locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
-  // Force the label wider than its 52 px column, as a long team name would.
-  await page.getByTestId('quarter-us').locator('th').evaluate(el => { el.textContent = 'ΠΑΝΕΛΛΗΝΙΟΣ ΓΥΜΝΑΣΤΙΚΟΣ'; });
-  const after = await page.getByTestId('quarter-us').locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
-  expect(after).toEqual(before);
-  const label = await page.getByTestId('quarter-us').locator('th').evaluate(el => ({
-    cut: el.scrollWidth > el.clientWidth, right: el.getBoundingClientRect().right,
-    cell: el.closest('tr').querySelector('td').getBoundingClientRect().left,
-  }));
-  expect(label.cut, 'the text is longer than the cell').toBe(true);
-  expect(label.right, 'the cell ends before the first number').toBeLessThanOrEqual(label.cell + 0.5);
-});
+// its column is clipped by the cell (not merely styled to be) and the number columns keep their size.
+for (const row of ['quarter-us', 'quarter-them']) {
+  test(`a ${row} grid label wider than its column is clipped by the cell and does not push the numbers`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await seedWorstBoard();
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('score-us')).toHaveText('33');
+    const lefts = () => page.getByTestId(row).locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
+    const before = await lefts();
+    // Force the label wider than its 52 px column, as a long team name would.
+    const label = page.getByTestId(row).locator('th');
+    await label.evaluate(el => { el.textContent = 'ΠΑΝΕΛΛΗΝΙΟΣ ΓΥΜΝΑΣΤΙΚΟΣ ΣΥΛΛΟΓΟΣ'; });
+    expect(await lefts()).toEqual(before);
+    const result = await label.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const text = range.getBoundingClientRect();
+      const firstNumber = el.closest('tr').querySelector('td').getBoundingClientRect();
+      // Where the overflowing text would be painted if it were not clipped: over the first number's cell.
+      const probe = document.elementFromPoint(Math.min(text.right, firstNumber.left + 6) - 1, (text.top + text.bottom) / 2);
+      return {
+        overflow: getComputedStyle(el).overflow,
+        textWider: text.width > box.width,
+        scrollWider: el.scrollWidth > el.clientWidth,
+        clientWithinCell: el.clientWidth <= box.width && box.right <= firstNumber.left + 0.5,
+        textReachesNumbers: text.right > firstNumber.left,
+        probeIsLabel: probe === el,
+      };
+    });
+    expect(result.textWider, 'the text is longer than its cell').toBe(true);
+    expect(result.scrollWider, 'the cell has more to show than it can').toBe(true);
+    expect(result.clientWithinCell, 'the cell ends before the first number').toBe(true);
+    expect(result.overflow, 'the cell clips').toBe('hidden');
+    expect(result.textReachesNumbers, 'unclipped, the text would run over the numbers').toBe(true);
+    expect(result.probeIsLabel, 'nothing of the label is painted over the numbers').toBe(false);
+  });
+}
 
 test('with the previous release stylesheet the new scoreboard still shows both scores and the opponent', async ({ page }) => {
   // The previous viewer.css knows none of this release's board classes.
