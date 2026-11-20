@@ -102,7 +102,8 @@ export const recordedHome = async page => ({
 // Serves a copy of repo.js that tells the page when each snapshot has been delivered AND processed
 // (`window.__snaps`), so a test can wait for the viewer to handle one write before making the next.
 // `slow` shapes a document's answers: { holdMs, miss } first delivers a cached snapshot (a cache miss when
-// `miss`), then the real one after holdMs; { cached: true } delivers every snapshot as if from the cache,
+// `miss`), then the real one after holdMs, and any later snapshot of that path waits behind the held one and
+// arrives right after it, in order; { cached: true } delivers every snapshot as if from the cache,
 // so the server never seems to confirm it (the record still says what the server really sent).
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
@@ -115,14 +116,22 @@ export async function instrumentRepo(page, slow = {}) {
       });
       const rule = window.__slow?.[ref.path];
       const seen = (window.__seen ??= new Set());
+      const held = (window.__held ??= {});
       const meta = { fromCache: rule?.cached ? true : fromCache, hasPendingWrites };
-      if (rule?.holdMs && !seen.has(ref.path)) {
+      const deliver = () => { cb(data, meta); record(); };
+      if (held[ref.path]) {
+        // A hold is pending on this path: a later snapshot waits behind it and arrives after it, in order.
+        held[ref.path].push(deliver);
+      } else if (rule?.holdMs && !seen.has(ref.path)) {
         seen.add(ref.path);
         cb(rule.miss ? null : data, { fromCache: true, hasPendingWrites });
-        setTimeout(() => { cb(data, meta); record(); }, rule.holdMs);
+        const queue = held[ref.path] = [deliver];
+        setTimeout(() => {
+          delete held[ref.path];
+          for (const next of queue) next();
+        }, rule.holdMs);
       } else {
-        cb(data, meta);
-        record();
+        deliver();
       }
     }`);
   await page.addInitScript(rules => { window.__slow = rules; }, slow);
