@@ -1,5 +1,18 @@
 # Session log
 
+## 20/11/2026 - R2.1: our goals stand out on the timeline (deployed)
+- **Request:** the owner's canvas comment asked for our goals to pop more than other events. They picked option A, larger with no tint. The VGame board on the canvas is updated: name 17 px/700, pill 22 px, row 56 px.
+- **Code** (sonnet, Codex-reviewed, one fix round), in `css/viewer.css`:
+  - our goal rows are 56 px, with a 17 px bold name and a 22 px pill (nowrap, -0.03em tracking);
+  - the centre column is `minmax(64px, auto)`, so a fallback-font pill widens the column instead of overflowing. It stays 64 px with Sofia, and the spine stays centred.
+- **Tests:** unit 301; focused 216; full e2e 855 passed, 16 skipped, 1 WebKit flake (tracker-access:341, added to the flake list; passes alone 5/5).
+- **Deployed 20/11/2026** at db664e5, with no game live. The live check matched the sizes above, found no sideways scroll or console errors, and the tracker reaches its unlock screen.
+- **Where we left off:**
+  - The owner opens the tracker once while in control. Its boot recount writes quarters/excl/pens into `stats/2026-27`; then check the season Team tab's goals by quarter.
+  - Remove the merged worktrees `.worktrees/direction-b-r2` and `.worktrees/r2-1-our-goals` and their branches; the cleanup command was denied in-session.
+  - Re-sync the design system to R2; answer the two open spec questions (game-flow order; "Shootout" vs "SO"); plan Release 3 from the spec's R3 carry-overs.
+  - Resolve the canvas comment thread on VGame ("our goals pop") on the canvas. It was addressed but is not sent to Claude.
+
 ## 20/11/2026 - Direction B, Release 2 (viewer structure) built on branch direction-b-r2
 - Built in `.worktrees/direction-b-r2` from `docs/superpowers/plans/2026-11-19-direction-b-r2-viewer.md`:
   - Codex: season data fields and `timelineRows`, `js/teamStats.js`, the `viewerState` planner.
