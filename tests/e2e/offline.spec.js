@@ -29,6 +29,20 @@ test.afterAll(closeAll);
 const tile = (page, cap) => page.locator(`[data-testid="tile"][data-cap="${cap}"]`);
 const goal = page => tile(page, 5).getByTestId('tile-goal');
 const swReady = page => page.evaluate(async () => { await navigator.serviceWorker.ready; });
+const activeUid = async () => (await get('control/tracker'))?.activeUid;
+
+async function waitForHolder() {
+  await expect.poll(activeUid).toBeTruthy();
+  return activeUid();
+}
+
+async function waitForTakeover(aUid) {
+  await expect.poll(async () => {
+    const uid = await activeUid();
+    return Boolean(uid) && uid !== aUid;
+  }).toBe(true);
+}
+
 // Google Fonts is answered by the test, so these tests never wait for (or fail on) the real service. The
 // stylesheet is a plain @font-face on a system font, so no font file is asked for; the font host answers an
 // empty file all the same, if one ever is. `hits` lists every request that reached the stub, whoever made it:
@@ -194,6 +208,7 @@ test('home reopens offline from cached results, with the connection note and no 
 
 test('taps after losing control are flagged, retried after taking back', async ({ page, context, browser }) => {
   const gameId = await startGame(page);
+  const aUid = await waitForHolder();
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   const viewerContext = await browser.newContext({ baseURL: ORIGIN });
   try {
@@ -213,7 +228,7 @@ test('taps after losing control are flagged, retried after taking back', async (
     collectProblems(pageB, problems);
     await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
-    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+    await waitForTakeover(aUid);
 
     // A comes back: its queued write is refused by the rules.
     await context.setOffline(false);
@@ -238,6 +253,7 @@ test('taps after losing control are flagged, retried after taking back', async (
 
 test('a refused goal and its refused scorer change are retried as one goal with the new scorer', async ({ page, context, browser }) => {
   const gameId = await startGame(page);
+  const aUid = await waitForHolder();
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   const viewerContext = await browser.newContext({ baseURL: ORIGIN });
   try {
@@ -266,7 +282,7 @@ test('a refused goal and its refused scorer change are retried as one goal with 
     collectProblems(pageB, problems);
     await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
-    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+    await waitForTakeover(aUid);
 
     // A comes back: both queued writes are refused by the rules.
     await context.setOffline(false);
@@ -379,6 +395,7 @@ const NEXT_GAME = {
 // Device A taps offline on game G while device B takes over; A's writes are refused when it reconnects.
 async function refusedWhileAway(page, context, browser) {
   const gameId = await startGame(page);
+  const aUid = await waitForHolder();
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   await context.setOffline(true);
   await expect(page.getByTestId('sync-status')).toHaveText(OFFLINE_TEXT);
@@ -388,7 +405,7 @@ async function refusedWhileAway(page, context, browser) {
   collectProblems(pageB, problems);
   await pageB.goto(HOME_URL);
   await unlockTracker(pageB);
-  await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+  await waitForTakeover(aUid);
   return { gameId, contextB };
 }
 
@@ -452,6 +469,7 @@ test('taps still waiting when the tracker closed are settled on the next start, 
 test('taps on a game whose offline creation was refused can only be discarded', async ({ page, context, browser }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
+  const aUid = await waitForHolder();
   await context.setOffline(true);
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Ghost FC');
@@ -466,7 +484,7 @@ test('taps on a game whose offline creation was refused can only be discarded', 
     collectProblems(pageB, problems);
     await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
-    await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+    await waitForTakeover(aUid);
     await context.setOffline(false);
 
     // The creation is refused, so the game never exists on the server.

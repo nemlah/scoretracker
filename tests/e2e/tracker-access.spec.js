@@ -80,15 +80,18 @@ async function startGame(page) {
 // server says B holds control. With no live game A shows nothing when it learns of that: call
 // knowsOtherHolds before A acts.
 async function withTwoDevices(page, browser, body) {
+  await expect.poll(activeUid).toBeTruthy();
   const aUid = await activeUid();
-  expect(aUid).toBeTruthy();
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   try {
     const pageB = await contextB.newPage();
     collectProblems(pageB, problems);
     await pageB.goto(HOME_URL);
     await unlockTracker(pageB);
-    await expect.poll(activeUid).not.toBe(aUid);
+    await expect.poll(async () => {
+      const uid = await activeUid();
+      return Boolean(uid) && uid !== aUid;
+    }).toBe(true);
     await body(pageB);
   } finally {
     await contextB.close();

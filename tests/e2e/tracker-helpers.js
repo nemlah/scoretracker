@@ -1,15 +1,23 @@
 import { expect } from '@playwright/test';
+import { isFirestoreChannelLoss } from './network-noise.js';
 
 export const TRACKER_URL = '/track.html?emulator=1';
 // An explicit #/ is a deliberate visit to Home; a bare address resumes a live game.
 export const HOME_URL = `${TRACKER_URL}#/`;
 export const CODE = 'AB12CD';
 
+export function formatConsoleProblem(text, url) {
+  return text.startsWith('Failed to load resource') && url ? `console: ${text} <${url}>` : `console: ${text}`;
+}
+
 // Collects page errors and console errors so specs can assert on a pristine run.
 export function collectProblems(page, problems) {
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
+    if (message.type() !== 'error') return;
+    const error = message.text();
+    const { url } = message.location();
+    if (!isFirestoreChannelLoss(error, url)) problems.push(formatConsoleProblem(error, url));
   });
 }
 

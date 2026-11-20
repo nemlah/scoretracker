@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { closeAll, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, collectProblems, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, collectProblems, formatConsoleProblem, unlockTracker } from './tracker-helpers.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
 const longOpponent = 'Πανελλήνιος Γυμναστικός Σύλλογος Πειραιώς Ολυμπιακός';
@@ -238,8 +238,10 @@ for (const [width, height, name] of viewports) {
         });
         // Chromium logs an aborted stylesheet as a console error whose location is the blocked URL.
         page.on('console', message => {
-          if (message.type() === 'error' && /ERR_FAILED/.test(message.text())
-            && /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(message.location().url)) fontErrors.push(`console: ${message.text()}`);
+          const text = message.text();
+          const { url } = message.location();
+          if (message.type() === 'error' && /ERR_FAILED/.test(text)
+            && /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)) fontErrors.push(formatConsoleProblem(text, url));
         });
       }
       await openGame(page, { opponent: longOpponent, period: 3, events: richEvents('up') });
@@ -294,7 +296,10 @@ for (const [width, height, name] of viewports) {
       if (blockFonts) {
         // The block really happened, and only the failures it caused are forgiven (each by its own URL).
         expect(blockedUrls.length, 'font requests aborted').toBeGreaterThan(0);
-        for (const error of fontErrors) problems.splice(problems.indexOf(error), 1);
+        for (const error of fontErrors) {
+          const index = problems.indexOf(error);
+          if (index !== -1) problems.splice(index, 1);
+        }
       }
     });
   }
