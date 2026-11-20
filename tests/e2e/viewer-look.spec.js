@@ -756,7 +756,7 @@ function worstTimelineEvents() {
   return events;
 }
 
-for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }]) {
+for (const viewport of [{ width: 360, height: 740 }, { width: 844, height: 390 }]) {
   test(`${viewport.width} x ${viewport.height}: the timeline's worst board keeps its sides, cuts the names on one line and does not scroll sideways`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await Promise.all([
@@ -797,7 +797,6 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
           whatCut: what.querySelector('.tl-what-text').scrollWidth > what.querySelector('.tl-what-text').clientWidth + 1,
           whatSize: getComputedStyle(what).fontSize,
           tagVisible: tag ? rect(tag).width > 0 && rect(tag).right <= sideBox.right + 0.5 : null,
-          pillInMid: pill ? rect(pill).width <= 64 && rect(pill).left >= rect(row.querySelector('.tl-mid')).left - 0.5 : null,
           ourGoal: row.dataset.side === 'us' && row.classList.contains('tl-goal'),
           pillText: pill ? pill.textContent : null,
           pillFits: pill ? pill.scrollWidth <= pill.clientWidth : null,
@@ -807,11 +806,23 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
             return rect(pill).left >= mid.left - 0.5 && rect(pill).right <= mid.right + 0.5 && rect(pill).width <= 64;
           })() : null,
           midWidth: rect(row.querySelector('.tl-mid')).width,
+          // How far the centre cell's middle is from the row's middle: the line down the page stays straight.
+          midOffset: (rect(row.querySelector('.tl-mid')).left + rect(row.querySelector('.tl-mid')).right) / 2
+            - (rect(row).left + rect(row).right) / 2,
         };
       });
       return { rows, scroll: [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth] };
     });
     expect(m.rows.length, '12 + 11 goals, 3 fouls, 2 saves').toBe(28);
+    // Our biggest score, 12–11, in the larger pill: its text is inside the pill and the pill inside the 64 px middle.
+    const ourPills = m.rows.filter(row => row.ourGoal && row.pillText);
+    expect(ourPills.length, 'our goals with a score').toBe(12);
+    const total = row => row.pillText.split('–').reduce((sum, n) => sum + Number(n), 0);
+    const biggest = ourPills.reduce((a, b) => (total(b) > total(a) ? b : a));
+    expect(biggest.pillText, 'the biggest two-digit pill').toBe('12–11');
+    expect(biggest.pillFits, 'the pill text is inside the pill').toBe(true);
+    expect(biggest.pillHeight, 'the pill text is on one line').toBeLessThan(40);
+    expect(biggest.pillBoxInMid, 'the biggest pill box is inside the 64 px centre cell').toBe(true);
     for (const row of m.rows) {
       const label = `${row.text}`;
       expect(row.sideInner, `${label}: the side is at least 100 px wide`).toBeGreaterThanOrEqual(100);
@@ -825,11 +836,12 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
       expect(row.whatCut, `${label}: the event line and its tag are not cut`).toBe(false);
       expect(row.whatSize, `${label}: the event line is 13 px`).toBe('13px');
       if (row.tagVisible !== null) expect(row.tagVisible, `${label}: the man-up tag fits`).toBe(true);
-      if (row.pillInMid !== null) expect(row.pillInMid, `${label}: the pill fits the 64 px middle`).toBe(true);
+      expect(row.midWidth, `${label}: the centre cell is 64 px`).toBe(64);
+      expect(Math.abs(row.midOffset), `${label}: the centre cell is in the middle of the row`).toBeLessThanOrEqual(1);
     }
     // Each side has its own long name, and is checked on its own: one side's rows can't stand in for the other's.
     // At 360 px a long name is cut and still shows at least 100 px of text; landscape has room for it. Either
-    // way a row is one line of name over one line of event: 48 px, not taller.
+    // way a row is one line of name over one line of event (the row-height cap is checked on every row above).
     for (const [side, pattern, count] of [['us', /Παπαδόπουλος/, 4], ['them', /Πανελλήνιος/, 11]]) {
       const long = m.rows.filter(row => row.side === side && pattern.test(row.text));
       expect(long.length, `${side}: rows with the long name`).toBe(count);
@@ -839,19 +851,67 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
         expect(row.nameWidth, `${label}: text box`).toBeGreaterThanOrEqual(100);
         expect(row.nameLines, `${label}: name on one line`).toBe(1);
         expect(row.whatHeight, `${label}: event on one line`).toBeLessThan(20);
-        expect(row.rowHeight, `${label}: one line each, 48 px (56 px for our goal)`).toBeLessThanOrEqual(row.ourGoal ? 58 : 50);
       }
     }
-    // Our biggest score, 12–11, in the larger pill: its text is inside the pill and the pill inside the 64 px middle.
+    expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
+  });
+}
+
+// Without Sofia (Google Fonts unreachable) a two-digit score is set in a wider fallback font. The centre column
+// grows for it instead of letting the pill spill out, and the sides stay equal so the line stays straight.
+// 'monospace' stands in for the widest tabular system font: its five characters are about 80 px with padding.
+for (const fallback of ['fonts blocked', 'pill in monospace']) {
+  test(`360 x 740, ${fallback}: a two-digit pill fits its text and its cell, and the line stays straight`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.route('https://fonts.googleapis.com/**', route => route.abort());
+    await Promise.all([
+      seed('team/main', { currentGameId: 'g1', roster }),
+      seed('games/g1', {
+        opponent: longOpponent, date: '2026-11-08', season: '2026-27', status: 'live', period: 3,
+        situations: true, lineup, events: worstTimelineEvents(),
+      }),
+    ]);
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('score-us')).toHaveText('12');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(28);
+    if (fallback === 'pill in monospace') {
+      await page.addStyleTag({ content: '.tl-score { font-family: monospace !important; }' });
+    }
+    // Sofia is not loaded: no face of either family reached "loaded".
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => [...document.fonts].filter(face => /Sofia/.test(face.family) && face.status === 'loaded').length),
+      'no Sofia face is loaded').toBe(0);
+    const m = await page.evaluate(() => {
+      const rect = el => el.getBoundingClientRect();
+      const rows = [...document.querySelectorAll('[data-testid="timeline-item"]')].map(row => {
+        const mid = rect(row.querySelector('.tl-mid'));
+        const box = rect(row);
+        const pill = row.querySelector('.tl-score');
+        return {
+          ourGoal: row.dataset.side === 'us' && row.classList.contains('tl-goal'),
+          pillText: pill ? pill.textContent : null,
+          pillWidth: pill ? rect(pill).width : null,
+          pillFits: pill ? pill.scrollWidth <= pill.clientWidth : null,
+          pillBoxInMid: pill ? rect(pill).left >= mid.left - 0.5 && rect(pill).right <= mid.right + 0.5 : null,
+          midWidth: mid.width,
+          midOffset: (mid.left + mid.right) / 2 - (box.left + box.right) / 2,
+        };
+      });
+      return { rows, scroll: [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth] };
+    });
+    const total = row => row.pillText.split('–').reduce((sum, n) => sum + Number(n), 0);
     const ourPills = m.rows.filter(row => row.ourGoal && row.pillText);
     expect(ourPills.length, 'our goals with a score').toBe(12);
-    const total = row => row.pillText.split('–').reduce((sum, n) => sum + Number(n), 0);
-    const biggest = ourPills.reduce((a, b) => (total(b) > total(a) ? b : a));
-    expect(biggest.pillText, 'the biggest two-digit pill').toBe('12–11');
-    expect(biggest.midWidth, 'the middle column').toBe(64);
-    expect(biggest.pillFits, 'the pill text is inside the pill').toBe(true);
-    expect(biggest.pillHeight, 'the pill text is on one line').toBeLessThan(40);
-    expect(biggest.pillBoxInMid, 'the pill box is inside the 64 px middle').toBe(true);
+    const widest = ourPills.reduce((a, b) => (total(b) > total(a) ? b : a));
+    expect(widest.pillText, 'the widest our-goal pill').toBe('12–11');
+    expect(widest.pillFits, 'the pill text fits inside the pill').toBe(true);
+    expect(widest.pillBoxInMid, 'the pill box sits inside its centre cell').toBe(true);
+    if (fallback === 'pill in monospace') expect(widest.pillWidth, 'the fallback pill is wider than 64 px').toBeGreaterThan(64);
+    for (const row of m.rows) {
+      expect(Math.abs(row.midOffset), `${row.pillText ?? 'icon'}: the centre cell is in the middle of the row`).toBeLessThanOrEqual(1);
+      expect(row.midWidth, 'the centre cell is at least 64 px').toBeGreaterThanOrEqual(64);
+      if (row.pillBoxInMid !== null) expect(row.pillBoxInMid, `${row.pillText}: the pill box is inside its cell`).toBe(true);
+    }
     expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
   });
 }

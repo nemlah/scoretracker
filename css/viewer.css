@@ -481,7 +481,8 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 .tl-quarter-label { color: var(--v-led); }
 .tl-quarter-score { color: var(--v-board-ink); }
-.tl-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr); min-height: 48px; }
+/* The centre is 64 px, and grows only when a score pill is wider (a fallback font): the sides stay equal, so the line stays centred. */
+.tl-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(64px, auto) minmax(0, 1fr); min-height: 48px; }
 .tl-side { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 0.3125rem 0.5rem 0.3125rem 0.75rem; align-items: flex-end; text-align: right; }
 .tl-side--them { padding: 0.3125rem 0.75rem 0.3125rem 0.5rem; align-items: flex-start; text-align: left; }
 .tl-mid { display: flex; align-items: center; justify-content: center; background: var(--tl-spine); }
@@ -537,7 +538,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 .tl-row--us .tl-score { border-color: var(--v-board-line); background: var(--v-board); color: var(--v-led); }
 /* At 22 px a two-digit score is as wide as the 64 px column: never wrap it (WebKit broke "12–11" at the dash) and
-   tighten the digits so it fits with room to spare. */
+   tighten the digits so it fits the column with Sofia. A wider fallback font widens the column instead. */
 .tl-row--us.tl-goal .tl-score { font-size: 1.375rem; letter-spacing: -0.03em; white-space: nowrap; }
 /* Any other event, or a goal whose score is not known: a 28 px box, the stroke icon in it (or its glyph). */
 .tl-mid > .tl-icon {
