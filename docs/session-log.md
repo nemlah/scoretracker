@@ -1,5 +1,24 @@
 # Session log
 
+## 20/11/2026 - Direction B, Release 2 (viewer structure) built on branch direction-b-r2
+- Built in `.worktrees/direction-b-r2` from `docs/superpowers/plans/2026-11-19-direction-b-r2-viewer.md`:
+  - Codex: season data fields and `timelineRows`, `js/teamStats.js`, the `viewerState` planner.
+  - Sonnet: the viewer loop with per-watch stale state, the season home with LIVE banner and results card, the two-row scoreboard with quarter grid, tabs and Players panels, the centre-line timeline with `js/icons.js`, the Team tabs via `js/teamView.js`.
+  - Service-worker cache v3.
+- **Reviews:**
+  - Every task had a Codex review. From Task 9 on, fix rounds follow the owner's routing table.
+  - Final whole-branch reviews by Codex (high) and Claude (opus), then one fix wave: the Team tab with an R1 model.js, the shootout class under R1 CSS, result-link accessible names, test-helper ordering, the Google Fonts stub, focusable tab panels. 4 residual test gaps are parked; they are in the spec's R3 carry-overs.
+- **Tests at the end (36856e9):**
+  - unit 301/301, emulator 29/29;
+  - e2e 847 passed, 16 skipped, 1 WebKit tracker flake that passes alone;
+  - mixed-cache matrix (9 R1/R2 pairings × 2 browsers) 18/18;
+  - reduced motion and 844×390 landscape pass.
+- **Canvas page "R2 build":** 20 design-vs-build pairs at 390 px, 360 px strips and a club-colour row, awaiting owner approval. R2 as-built notes and R3 carry-overs are in the spec.
+- **Todos outside R2:**
+  - WebKit tracker test races (`withTwoDevices`, goalie and situation timing) flake on main too.
+  - Stub `apis.google.com` in e2e: a real 500 tripped the viewer-team console gate once.
+- **Next:** the owner approves the R2 build page, then "merge and deploy". After deploy, open the tracker and the viewer once on Wi-Fi on every phone (cache v3). Then plan Release 3.
+
 ## 19/11/2026 - Direction B, Release 1 (the look) built on branch direction-b-r1
 - Built in the worktree `.worktrees/direction-b-r1` from the plan `docs/superpowers/plans/2026-11-19-direction-b-r1-look.md`: club-colour helper `js/accent.js` (Codex), tokens + Sofia fonts + contrast test (Codex), viewer and tracker CSS restyle with look e2e specs (sonnet), home-screen icons, manifest and link preview, service-worker cache v2 (sonnet). No DOM, class or test-id changes.
 - Every task had a Codex review; final whole-branch reviews by Codex (high) and Claude (sonnet), then one fix wave (Events sheet stays undimmed under takeover, selected-result marker and Watch focus contrast, 44 px targets, brand script checks).

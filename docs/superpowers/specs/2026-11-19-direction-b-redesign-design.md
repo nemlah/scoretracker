@@ -342,6 +342,39 @@ The crest beside ANOG on the game scoreboard (40 px) and in the season header (4
 - **Checks:** 360 px, dark, reduced motion and the four club colours.
 - **Canvas:** screenshots go beside the boards.
 
+### R2 as built (20/11/2026)
+
+- **Viewer state:**
+  - `model.viewerState(input)` plans the routing, the watches and the banner. The viewer recomputes until the plan holds still, then renders once.
+  - Each watch has its own stale deadline (6 s), so one slow watch doesn't mark the others stale.
+- **Optional modules:** `js/icons.js` and `js/teamView.js` (which imports `js/teamStats.js`) each load through one caught `import()`. A failed load leaves glyph icons, or "Team stats aren't available right now."
+- **Season data:** `gameResult` adds `excl`, `pens` and `quarters` (periods 1–4). The game Team tab derives foul totals and penalties from the quarter counts, so an R1 `model.js` still gives numbers.
+- **Shootout class:** the scoreboard shootout line uses `board-shootout`, because R1's `.shootout` rule is white.
+- **Calls visible on the canvas "R2 build" page:**
+  - neutral rules (the tab-strip line, our goal pill's outline in dark, board dividers) stay as faint as the boards draw them;
+  - the home tab strip sits 8 px under the rounded season header;
+  - Team goal bars are split by hue only, with the numbers printed;
+  - season Players cap chips come from today's roster;
+  - the quarter marker has its label in amber and its score in white;
+  - with reduced motion, the goal celebration keeps R1's banner fade.
+
+### R3 carry-overs from R2
+
+1. Remove the mixed-cache shims tagged `remove in R3`. Two more are untagged: the `TIMELINE_SAVES` export check in `js/viewer.js` (~797–801), and the R1-only man-up/man-down keys in `js/strings.js` (~27–31).
+2. Remove the CSS under `/* R1 markup, kept for mixed caches; remove in R3 */`, and `.rope` in `css/base.css`.
+3. Replace the `tOr` English fallbacks with the standard string lookup.
+4. Move the duplicated test helpers (colour reads, the console filter, `open`, `tab`) into `tests/e2e/helpers.js`. Consolidate SVG building (`viewer.js` and `icons.js`) and the panel-card builders (`viewer.js` and `teamView.js`).
+5. With an R1 `model.js` cached, a result link's accessible name has no outcome or score. This goes away with the shims.
+6. Test gaps:
+   - the R1-CSS shootout test seeds a live game, not a final;
+   - `instrument-repo.spec.js` can't see the second snapshot enter the queue;
+   - the season-switch Team test can't reach the stats-key gate.
+7. Fix the WebKit tracker test races (`withTwoDevices` in tracker-access; tracker-goalies; tracker-situations) and stub `apis.google.com` in e2e.
+
+Open for the owner (reviewers marked these as spec questions):
+- Game flow (biggest lead, ties) uses `ts` order, while the timeline's running score uses quarter, then `ts`.
+- The period box shows "Shootout" where the spec says "SO".
+
 ## Release 3 — tracker details
 
 Everything on the tracker boards that R1 could not reach with CSS, built in markup:
