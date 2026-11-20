@@ -441,7 +441,7 @@ function buildTabs(key) {
   panelEls = {};
   clear(panels).append(...names.map(name => {
     panelEls[name] = h('section', {
-      role: 'tabpanel', id: `panel-${name}`, class: 'panel stack', 'data-testid': `panel-${name}`, 'aria-labelledby': `tab-${name}`, hidden: true,
+      role: 'tabpanel', id: `panel-${name}`, tabindex: '0', class: 'panel stack', 'data-testid': `panel-${name}`, 'aria-labelledby': `tab-${name}`, hidden: true,
     });
     return panelEls[name];
   }));

@@ -162,6 +162,24 @@ for (const screen of screens) {
       expect(await panelOnShow(page, first)).toBe(false);
     });
 
+    test('Tab moves from the tab strip into the panel, which has only text and tables, and Shift+Tab back', async ({ page }) => {
+      await seedAll();
+      await open(page, screen.hash);
+      await expect(page.getByTestId(screen.ready).first()).toBeVisible();
+      // The Players and Team panels have nothing focusable inside: the panel itself is the stop (ARIA tabs pattern).
+      for (const name of ['players', 'team']) {
+        await tab(page, name).click();
+        await expect(page.getByTestId(`panel-${name}`)).toHaveAttribute('tabindex', '0');
+        expect(await page.getByTestId(`panel-${name}`).locator('a, button, input, select, textarea, [tabindex]').count(), `${name}: nothing to focus inside`).toBe(0);
+        await page.keyboard.press('Tab');
+        expect(await focused(page), `${name}: Tab lands on the panel`).toBe(`panel-${name}`);
+        await page.keyboard.press('Shift+Tab');
+        expect(await focused(page), `${name}: Shift+Tab returns to the tab`).toBe(`tab-${name}`);
+      }
+      // Only the shown panel is a stop: the hidden ones are not.
+      await expect(page.locator('[role="tabpanel"][hidden]')).toHaveCount(2);
+    });
+
     test('the tab bar fits at 360 px with no sideways scroll', async ({ page }) => {
       await page.setViewportSize({ width: 360, height: 740 });
       await seedAll();
