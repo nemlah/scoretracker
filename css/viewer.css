@@ -15,6 +15,7 @@ body.viewer {
   --v-out: var(--out-text, #B3202F);
   --v-bar: var(--accent-on-board, var(--accent));
   --v-up: #0E7A4E;
+  --v-down: #E8590C;
   /* Result chips: a letter on a fill, 4.5:1 for the letter and 3:1 for the fill against the card, per scheme. */
   --v-chip-w: #0E7A4E;
   --v-chip-l: #D7263D;
@@ -61,13 +62,18 @@ body.viewer {
 .page > * { margin-top: 1rem; }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 
+/* The reconnecting note: a bordered card with a refresh icon before the text. */
 .connection-note {
-  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
   border: 1px solid var(--v-line-strong);
   border-radius: 0.5rem;
   background: var(--paper);
   font-size: 0.9375rem;
 }
+.connection-note svg { flex: none; }
 
 /* Past games: back link and the live banner sit above the scoreboard, in the flow. */
 .past-nav > * + * { margin-top: 0.5rem; }
@@ -137,56 +143,133 @@ body.viewer {
 .home-live-opp { flex: 1 1 0; min-width: 0; max-width: max-content; overflow: hidden; text-overflow: ellipsis; }
 .home-live-watch { flex: none; display: inline-flex; align-items: center; gap: 0.125rem; }
 
-/* Scoreboard: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
-.scoreboard {
-  padding: 0.75rem 1rem 1rem;
-  border-radius: 0.5rem;
+/* Game screen: the "This season" strip, then the board, both across the whole page column. The page's own
+   16 px gutter is cancelled on each side, so on a phone they touch the screen edges. */
+.page > .past-nav.past-nav-game { margin-top: 0; margin-inline: -1rem; }
+.past-nav-game > * + * { margin-top: 0; }
+.past-nav-game .home-live { border-radius: 0; }
+.past-nav-game .back-link {
+  display: flex;
+  min-height: 3.25rem;
+  padding: 0 1.125rem;
   background: var(--v-board);
-  box-shadow: inset 0 0 0 1px var(--v-board-line);
+  border-bottom: 1px solid var(--v-board-line);
+  color: var(--v-board-ink);
+  text-decoration: none;
+}
+.past-nav-game .back-link:focus-visible { outline-color: var(--v-led); outline-offset: -3px; }
+.page > .board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0;
+  margin-inline: -1rem;
+  padding: 0.875rem 1rem 1rem;
+  background: var(--v-board);
   color: var(--v-board-ink);
 }
-.scoreboard > * + * { margin-top: 0.5rem; }
-.board-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem 1rem;
+.board-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2rem; }
+.board-tags, .board-meta { display: inline-flex; align-items: center; gap: 0.5rem; min-width: 0; }
+/* The badges are 4 px boxes: LIVE outlined in amber, FINAL filled with the board's line colour. */
+.board-live, .board-final, .board-chip {
+  padding: 0.125rem 0.625rem;
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-.team-name {
+.board-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid var(--v-led);
+  color: var(--v-led);
+  letter-spacing: 0.12em;
+}
+.board-live .live-dot { width: 0.5rem; height: 0.5rem; }
+.board-final { background: var(--v-board-line); color: var(--v-board-ink); letter-spacing: 0.12em; }
+/* Man-up: green with white text. Man-down: orange with ink text. */
+.board-chip { letter-spacing: 0.08em; }
+.board-chip--manUp { background: var(--v-up); color: var(--v-board-ink); }
+.board-chip--manDown { background: var(--v-down); color: var(--v-on-led); }
+.board-period {
+  min-width: 2.75rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--v-board-line);
+  border-radius: 0.25rem;
+  text-align: center;
+  font: 800 1.625rem/1.2 var(--font-num);
+  color: var(--v-led);
+}
+.board-date { font-size: 0.875rem; color: var(--v-board-muted); }
+
+/* Two score rows: a 6 px club-colour bar, the name (and the crest, on the first row), the score. */
+.board-teams {
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.75rem;
+  row-gap: 0.375rem;
+}
+.board-bar { height: 52px; border-radius: 3px; background: var(--v-bar); }
+.board-team { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.board-team .season-crest { flex: none; }
+.board-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 1.375rem;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  overflow-wrap: anywhere;
 }
-.scoreboard p.team-name { color: var(--v-board-muted); }
-.scoreboard h1.team-name::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 1.1em;
-  margin-right: 0.75rem;
-  border-radius: 3px;
-  background: var(--v-bar);
-  vertical-align: -0.2em;
+.board-opp { color: var(--v-board-muted); }
+.board-score {
+  text-align: right;
+  font: 800 4.75rem/0.9 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--v-led);
 }
-.scoreboard .muted { color: var(--v-board-muted); }
-.status { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
-/* Every badge is a 4 px box on the board; the final badge is the one element with no class. */
-.status > * {
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--v-board-line);
-  border-radius: 0.25rem;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.board > .shootout { margin: 0; font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
+
+/* Goals by quarter: Q1 to Q4 across, our row, then theirs. The current quarter's head is amber. */
+.board-quarters {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: collapse;
+  text-align: center;
+  font: 700 1.125rem/1.4 var(--font-num);
+  font-variant-numeric: tabular-nums;
 }
-.status > span:not([class]) { background: var(--v-board-line); color: var(--v-board-ink); }
-.live-badge { display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--v-led); color: var(--v-led); }
+.board-quarters th, .board-quarters td { padding: 0.1875rem 0; border: 0; color: var(--v-board-ink); }
+.board-quarters thead th {
+  padding: 0.125rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  color: var(--v-board-muted);
+}
+.board-quarters thead td { width: 3.25rem; padding: 0; }
+.board-quarters thead th.is-current { color: var(--v-led); }
+.board-quarters tbody th, .board-quarters tbody td { border-top: 1px solid var(--v-board-line); }
+.board-quarters tbody th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font: 700 0.8125rem/1.4 var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: none;
+}
+.board-quarters tbody th.is-them { color: var(--v-board-muted); }
+.board-quarters td.is-current { color: var(--v-led); }
+.board-quarters td.is-future { color: var(--v-board-muted); }
+.flash { animation: flash 600ms ease-out; }
 .live-dot {
   width: 0.6rem;
   height: 0.6rem;
@@ -194,35 +277,7 @@ body.viewer {
   background: var(--v-led);
   animation: pulse 1.6s ease-in-out infinite;
 }
-.status .period {
-  min-width: 2.75rem;
-  padding: 0 0.5rem;
-  text-align: center;
-  font: 800 1.625rem/1.2 var(--font-num);
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--v-led);
-}
-.score {
-  margin: 0;
-  font: 800 4.75rem/0.9 var(--font-num);
-  font-variant-numeric: tabular-nums;
-  color: var(--v-led);
-  white-space: nowrap;
-}
-.score .dash { padding: 0 0.12em; color: var(--v-board-muted); }
 .shootout { font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
-.scoreboard .quarter-scores {
-  margin-top: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--v-board-line);
-  font: 700 1.125rem/1.4 var(--font-num);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: var(--v-board-ink);
-}
-.quarter-scores .quarter { white-space: nowrap; }
-.flash { animation: flash 600ms ease-out; }
 
 @keyframes pulse { 50% { opacity: 0.25; } }
 @keyframes flash { from { color: var(--v-board-ink); } to { color: var(--v-led); } }
@@ -333,13 +388,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 
 .muted { font-size: 0.875rem; color: var(--v-muted); }
 
-/* Man-up / man-down */
-/* Man-up and man-down read the same here (they differ by their text); the green chip is on the timeline tag. */
-.status .situation-badge { border-color: var(--v-board-muted); color: var(--v-board-ink); }
-.situation-figures { display: flex; flex-wrap: wrap; gap: 0 1.5rem; margin-top: 0.5rem; }
-.scoreboard .situation-figures { margin-top: 0.75rem; color: var(--v-board-muted); }
-.scoreboard .situation-figures:not(:has(.situation-figure:not(:empty))) { display: none; }
-.situation-figure { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+/* The man-up tag on a goal in the timeline. */
 .tl-tag {
   flex: none;
   align-self: center;
@@ -614,6 +663,8 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 /* Short landscape screens: the score fills the left of the screen, so the goal and the banner stack in the
    right column and the wave stays below the score. */
 @media (max-height: 36rem) and (orientation: landscape) {
+  /* The board's rows keep to the left, so the right column stays clear of both scores. */
+  .board > * { max-width: 24rem; }
   .celebration { --ball-from-x: -28vw; --ball-from-y: 60vh; }
   .wave-back { height: 40vh; }
   .wave-front { height: 34vh; }
@@ -645,6 +696,93 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 
 /* R1 markup, kept for mixed caches; remove in R3 */
+/* The previous scoreboard, by its old class names: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
+.scoreboard {
+  padding: 0.75rem 1rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--v-board);
+  box-shadow: inset 0 0 0 1px var(--v-board-line);
+  color: var(--v-board-ink);
+}
+.scoreboard > * + * { margin-top: 0.5rem; }
+.board-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+.team-name {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.scoreboard p.team-name { color: var(--v-board-muted); }
+.scoreboard h1.team-name::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 1.1em;
+  margin-right: 0.75rem;
+  border-radius: 3px;
+  background: var(--v-bar);
+  vertical-align: -0.2em;
+}
+.scoreboard .muted { color: var(--v-board-muted); }
+.status { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+/* Every badge is a 4 px box on the board; the final badge is the one element with no class. */
+.status > * {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--v-board-line);
+  border-radius: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.status > span:not([class]) { background: var(--v-board-line); color: var(--v-board-ink); }
+.live-badge { display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--v-led); color: var(--v-led); }
+.status .period {
+  min-width: 2.75rem;
+  padding: 0 0.5rem;
+  text-align: center;
+  font: 800 1.625rem/1.2 var(--font-num);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--v-led);
+}
+.score {
+  margin: 0;
+  font: 800 4.75rem/0.9 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--v-led);
+  white-space: nowrap;
+}
+.score .dash { padding: 0 0.12em; color: var(--v-board-muted); }
+.scoreboard .quarter-scores {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--v-board-line);
+  font: 700 1.125rem/1.4 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--v-board-ink);
+}
+.quarter-scores .quarter { white-space: nowrap; }
+
+/* Man-up / man-down */
+/* Man-up and man-down read the same here (they differ by their text); the green chip is on the timeline tag. */
+.status .situation-badge { border-color: var(--v-board-muted); color: var(--v-board-ink); }
+.situation-figures { display: flex; flex-wrap: wrap; gap: 0 1.5rem; margin-top: 0.5rem; }
+.scoreboard .situation-figures { margin-top: 0.75rem; color: var(--v-board-muted); }
+.scoreboard .situation-figures:not(:has(.situation-figure:not(:empty))) { display: none; }
+.situation-figure { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+
+/* The previous release's pages follow. */
 /* The live banner: amber with ink text, at least 56 px tall. */
 .live-banner {
   display: flex;

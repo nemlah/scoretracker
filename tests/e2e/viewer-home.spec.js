@@ -60,7 +60,7 @@ test.afterAll(closeAll);
 
 const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 const hashOf = page => page.evaluate(() => location.hash);
-const opponentName = page => page.locator('p.team-name');
+const opponentName = page => page.locator('.board-opp');
 const home = page => page.getByTestId('games-list');
 const allGames = page => page.getByTestId('all-games');
 const banner = page => page.getByTestId('live-banner');
@@ -431,7 +431,7 @@ test('a shared link opens the game before the team document exists, and seeding 
     window.__gone = false;
     new MutationObserver(() => {
       const unavailable = document.querySelector('[data-testid="game-unavailable"]');
-      const board = document.querySelector('.scoreboard');
+      const board = document.querySelector('.board');
       if ((unavailable && !unavailable.hidden) || (board && board.hidden)) window.__gone = true;
     }).observe(document.body, { subtree: true, attributes: true, childList: true });
   });

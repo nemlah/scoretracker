@@ -72,6 +72,12 @@ test('GOAL is the board with amber text', async ({ page }) => {
   expect(await css(page.getByTestId('score-us'), 'color')).toBe('rgb(255, 194, 61)');
 });
 
+test('the live screen has no lane rope', async ({ page }) => {
+  await openGame(page, { events: [] });
+  await expect(page.getByTestId('score-us')).toBeVisible();
+  await expect(page.locator('.rope')).toHaveCount(0);
+});
+
 test('PEN is a purple fill, EXCL a red outline', async ({ page }) => {
   await openGame(page, { events: [] });
   const pen = tile(page, 5).getByTestId('tile-pen');

@@ -10,9 +10,9 @@ import * as model from './model.js';
 import * as strings from './strings.js';
 import { goalieStats, savePct } from './goalies.js';
 import { createRepo } from './repo.js';
-import { manUpGoalIds, replaySituations, situationCounts } from './situations.js';
+import { manUpGoalIds, replaySituations } from './situations.js';
 import {
-  manDownText, manUpText, periodLabel, scoreText, t, timelineEntry,
+  periodLabel, scoreText, t, timelineEntry,
 } from './strings.js';
 import { clear, h } from './ui/dom.js';
 
@@ -301,56 +301,64 @@ window.addEventListener('pageshow', event => {
   if (event.persisted) location.reload();
 });
 
-// Persistent skeleton: score elements survive renders so a change can flash.
-const note = h('p', { class: 'connection-note', 'data-testid': 'connection-note', role: 'status', hidden: true }, t('connectionNote'));
-const scoreUs = h('span', { 'data-testid': 'score-us' });
-const scoreThem = h('span', { 'data-testid': 'score-them' });
-const shootout = h('p', { class: 'shootout', 'data-testid': 'shootout', hidden: true });
-const quarterScores = h('p', { class: 'quarter-scores', 'data-testid': 'quarter-scores', hidden: true });
-const liveBadge = h('span', { class: 'live-badge', 'data-testid': 'live-badge', hidden: true },
-  h('span', { class: 'live-dot', 'aria-hidden': 'true' }), t('live'));
-const finalBadge = h('span', { 'data-testid': 'final-badge', hidden: true }, t('final'));
-const period = h('span', { class: 'period', 'data-testid': 'period', hidden: true });
-const situationBadge = h('span', { class: 'situation-badge', 'data-testid': 'situation-badge', hidden: true });
-const gameManUp = h('p', { class: 'situation-figure', 'data-testid': 'game-manup' });
-const gameManDown = h('p', { class: 'situation-figure', 'data-testid': 'game-mandown' });
-const opponent = h('p', { class: 'team-name' });
-const gameDate = h('p', { class: 'muted', 'data-testid': 'game-date' });
-const scoreboard = h('section', { class: 'scoreboard', hidden: true },
-  h('div', { class: 'board-row' },
-    h('h1', { class: 'team-name' }, teamConfig.name),
-    h('p', { class: 'status' }, liveBadge, finalBadge, period, situationBadge)),
-  h('p', { class: 'score', 'aria-live': 'polite' }, scoreUs, h('span', { class: 'dash', 'aria-hidden': 'true' }, '–'), scoreThem),
-  shootout,
-  quarterScores,
-  h('div', { class: 'board-row' }, opponent, gameDate),
-  h('div', { class: 'situation-figures' }, gameManUp, gameManDown));
-const unavailable = h('section', { class: 'empty', 'data-testid': 'game-unavailable', hidden: true },
-  h('p', {}, t('gameUnavailable')));
 // A string added in this release: a phone holding the previous strings.js gets the fallback, not a key name.
 const tOr = (key, fallback, params) => (strings.hasString?.(key) ? t(key, params) : fallback);
-const chevron = () => {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+const SVG_NS = 'http://www.w3.org/2000/svg';
+// A stroke icon on the 24 grid, 2 px, round caps; built with createElementNS, never innerHTML.
+const icon = path => {
+  const svg = document.createElementNS(SVG_NS, 'svg');
   for (const [name, value] of [['viewBox', '0 0 24 24'], ['width', '18'], ['height', '18'], ['fill', 'none'],
     ['stroke', 'currentColor'], ['stroke-width', '2'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'],
     ['aria-hidden', 'true']]) svg.setAttribute(name, value);
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', 'M9 18l6-6-6-6');
-  svg.append(path);
+  const shape = document.createElementNS(SVG_NS, 'path');
+  shape.setAttribute('d', path);
+  svg.append(shape);
   return svg;
 };
-// Filled by renderPastNav.
-const liveBanner = h('a', { class: 'home-live', href: '#/', 'data-testid': 'live-banner', hidden: true });
-const allGamesLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'all-games' }, t('allGames'));
-const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, allGamesLink);
+const chevron = () => icon('M9 18l6-6-6-6');
+const chevronBack = () => icon('M15 18l-6-6 6-6');
+const refresh = () => icon('M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5');
+
+// Persistent skeleton: score elements survive renders so a change can flash.
+const note = h('p', { class: 'connection-note', 'data-testid': 'connection-note', role: 'status', hidden: true },
+  refresh(), h('span', {}, t('connectionNote')));
+const scoreUs = h('span', { class: 'board-score', 'data-testid': 'score-us' });
+const scoreThem = h('span', { class: 'board-score', 'data-testid': 'score-them' });
+const shootout = h('p', { class: 'shootout', 'data-testid': 'shootout', hidden: true });
+const quarterScores = h('table', { class: 'board-quarters', 'data-testid': 'quarter-scores', hidden: true });
+const liveBadge = h('span', { class: 'board-live', 'data-testid': 'live-badge', hidden: true },
+  h('span', { class: 'live-dot', 'aria-hidden': 'true' }), t('live'));
+const finalBadge = h('span', { class: 'board-final', 'data-testid': 'final-badge', hidden: true }, t('final'));
+const period = h('span', { class: 'board-period', 'data-testid': 'period', hidden: true });
+const situationBadge = h('span', { class: 'board-chip', 'data-testid': 'situation-badge', hidden: true });
+const opponent = h('p', { class: 'board-name board-opp' });
+const gameDate = h('span', { class: 'board-date', 'data-testid': 'game-date', hidden: true });
+// The one crest element: home shows it in the season header, the game screen after the team name.
 const crestSrc = teamConfig.crest ?? null;
 const crest = crestSrc ? h('img', {
   class: 'season-crest', src: crestSrc, alt: '', width: 40, height: 40, 'data-testid': 'crest',
   onerror: () => { crest.hidden = true; },
 }) : null;
+const boardTeam = h('div', { class: 'board-team' }, h('h1', { class: 'board-name' }, teamConfig.name));
+const scoreboard = h('section', { class: 'board', hidden: true },
+  h('div', { class: 'board-top' },
+    h('span', { class: 'board-tags' }, liveBadge, finalBadge),
+    h('span', { class: 'board-meta' }, situationBadge, period, gameDate)),
+  h('div', { class: 'board-teams', 'aria-live': 'polite', 'aria-atomic': 'true' },
+    h('span', { class: 'board-bar', 'aria-hidden': 'true' }), boardTeam, scoreUs,
+    h('span', { 'aria-hidden': 'true' }), opponent, scoreThem),
+  shootout,
+  quarterScores);
+const unavailable = h('section', { class: 'empty', 'data-testid': 'game-unavailable', hidden: true },
+  h('p', {}, t('gameUnavailable')));
+// Filled by renderPastNav.
+const liveBanner = h('a', { class: 'home-live', href: '#/', 'data-testid': 'live-banner', hidden: true });
+const allGamesLink = h('a', { class: 'back-link', href: '#/', 'data-testid': 'all-games' }, chevronBack(), t('allGames'));
+const pastNav = h('div', { class: 'past-nav', hidden: true }, liveBanner, allGamesLink);
 const seasonRecord = h('p', { class: 'season-record', 'data-testid': 'season-record', hidden: true });
+const seasonBrand = h('div', { class: 'season-brand' }, crest, h('p', { class: 'season-team' }, teamConfig.name));
 const gamesList = h('header', { class: 'season-head', 'data-testid': 'games-list', hidden: true },
-  h('div', { class: 'season-brand' }, crest, h('p', { class: 'season-team' }, teamConfig.name)),
+  seasonBrand,
   h('div', { class: 'season-title' }, h('h1', {}, t('seasonHeading')), seasonRecord));
 const gameSections = h('div', { class: 'stack' });
 const seasonSection = h('div', { class: 'stack' });
@@ -397,6 +405,11 @@ function render(plan) {
   } else {
     scoreboard.remove();
   }
+  // One crest element, in the place the screen has for it.
+  if (crest) {
+    const home = mode === 'game' ? boardTeam : seasonBrand;
+    if (crest.parentElement !== home) (mode === 'game' ? home.append(crest) : home.prepend(crest));
+  }
   renderPastNav(plan);
   if (game) {
     renderGame(game);
@@ -416,6 +429,8 @@ function render(plan) {
 function renderPastNav(plan) {
   const withLink = plan.mode === 'game' || plan.mode === 'unavailable';
   allGamesLink.hidden = !withLink;
+  // On the game screen the link and the banner are strips across the page, above the board.
+  pastNav.classList.toggle('past-nav-game', plan.mode === 'game');
   // The banner is for a live game the screen is not showing.
   const live = plan.banner !== null && state.live.key === plan.banner.gameId ? state.live.data : null;
   liveBanner.hidden = live === null;
@@ -487,23 +502,37 @@ function quarterGoals(events) {
   return quarters;
 }
 
-// One element per quarter so the line wraps only between quarters; each quarter but the last carries
-// the separator after it, so a wrapped row may end with the dot but never starts with it. The line
-// is shown only for a final game whose quarters add up to the score on screen.
-function renderQuarterScores(game, score) {
+// The first three characters of the opponent, in Greek-aware capitals (the accent goes: Πανελλήνιος is ΠΑΝ).
+const opponentLabel = name => Array.from(name ?? '').slice(0, 3).join('').toLocaleUpperCase('el');
+
+// The goals-by-quarter table, for a live or a final game whose quarters add up to the score on screen. The
+// current quarter's head is marked and amber; quarters still to come show a dash. The shootout is no
+// quarter, so with it (or a game that is final) nothing is current and every quarter shows its goals.
+function renderQuarterScores(game, score, live) {
   const quarters = quarterGoals(game.events);
   const addsUp = quarters.reduce((sum, [us]) => sum + us, 0) === score.us
     && quarters.reduce((sum, [, them]) => sum + them, 0) === score.them;
-  const show = game.status === 'final' && addsUp;
-  quarterScores.hidden = !show;
-  if (!show) {
+  quarterScores.hidden = !addsUp;
+  if (!addsUp) {
     clear(quarterScores), signatures.delete(quarterScores);
     return;
   }
-  renderIfChanged(quarterScores, quarters, () => quarters.flatMap(([us, them], index) => [
-    ...(index > 0 ? [' '] : []),
-    h('span', { class: 'quarter' }, `${periodLabel(index + 1)} ${us}–${them}${index < quarters.length - 1 ? ' ·' : ''}`),
-  ]));
+  const current = live && [1, 2, 3, 4].includes(game.period) ? game.period : null;
+  const heads = quarters.map((_, index) => h('th', {
+    scope: 'col', class: index + 1 === current ? 'is-current' : null, 'aria-current': index + 1 === current ? 'true' : null,
+  }, periodLabel(index + 1)));
+  const cells = side => quarters.map((goals, index) => {
+    // A quarter after the current one with goals in it anyway (history edited later) shows them.
+    const future = current !== null && index + 1 > current && goals[0] + goals[1] === 0;
+    return h('td', { class: future ? 'is-future' : index + 1 === current ? 'is-current' : null }, future ? '–' : goals[side]);
+  });
+  renderIfChanged(quarterScores, [quarters, current, teamConfig.name, game.opponent], () => [
+    h('caption', { class: 'sr-only' }, tOr('quarterGrid', 'Goals by quarter')),
+    h('thead', {}, h('tr', {}, h('td', { 'aria-hidden': 'true' }), heads)),
+    h('tbody', {},
+      h('tr', { 'data-testid': 'quarter-us' }, h('th', { scope: 'row' }, teamConfig.name), cells(0)),
+      h('tr', { 'data-testid': 'quarter-them' }, h('th', { scope: 'row', class: 'is-them' }, opponentLabel(game.opponent)), cells(1))),
+  ]);
 }
 
 function renderGame(game) {
@@ -516,19 +545,20 @@ function renderGame(game) {
   setScore(scoreThem, score.them);
   shootout.hidden = text.shootout === null;
   shootout.textContent = text.shootout ?? '';
-  renderQuarterScores(game, score);
+  renderQuarterScores(game, score, live);
   liveBadge.hidden = !live;
   finalBadge.hidden = live;
   period.hidden = !live;
   period.textContent = live ? periodLabel(game.period) : '';
   opponent.textContent = game.opponent;
-  gameDate.textContent = formatDate(game.date);
+  // The date is for a finished game; a live one is today's.
+  gameDate.hidden = live;
+  gameDate.textContent = live ? '' : formatDate(game.date);
   const open = live ? replaySituations(game).open : null;
   situationBadge.hidden = open === null;
   situationBadge.textContent = open === null ? '' : t(open.kind === 'manUp' ? 'situationManUp' : 'situationManDown');
-  const counts = situationCounts(game);
-  gameManUp.textContent = manUpText(counts?.manUp ?? null);
-  gameManDown.textContent = manDownText(counts?.manDown ?? null);
+  setData(situationBadge, 'data-kind', open?.kind ?? null);
+  situationBadge.className = open === null ? 'board-chip' : `board-chip board-chip--${open.kind}`;
 
   // Rebuilding the sections would reset the timeline box to the top; carry its scroll position over.
   const oldBox = gameSections.querySelector('.timeline-scroll');

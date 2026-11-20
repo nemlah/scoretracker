@@ -51,7 +51,7 @@ test.afterAll(closeAll);
 
 const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 const hashOf = page => page.evaluate(() => location.hash);
-const opponentName = page => page.locator('p.team-name');
+const opponentName = page => page.locator('.board-opp');
 const resultLink = (page, id) => page.locator(`[data-testid="result-link"][href="#/game/${id}"]`);
 
 test('a results row opens that past game, the back link returns to the season, and the banner opens the live game', async ({ page }) => {

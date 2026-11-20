@@ -151,7 +151,7 @@ test('the overlay does not block the page', async ({ page }) => {
   await update('games/g1', { events: [ev('goal', 1, 'p5')] });
   await expect(celebration(page)).toBeVisible();
   const blocked = await page.evaluate(() => {
-    const name = [...document.querySelectorAll('.scoreboard .team-name')].find(el => el.textContent === 'Opponent FC');
+    const name = [...document.querySelectorAll('.board .board-opp')].find(el => el.textContent === 'Opponent FC');
     const box = name.getBoundingClientRect();
     const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
     return Boolean(hit?.closest('[data-testid="celebration"]'));

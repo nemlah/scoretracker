@@ -216,8 +216,7 @@ export function mount(root, ctx) {
       h('div', { class: 'live-score-block' },
         h('div', { class: 'live-score' }, scoreUs, h('span', { class: 'score-dash', 'aria-hidden': 'true' }, '–'), scoreThem),
         h('div', { class: 'live-meta' }, shootout, situations, sync)),
-      periodButton),
-    h('div', { class: 'rope', 'aria-hidden': 'true' }));
+      periodButton));
 
   const tileList = h('ul', { class: 'tiles', 'data-testid': 'tiles' });
 

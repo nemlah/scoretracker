@@ -92,10 +92,12 @@ test('the scoreboard is a dark board with amber digits', async ({ page }) => {
   await seedLive();
   await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('12');
-  await expect(page.locator('.scoreboard')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
-  await expect(page.locator('.score')).toHaveCSS('color', 'rgb(255, 194, 61)');
+  await expect(page.locator('.board')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
+  await expect(page.getByTestId('score-us')).toHaveCSS('color', 'rgb(255, 194, 61)');
+  await expect(page.getByTestId('score-them')).toHaveCSS('color', 'rgb(255, 194, 61)');
   // The opponent reads quieter than ANOG, in the board's muted colour.
-  await expect(page.locator('p.team-name')).toHaveCSS('color', 'rgb(169, 180, 194)');
+  await expect(page.locator('.board-opp')).toHaveCSS('color', 'rgb(169, 180, 194)');
+  await expect(page.locator('.board h1')).toHaveCSS('color', 'rgb(255, 255, 255)');
 });
 
 test('the club colour pair is set on the page', async ({ page }) => {
@@ -106,12 +108,13 @@ test('the club colour pair is set on the page', async ({ page }) => {
   await expect.poll(() => rootProperty(page, '--on-accent')).toBe('#ffffff');
   await expect.poll(() => rootProperty(page, '--accent-on-board')).toMatch(/^#[0-9a-f]{6}$/);
   await expect.poll(() => rootProperty(page, '--accent-on-board')).not.toBe('#0057b8');
-  // The 6 px bar before ANOG paints it.
-  const bar = await page.locator('.scoreboard h1.team-name').evaluate(el => {
-    const style = getComputedStyle(el, '::before');
-    return { width: style.width, background: style.backgroundColor };
+  // The 6 px bar beside the first row paints it, 52 px tall.
+  const bar = await page.locator('.board-bar').evaluate(el => {
+    const style = getComputedStyle(el);
+    return { width: style.width, height: style.height, background: style.backgroundColor };
   });
   expect(bar.width).toBe('6px');
+  expect(bar.height).toBe('52px');
   expect(bar.background).toBe(await page.evaluate(() => {
     const probe = document.createElement('i');
     probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent-on-board');
@@ -131,8 +134,8 @@ test.describe('viewer dark', () => {
     await expect(page.getByTestId('score-us')).toHaveText('12');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
     await expect(page.locator('.section').first()).toHaveCSS('background-color', 'rgb(19, 30, 46)');
-    await expect(page.locator('.scoreboard')).toHaveCSS('background-color', 'rgb(5, 9, 15)');
-    await expect(page.locator('.score')).toHaveCSS('color', 'rgb(255, 194, 61)');
+    await expect(page.locator('.board')).toHaveCSS('background-color', 'rgb(5, 9, 15)');
+    await expect(page.getByTestId('score-us')).toHaveCSS('color', 'rgb(255, 194, 61)');
   });
 });
 
@@ -148,8 +151,9 @@ for (const blockFonts of [false, true]) {
       const onHome = hash === '#/games';
       if (!onHome) {
         await expect(page.getByTestId('score-us')).toHaveText('12');
-        await expect(page.locator('p.team-name')).toHaveText(longOpponent);
+        await expect(page.locator('.board-opp')).toHaveText(longOpponent);
         await expect(page.getByTestId('situation-badge')).toBeVisible();
+        await expect(page.getByTestId('quarter-scores')).toBeVisible();
         await expect(page.getByTestId('goalie-row')).toHaveCount(2);
       } else {
         await expect(page.getByTestId('games-list')).toBeVisible();
@@ -175,7 +179,7 @@ for (const blockFonts of [false, true]) {
       }
       const overflow = await page.evaluate(() => ({
         scroll: document.scrollingElement.scrollWidth,
-        outside: [...document.querySelectorAll('.scoreboard, .season-head, .section, .score, table, .result-link')]
+        outside: [...document.querySelectorAll('.board, .past-nav, .season-head, .section, .board-score, table, .result-link, [data-testid="situation-badge"], [data-testid="period"]')]
           .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
           .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
       }));
@@ -529,4 +533,122 @@ test.describe('banner with the previous strings.js', () => {
     await expect(page.getByTestId('live-banner-text')).toHaveText('Live: Rivals 12–11 · Q3');
     await expectNaturalWidth(banner.locator('.home-live-opp'), 'opponent');
   });
+});
+
+for (const [scheme, board, line] of [['light', '#0b1320', 'rgb(122, 135, 150)'], ['dark', '#05090f', 'rgb(93, 107, 125)']]) {
+  test.describe(`game screen chrome, ${scheme}`, () => {
+    test.use({ colorScheme: scheme });
+
+    test('the This season bar is a full-width board strip with a 44 px link and a chevron', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await seedPast();
+      await open(page, '#/game/g0');
+      const back = page.getByTestId('all-games');
+      await expect(back).toBeVisible();
+      await expect(back).toHaveText('This season');
+      expect(await back.locator('svg').count(), 'a chevron').toBe(1);
+      const box = await back.boundingBox();
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBe(0);
+      expect(Math.round(box.width)).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+      await expect(back).toHaveCSS('color', 'rgb(255, 255, 255)');
+      // The strip is the board: the same colour as the scoreboard under it, and the two meet.
+      const colours = await page.evaluate(() => [document.querySelector('[data-testid="all-games"]'), document.querySelector('.board')]
+        .map(el => getComputedStyle(el).backgroundColor));
+      expect(colours[0]).toBe(colours[1]);
+      expect(await hexOf(page, colours[0])).toBe(board);
+      // It sits above the board, with the live banner (a live game exists) above the strip.
+      const tops = await page.evaluate(() => ['live-banner', 'all-games'].map(id => document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect().top)
+        .concat(document.querySelector('.board').getBoundingClientRect().top));
+      expect(tops[0]).toBeLessThan(tops[1]);
+      expect(tops[1]).toBeLessThan(tops[2]);
+    });
+
+    test('the connection note is a bordered card with a refresh icon', async ({ page }) => {
+      await seedLive();
+      await open(page, '#/game/g1');
+      await expect(page.getByTestId('score-us')).toHaveText('12');
+      const note = page.getByTestId('connection-note');
+      await expect(note).toBeHidden();
+      await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+      await expect(note).toBeVisible();
+      await expect(note).toHaveAttribute('role', 'status');
+      expect(await note.locator('svg').count(), 'an icon').toBe(1);
+      expect(await note.locator('svg').getAttribute('aria-hidden')).toBe('true');
+      const style = await note.evaluate(el => {
+        const s = getComputedStyle(el);
+        return { display: s.display, border: s.borderTopWidth, colour: s.borderTopColor, radius: s.borderTopLeftRadius, size: s.fontSize };
+      });
+      expect(style).toEqual({ display: 'flex', border: '1px', colour: line, radius: '8px', size: '15px' });
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await expect(note).toBeHidden();
+    });
+
+    test('the chips and the period box clear contrast on the board', async ({ page }) => {
+      await seedLive();
+      await open(page, '#/game/g1');
+      await expect(page.getByTestId('situation-badge')).toBeVisible();
+      const read = locator => locator.evaluate(el => {
+        const s = getComputedStyle(el);
+        return { fg: s.color, bg: s.backgroundColor };
+      });
+      const chip = await read(page.getByTestId('situation-badge'));
+      expect(contrastRatio(await hexOf(page, chip.fg), await hexOf(page, chip.bg)), 'chip text on its fill').toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(await hexOf(page, chip.bg), board), 'chip fill on the board').toBeGreaterThanOrEqual(3);
+      const period = await read(page.getByTestId('period'));
+      expect(contrastRatio(await hexOf(page, period.fg), board), 'period on the board').toBeGreaterThanOrEqual(4.5);
+      const head = await page.getByTestId('quarter-scores').locator('thead th').first().evaluate(el => getComputedStyle(el).color);
+      expect(contrastRatio(await hexOf(page, head), board), 'grid head on the board').toBeGreaterThanOrEqual(4.5);
+    });
+  });
+}
+
+test('landscape on a phone: the game screen has no sideways scroll, with every badge and the grid', async ({ page }) => {
+  await page.setViewportSize({ width: 740, height: 360 });
+  await seedLive();
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toHaveText('12');
+  await expect(page.getByTestId('situation-badge')).toBeVisible();
+  await expect(page.getByTestId('quarter-scores')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test('with the previous release stylesheet the new scoreboard still shows both scores and the opponent', async ({ page }) => {
+  // The previous viewer.css knows none of this release's board classes.
+  const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
+  await page.route('**/css/viewer.css*', route => route.fulfill({ contentType: 'text/css', body: previous }));
+  await seedLive();
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toBeVisible();
+  await expect(page.getByTestId('score-us')).toHaveText('12');
+  await expect(page.getByTestId('score-them')).toBeVisible();
+  await expect(page.getByTestId('score-them')).toHaveText('11');
+  await expect(page.locator('.board-opp')).toBeVisible();
+  await expect(page.getByTestId('timeline-item').first()).toBeVisible();
+});
+
+test('the previous viewer.js (old markup) with this release stylesheet is still a readable board', async ({ page }) => {
+  const previous = execFileSync('git', ['show', '58f859d:js/viewer.js'], { encoding: 'utf8' });
+  await page.route('**/js/viewer.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+  await seedLive();
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toHaveText('12');
+  await expect(page.getByTestId('score-them')).toHaveText('11');
+  // The old class names keep their rules: the dark board, amber digits, the opponent in the muted colour.
+  await expect(page.locator('.scoreboard')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
+  await expect(page.locator('.score')).toHaveCSS('color', 'rgb(255, 194, 61)');
+  await expect(page.locator('p.team-name')).toHaveCSS('color', 'rgb(169, 180, 194)');
+  await expect(page.getByTestId('timeline-item').first()).toBeVisible();
+});
+
+test('this viewer.js with the previous strings.js still shows both scores, the grid and its fallback caption', async ({ page }) => {
+  const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
+  await page.route('**/js/strings.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+  await seedLive();
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toHaveText('12');
+  await expect(page.getByTestId('score-them')).toHaveText('11');
+  await expect(page.getByTestId('quarter-scores')).toBeVisible();
+  await expect(page.getByTestId('quarter-scores').locator('caption')).toHaveText('Goals by quarter');
+  await expect(page.getByTestId('quarter-us').locator('td')).toHaveText(['4', '4', '4', '–']);
 });

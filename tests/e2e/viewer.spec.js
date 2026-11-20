@@ -60,7 +60,8 @@ test('live game', async ({ page }) => {
   await expect(page.getByTestId('period')).toHaveText('Q2');
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(page.getByTestId('final-badge')).toBeHidden();
-  await expect(page.getByTestId('game-date')).toHaveText('08/11/2026');
+  // The date is for a finished game; a live one is today's.
+  await expect(page.getByTestId('game-date')).toBeHidden();
   const rows = page.getByTestId('player-row');
   await expect(rows).toHaveCount(2); // the bench player in the lineup has no goals or exclusions
   await expect(page.locator('[data-testid="player-row"][data-cap="9"]')).toHaveCount(0);
@@ -90,6 +91,76 @@ test('live game', async ({ page }) => {
   await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' })).toContainText('#2 Papadakis · out');
   await expect(page.locator('[data-testid="timeline-item"]', { has: page.locator('.tl-badge', { hasText: 'E' }) }).first()).toContainText('#2 Papadakis');
   expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
+});
+
+test('the scoreboard is two rows: the team, its crest and score above the opponent and its score', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedLive();
+  await open(page, '#/game/g1');
+  const us = page.getByTestId('score-us');
+  const them = page.getByTestId('score-them');
+  await expect(us).toHaveText('3');
+  const box = async locator => locator.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+  });
+  const [usBox, themBox, teamBox, oppBox, crestBox, barBox, boardBox] = await Promise.all([
+    box(us), box(them), box(page.locator('.board h1')), box(page.locator('.board-opp')), box(page.getByTestId('crest')),
+    box(page.locator('.board-bar')), box(page.locator('.board')),
+  ]);
+  expect(usBox.bottom, 'our score row is above theirs').toBeLessThanOrEqual(themBox.top + 1);
+  expect(Math.abs(usBox.right - themBox.right), 'scores share a right edge').toBeLessThanOrEqual(1);
+  expect(Math.abs((teamBox.top + teamBox.bottom) / 2 - (usBox.top + usBox.bottom) / 2), 'name and score share row 1').toBeLessThan(8);
+  expect(Math.abs((oppBox.top + oppBox.bottom) / 2 - (themBox.top + themBox.bottom) / 2), 'opponent and score share row 2').toBeLessThan(8);
+  expect(crestBox.left, 'the crest follows the team name').toBeGreaterThanOrEqual(teamBox.right - 1);
+  expect(crestBox.width).toBe(40);
+  expect(crestBox.height).toBe(40);
+  // The club-colour bar is 52 px tall, beside the first row, and is the club colour on the board.
+  expect(barBox.height).toBe(52);
+  expect(barBox.bottom).toBeLessThanOrEqual(oppBox.top + 1);
+  expect(Math.abs((barBox.top + barBox.bottom) / 2 - (usBox.top + usBox.bottom) / 2)).toBeLessThan(8);
+  // A full-bleed board: the page's gutter does not show on either side of it.
+  expect(boardBox.left).toBe(0);
+  expect(Math.round(boardBox.right)).toBe(await page.evaluate(() => document.documentElement.clientWidth));
+  const crest = page.getByTestId('crest');
+  await expect(crest).toBeVisible();
+  await expect(crest).toHaveAttribute('alt', '');
+  await expect(page.getByTestId('crest')).toHaveCount(1);
+  await expect.poll(() => crest.evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+});
+
+test('the top row has the LIVE badge, the period box and no date while live; a final game has FINAL and its date', async ({ page }) => {
+  await seedLive();
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('live-badge')).toBeVisible();
+  await expect(page.getByTestId('live-badge')).toHaveText('LIVE', { useInnerText: true });
+  await expect(page.getByTestId('period')).toHaveText('Q2');
+  await expect(page.getByTestId('game-date')).toBeHidden();
+  await expect(page.getByTestId('final-badge')).toBeHidden();
+  const order = await page.evaluate(() => ['live-badge', 'period'].map(id => document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect().left));
+  expect(order[0], 'LIVE is left of the period box').toBeLessThan(order[1]);
+
+  await update('games/g1', { status: 'final', period: 4 });
+  await expect(page.getByTestId('final-badge')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('game-date')).toBeVisible();
+  await expect(page.getByTestId('game-date')).toHaveText('08/11/2026');
+  await expect(page.getByTestId('live-badge')).toBeHidden();
+  await expect(page.getByTestId('period')).toBeHidden();
+  await expect(page.getByTestId('situation-badge')).toBeHidden();
+  const final = await page.evaluate(() => ['final-badge', 'game-date'].map(id => document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect().left));
+  expect(final[0], 'FINAL is left of the date').toBeLessThan(final[1]);
+});
+
+test('there is no lane rope on the viewer, on the game screen or on home', async ({ page }) => {
+  await seedLive();
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toBeVisible();
+  await expect(page.locator('.rope')).toHaveCount(0);
+  await open(page);
+  await expect(page.getByTestId('games-list')).toBeVisible();
+  await expect(page.locator('.rope')).toHaveCount(0);
+  // Opening home after the game aborts the streams that were open; that is not an app error.
+  dropNetworkNoise(problems);
 });
 
 test('the game screen runs timeline, then players, and has no season block', async ({ page }) => {
@@ -257,7 +328,7 @@ test('the viewer follows currentGameId from last week\'s final to a new live gam
   await page.getByTestId('live-banner').click();
   await expect(page.getByTestId('live-badge')).toBeVisible();
   await expect(page.getByTestId('final-badge')).toBeHidden();
-  await expect(page.locator('p.team-name')).toHaveText('This Week FC');
+  await expect(page.locator('.board-opp')).toHaveText('This Week FC');
   await expect(page.getByText('Last Week FC')).toHaveCount(0);
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('score-them')).toHaveText('0');
@@ -332,11 +403,44 @@ test('live man-up shows the badge and the game figures', async ({ page }) => {
   await seedTracked();
   await open(page, '#/game/g1');
   await expect(page.getByTestId('situation-badge')).toHaveText('Man-down');
-  await expect(page.getByTestId('game-manup')).toHaveText('Man-up 1/1 · 100%');
-  await expect(page.getByTestId('game-mandown')).toHaveText('Man-down 0/0 stopped');
   await update('games/g1', { events: [...trackedEvents(), { id: 's4', type: 'oppGoal', period: 1, ts: 4000 }] });
   await expect(page.getByTestId('situation-badge')).toBeHidden();
-  await expect(page.getByTestId('game-mandown')).toHaveText('Man-down 0/1 stopped · 0%');
+  // The per-game man-up and man-down figures (game-manup, game-mandown) left the scoreboard: they move to
+  // the Team tab (Task 9), which carries their assertions.
+  await expect(page.getByTestId('game-manup')).toHaveCount(0);
+  await expect(page.getByTestId('game-mandown')).toHaveCount(0);
+});
+
+test('the situation chip is green for man-up and orange for man-down, and absent with nothing open', async ({ page }) => {
+  await seedTracked([{ id: 's1', type: 'manUp', period: 1, ts: 1000 }]);
+  await open(page, '#/game/g1');
+  const chip = page.getByTestId('situation-badge');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveAttribute('data-kind', 'manUp');
+  await expect(chip).toHaveClass(/board-chip--manUp/);
+  // The text is set in capitals by the style; innerText is what a reader sees.
+  await expect(chip).toHaveText('MAN-UP', { useInnerText: true });
+  await expect(chip).toHaveCSS('background-color', 'rgb(14, 122, 78)');
+  await expect(chip).toHaveCSS('color', 'rgb(255, 255, 255)');
+
+  // Our man-up ends, then one of ours is excluded: the chip turns to man-down.
+  await update('games/g1', { events: [
+    { id: 's1', type: 'manUp', period: 1, ts: 1000 }, { id: 's2', type: 'manUpEnd', period: 1, ts: 2000 },
+    { id: 's3', type: 'excl', period: 1, ts: 3000, playerId: 'p2' },
+  ] });
+  await expect(chip).toHaveAttribute('data-kind', 'manDown', { timeout: 5000 });
+  await expect(chip).toHaveClass(/board-chip--manDown/);
+  await expect(chip).not.toHaveClass(/board-chip--manUp/);
+  await expect(chip).toHaveText('MAN-DOWN', { useInnerText: true });
+  await expect(chip).toHaveCSS('background-color', 'rgb(232, 89, 12)');
+  await expect(chip).toHaveCSS('color', 'rgb(11, 19, 32)');
+
+  // Nothing open: no chip, and no stale kind left on it.
+  await update('games/g1', { events: [
+    { id: 's1', type: 'manUp', period: 1, ts: 1000 }, { id: 's2', type: 'manUpEnd', period: 1, ts: 2000 },
+  ] });
+  await expect(chip).toBeHidden({ timeout: 5000 });
+  await expect(chip).not.toHaveAttribute('data-kind', /.+/);
 });
 
 test('goals scored on a man-up are tagged; situation events are not listed; penalty fouls are', async ({ page }) => {
@@ -398,12 +502,12 @@ test('an opponent-only change updates opponent-goal timeline rows', async ({ pag
   await expect(row).not.toContainText('Opponent FC');
 });
 
-test('untracked game shows dashes and no badge', async ({ page }) => {
+test('untracked game shows no badge', async ({ page }) => {
   await seedTracked([ev('goal', 1, 'p5')], false);
   await open(page, '#/game/g1');
-  await expect(page.getByTestId('game-manup')).toHaveText('Man-up —');
-  await expect(page.getByTestId('game-mandown')).toHaveText('Man-down —');
+  await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('situation-badge')).toBeHidden();
+  await expect(page.getByTestId('situation-badge')).not.toHaveAttribute('data-kind', /.+/);
 });
 
 test('per-game figures and Pen. columns on the season', async ({ page }) => {

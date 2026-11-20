@@ -58,6 +58,8 @@ const STRINGS = {
   emptyTitle: 'No game yet',
   emptyBody: 'The live score appears here as soon as a game starts.',
   connectionNote: 'Reconnecting. Showing the last score received.',
+  // The scoreboard's goals-by-quarter table: read out as its caption, never shown.
+  quarterGrid: 'Goals by quarter',
   goalNamed: 'Goal · #{cap} {name}',
   goalUnknown: 'Goal · scorer unknown',
   exclNamed: 'Exclusion · #{cap} {name}',
