@@ -1,4 +1,4 @@
-import { EXCL_LIMIT, gameResult, PERIODS, playerLines } from './model.js';
+import { EXCL_LIMIT, gameResult, PERIODS, playerLines, timeline } from './model.js';
 import { isTracked, manUpGoalIds, replaySituations } from './situations.js';
 
 const regulationPeriods = PERIODS.slice(0, 4);
@@ -63,10 +63,8 @@ function goalFlow(events) {
 }
 
 export function gameTeamStats(game) {
-  // Array sort is stable, so equal timestamps keep their original array order.
-  const events = game.events.filter(event => regulationPeriods.includes(event.period))
-    .sort((a, b) => a.ts - b.ts);
-  const { us, them } = gameResult({ ...game, events });
+  const events = game.events.filter(event => regulationPeriods.includes(event.period));
+  const { us, them, excl, pens } = gameResult({ ...game, events });
   const tracked = isTracked(game);
   const { manUp, manDown } = tracked ? gameSituations(game) : { manUp: null, manDown: null };
   const goals = {
@@ -83,10 +81,6 @@ export function gameTeamStats(game) {
     else if (type === 'pen') quarters[period - 1].pens++;
     else if (type === 'penSave') saved++;
   }
-  // Totals come from the quarter counts, not from gameResult: the previous model.js has no excl or pens
-  // there. remove in R3 (read them from gameResult again)
-  const excl = quarters.reduce((sum, quarter) => sum + quarter.excl, 0);
-  const pens = quarters.reduce((sum, quarter) => sum + quarter.pens, 0);
   const trouble = playerLines(game.lineup, game.events)
     .map(({ playerId, name, cap, excl, pens }) => {
       const fouls = excl + pens;
@@ -95,12 +89,14 @@ export function gameTeamStats(game) {
     .filter(player => player.fouls >= 2)
     .sort((a, b) => Number(a.out) - Number(b.out) || a.cap - b.cap);
 
+  // Reverse the display order at both levels to keep quarter, timestamp and input order.
+  const inPlayOrder = timeline(events).reverse().flatMap(group => group.events.reverse());
   return {
     tracked, manUp, manDown, goals,
     fouls: { quarters, excl, pens },
     trouble,
     pensAgainst: { faced: pens, saved },
-    flow: goalFlow(events),
+    flow: goalFlow(inPlayOrder),
   };
 }
 

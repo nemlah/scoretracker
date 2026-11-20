@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, resetAll, seed, update } from './helpers.js';
@@ -214,60 +213,5 @@ test('on a short landscape screen the banner never covers the score and the net 
       };
     });
     expect(result, `at ${at} ms`).toEqual({ score: [false, false], net: true, banner: true });
-  }
-});
-
-// A phone holding the previous version can pair the new viewer.js with a cached model.js that
-// lacks the exports this branch added. The page must degrade, not stay on its loading state.
-test.describe('mixed module cache', () => {
-  test.use({ serviceWorkers: 'block' });
-
-  test('the viewer still shows the score when model.js is the previous version', async ({ page }) => {
-    const previousModel = execSync('git show 8e3c17b:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
-    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previousModel }));
-    await seedGame([
-      ev('goal', 1, 'p5'), ev('oppGoal', 1), ev('goal', 1, 'p2'),
-      ev('excl', 1, 'p2'), ev('excl', 2, 'p2'), ev('excl', 2, 'p2'),
-    ]);
-    await open(page);
-    await expect(page.getByTestId('score-us')).toHaveText('2');
-    await expect(page.getByTestId('score-them')).toHaveText('1');
-    await expect(page.getByTestId('timeline-item')).toHaveCount(6);
-    await expect(celebration(page)).toBeHidden();
-  });
-
-  test('saves and In goal stay out of the timeline when model.js is the previous version', async ({ page }) => {
-    const previousModel = execSync('git show 8e3c17b:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
-    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previousModel }));
-    await seedGame([ev('save', 1, 'g1'), ev('gkIn', 1, 'g13'), ev('oppGoal', 1)], {
-      lineup: [
-        { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
-        { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
-        ...lineup,
-      ],
-    });
-    await open(page);
-    await expect(page.getByTestId('score-them')).toHaveText('1');
-    await expect(page.getByTestId('timeline-item')).toHaveCount(1);
-  });
-
-  for (const file of ['strings', 'model']) {
-    test(`saves stay out of the timeline when ${file}.js is the previous version`, async ({ page }) => {
-      const previous = execSync(`git show 2307a1b:js/${file}.js`, { encoding: 'utf8', maxBuffer: 1 << 20 });
-      await page.route(`**/js/${file}.js`, route => route.fulfill({ contentType: 'text/javascript', body: previous }));
-      await seedGame([ev('save', 1, 'g1'), ev('gkIn', 1, 'g13'), ev('oppGoal', 1)], {
-        lineup: [
-          { playerId: 'g1', name: 'Georgiou', cap: 1, goalie: true },
-          { playerId: 'g13', name: 'Nikolaou', cap: 13, goalie: true },
-          ...lineup,
-        ],
-      });
-      await open(page);
-      await expect(page.getByTestId('score-them')).toHaveText('1');
-      await expect(page.getByTestId('timeline-item')).toHaveCount(1);
-      // Not drawn as a foul either: no save label, and no exclusion or penalty icon.
-      await expect(page.getByTestId('timeline-item').filter({ hasText: 'Georgiou' })).toHaveCount(0);
-      await expect(page.locator('.tl-icon--excl, .tl-icon--pen, .tl-icon--save')).toHaveCount(0);
-    });
   }
 });

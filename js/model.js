@@ -41,7 +41,7 @@ import { goalieStats } from './goalies.js';
  * @property {boolean} [situations]
  */
 
-// The viewer checks this before passing saves to the timeline.
+// remove in R4: read by the R2 viewer.js
 export const TIMELINE_SAVES = true;
 
 export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES, 'save', 'penSave', 'gkIn']);

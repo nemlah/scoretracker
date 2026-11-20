@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as strings from '../../js/strings.js';
-import { eventLabel, goalCountLabel, periodLabel, scoreText, t, timelineEntry } from '../../js/strings.js';
+import { eventLabel, goalCountLabel, periodLabel, scoreText, situationShort, t, timelineEntry } from '../../js/strings.js';
 
 const lineup = [
   { playerId: 'p5', name: 'Alexiou', cap: 5 },
@@ -114,14 +114,7 @@ test('eventLabel names penalty fouls and situation events', () => {
   }
 });
 
-test('figure text', async () => {
-  const { manUpText, manDownText, situationShort } = await import('../../js/strings.js');
-  assert.equal(manUpText({ played: 7, scored: 3 }), 'Man-up 3/7 · 43%');
-  assert.equal(manUpText({ played: 0, scored: 0 }), 'Man-up 0/0');
-  assert.equal(manUpText(null), 'Man-up —');
-  assert.equal(manDownText({ played: 6, stopped: 4 }), 'Man-down 4/6 stopped · 67%');
-  assert.equal(manDownText({ played: 0, stopped: 0 }), 'Man-down 0/0 stopped');
-  assert.equal(manDownText(null), 'Man-down —');
+test('situationShort labels tracked and untracked games', () => {
   assert.equal(situationShort({ manUp: { played: 7, scored: 3 }, manDown: { played: 6, stopped: 4 } }), 'MU 3/7 · MD 4/6');
   assert.equal(situationShort(null), '—');
 });
@@ -177,11 +170,12 @@ test('timelineEntry for a save', () => {
   assert.equal(strings.TIMELINE_SAVES, true);
 });
 
-test('liveBanner keeps its previous template, and the home banner pill has a key of its own', () => {
+test('the live banner pill and the R2 viewer lookup keys are available', () => {
   const params = { team: 'ANOG', opponent: 'Rivals', us: 12, them: 11, period: 'Q3' };
-  // The previous viewer.js still reads liveBanner: it must not show a literal {team}.
+  // The R2 viewer fallback still reads the one-line banner template.
   assert.equal(t('liveBanner', params), 'Live: Rivals 12–11 · Q3');
   assert.equal(t('liveBadge', params), 'LIVE · Q3');
+  assert.equal(strings.hasString('liveBanner'), true);
   assert.equal(strings.hasString('liveBadge'), true);
   assert.equal(strings.hasString('noSuchString'), false);
 });

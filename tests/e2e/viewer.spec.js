@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, remove, resetAll, seed, update } from './helpers.js';
@@ -995,37 +995,17 @@ test.describe('the stroke icons', () => {
     await expect(page.getByTestId('player-row').first()).toBeVisible();
   });
 
-  test('with the previous model.js there are no pills: goal rows show the goal icon and the markers only the quarter', async ({ page }) => {
-    const previous = execSync('git show 58f859d:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
-    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
-    await seedLive([ev('goal', 1, 'p5'), ev('oppGoal', 1), ev('goal', 2, 'p2')]);
-    await open(page, '#/game/g1');
-    await expect(page.getByTestId('timeline-item')).toHaveCount(3);
-    await expect(page.getByTestId('tl-score')).toHaveCount(0);
-    await expect(page.getByTestId('tl-icon')).toHaveCount(3);
-    await expect(page.locator('.tl-icon--goal')).toHaveCount(3);
-    await expect(page.locator('.tl-icon--goal svg')).toHaveCount(3);
-    await expect(page.getByTestId('tl-quarter')).toHaveText(['Q2', 'Q1']);
-    await expect(page.getByTestId('timeline-item').first().getByTestId('tl-name')).toHaveText('#2 Papadakis');
-  });
-
-  test('with the previous model.js and no icons.js the goal rows show the ball glyph', async ({ page, baseURL }) => {
-    const previous = execSync('git show 58f859d:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
-    blockedUrl = new URL('/js/icons.js', baseURL).href;
-    await page.route('**/js/icons.js', route => route.abort());
-    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
-    await seedLive([ev('goal', 1, 'p5'), ev('oppGoal', 1)]);
-    await open(page, '#/game/g1');
-    await expect(page.getByTestId('tl-icon')).toHaveText(['🏐', '🏐']);
-    await expect(page.getByTestId('tl-score')).toHaveCount(0);
-  });
-
-  test('with the previous strings.js each label shows once and the name line is intact', async ({ page }) => {
-    const previous = execSync('git show 58f859d:js/strings.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
-    await page.route('**/js/strings.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+  test('with R2 strings.js each timeline label shows once and the name line is intact', async ({ page }) => {
+    const previous = execFileSync('git', ['show', '720f124:js/strings.js'], { encoding: 'utf8' });
+    let served = 0;
+    await page.route('**/js/strings.js', route => {
+      served++;
+      return route.fulfill({ contentType: 'text/javascript', body: previous });
+    });
     await seedGoalieGame([ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('save', 1, 'g1')], { period: 1, lineup: iconLineup });
     await open(page, '#/game/g1');
     await expect(page.getByTestId('timeline-item')).toHaveCount(4);
+    expect(served, 'R2 strings.js was served').toBeGreaterThan(0);
     const save = page.getByTestId('timeline-item').filter({ hasText: 'Georgiou' });
     await expect(save).toHaveCount(1);
     await expect(save.getByTestId('tl-name')).toHaveText('#1 Georgiou');
@@ -1036,8 +1016,6 @@ test.describe('the stroke icons', () => {
     const count = (row, word) => row.evaluate((el, w) => el.textContent.split(w).length - 1, word);
     expect(await count(save, 'Save')).toBe(1);
     expect(await count(out, 'Exclusion')).toBe(1);
-    // The out tag falls back to its English text without the new key.
     await expect(out.getByTestId('tl-out')).toHaveText('· out');
-    expect(await out.evaluate(el => el.textContent.includes('tlOutTag'))).toBe(false);
   });
 });

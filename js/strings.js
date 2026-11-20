@@ -24,11 +24,6 @@ const STRINGS = {
   manUpEvent: 'Man-up',
   manUpEndEvent: 'End man-up · no goal',
   manDownEndEvent: 'End man-down · stopped',
-  manUpFigure: 'Man-up {scored}/{played}',
-  manDownFigure: 'Man-down {stopped}/{played} stopped',
-  figurePercent: '{text} · {pct}%',
-  manUpNone: 'Man-up —',
-  manDownNone: 'Man-down —',
   situationShort: 'MU {scored}/{muPlayed} · MD {stopped}/{mdPlayed}',
   notTracked: '—',
   situationManUp: 'Man-up',
@@ -59,9 +54,6 @@ const STRINGS = {
   seasonHeading: 'This season',
   resultsHeading: 'Results',
   totalsHeading: 'Player totals',
-  // remove in R3: emptyTitle and emptyBody, read only by the previous viewer.js (a cached page)
-  emptyTitle: 'No game yet',
-  emptyBody: 'The live score appears here as soon as a game starts.',
   connectionNote: 'Reconnecting. Showing the last score received.',
   // The scoreboard's goals-by-quarter table: read out as its caption, never shown.
   quarterGrid: 'Goals by quarter',
@@ -287,9 +279,8 @@ const STRINGS = {
   gameLiveNote: 'This game is live. Use the live screen to track it.',
   gameLiveOpen: 'Open the live screen',
   allGames: 'This season',
-  // remove in R3: liveBanner, the one-line template the banner falls back to without liveBadge
+  // remove in R4: read by the R2 viewer.js
   liveBanner: 'Live: {opponent} {us}–{them} · {period}',
-  // Release 2's banner pill; a viewer without this key lays out liveBanner above instead.
   liveBadge: 'LIVE · {period}',
   resultsLoading: 'Loading results…',
   resultsEmpty: 'No games yet this season.',
@@ -312,12 +303,10 @@ const STRINGS = {
   resultNoScore: '–',
 };
 
-// The viewer checks this before rendering saves in the timeline.
+// remove in R4: read by the R2 viewer.js
 export const TIMELINE_SAVES = true;
 
-// Whether this strings.js has the key. The viewer asks for strings added after the previous release this
-// way, so a phone holding the old file shows a fallback, not a key name.
-// remove in R3: hasString goes with the viewer's tOr and its other `hasString?.` reads.
+// remove in R4: read by the R2 viewer.js
 export function hasString(key) {
   return Object.hasOwn(STRINGS, key);
 }
@@ -392,22 +381,6 @@ export function scoreText({ us, them, soUs, soThem }, shootout) {
 
 export function goalCountLabel(n) {
   return t(n === 1 ? 'tileGoalsOne' : 'tileGoalsLabel');
-}
-
-function figureText(counts, kind, numerator) {
-  if (counts === null) return t(`${kind}None`);
-  const text = t(`${kind}Figure`, counts);
-  return counts.played === 0 ? text
-    : t('figurePercent', { text, pct: Math.round(100 * counts[numerator] / counts.played) });
-}
-
-// remove in R3: manUpText and manDownText, read only by the previous viewer.js (a cached page)
-export function manUpText(counts) {
-  return figureText(counts, 'manUp', 'scored');
-}
-
-export function manDownText(counts) {
-  return figureText(counts, 'manDown', 'stopped');
 }
 
 export function situationShort(counts) {

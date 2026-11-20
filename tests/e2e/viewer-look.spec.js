@@ -498,50 +498,6 @@ test('every result row link is at least 44 x 44, whatever the name', async ({ pa
   }
 });
 
-// The previous release's strings.js beside this viewer.js: its one-line banner template puts the opponent
-// first, so the layout has to keep the score and the quarter in view anyway.
-test.describe('banner with the previous strings.js', () => {
-  test.use({ serviceWorkers: 'block' });
-
-  test('360 px, long Greek opponent: the score and the quarter are inside the banner, only the opponent is cut', async ({ page }) => {
-    const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
-    await page.route('**/js/strings.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
-    await page.setViewportSize({ width: 360, height: 740 });
-    await seedHome();
-    await open(page);
-    const banner = page.getByTestId('live-banner');
-    await expect(banner).toBeVisible();
-    // It really is the old template: no pill, "Live:" first.
-    await expect(banner.locator('.home-live-pill')).toHaveCount(0);
-    await expect(page.getByTestId('live-banner-text')).toHaveText(`Live: ${longOpponent} 12–11 · Q3`);
-    const text = page.getByTestId('live-banner-text');
-    const scores = banner.locator('.home-live-score');
-    await expect(scores).toHaveText(['12', '11', 'Q3']);
-    for (const [i, name] of ['us', 'them', 'quarter'].entries()) {
-      await expectInside(scores.nth(i), text, `${name} in banner text`);
-      await expectInside(scores.nth(i), banner, `${name} in banner`);
-    }
-    await expectCutOnOneLine(banner.locator('.home-live-opp'), 'opponent', true);
-    expect((await banner.boundingBox()).height).toBeGreaterThanOrEqual(56);
-    const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
-    expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
-  });
-
-  // The opponent takes the room left over, but never more than its own text: a short name with room to spare
-  // keeps the score right beside it instead of pushing it to the far end.
-  test('844 px, short opponent: the opponent is as wide as its name and the score follows it', async ({ page }) => {
-    const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
-    await page.route('**/js/strings.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
-    await page.setViewportSize({ width: 844, height: 390 });
-    await seedHome();
-    await update('games/g1', { opponent: 'Rivals' });
-    await open(page);
-    const banner = page.getByTestId('live-banner');
-    await expect(page.getByTestId('live-banner-text')).toHaveText('Live: Rivals 12–11 · Q3');
-    await expectNaturalWidth(banner.locator('.home-live-opp'), 'opponent');
-  });
-});
-
 for (const [scheme, board, line] of [['light', '#0b1320', 'rgb(122, 135, 150)'], ['dark', '#05090f', 'rgb(93, 107, 125)']]) {
   test.describe(`game screen chrome, ${scheme}`, () => {
     test.use({ colorScheme: scheme });
@@ -971,164 +927,52 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
-// The previous viewer.css, served in place of this release's. The count says the route fired: the test is
-// about that file, so it fails if the worker or the cache served the new one instead.
-async function servePreviousStylesheet(page) {
-  const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
-  const served = { count: 0 };
-  await page.route('**/css/viewer.css*', route => {
-    served.count++;
-    return route.fulfill({ contentType: 'text/css', body: previous });
-  });
-  return served;
-}
-
-test('with the previous release stylesheet the new scoreboard still shows both scores and the opponent', async ({ page }) => {
-  // The previous viewer.css knows none of this release's board classes.
-  const served = await servePreviousStylesheet(page);
-  await seedLive();
-  await open(page, '#/game/g1');
-  await expect(page.getByTestId('score-us')).toBeVisible();
-  expect(served.count, 'the previous viewer.css was served').toBeGreaterThan(0);
-  await expect(page.getByTestId('score-us')).toHaveText('12');
-  await expect(page.getByTestId('score-them')).toBeVisible();
-  await expect(page.getByTestId('score-them')).toHaveText('11');
-  await expect(page.locator('.board-opp')).toBeVisible();
-  await expect(page.getByTestId('timeline-item').first()).toBeVisible();
-});
-
-test('with the previous release stylesheet a shootout score is readable on its real background', async ({ page }) => {
-  // The previous viewer.css paints every .shootout white, for a dark board it no longer has around the new one.
-  const served = await servePreviousStylesheet(page);
-  await Promise.all([
-    seed('team/main', { currentGameId: 'g1', roster }),
-    seed('games/g1', {
-      opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'live', period: 'SO', lineup,
-      events: [ev('goal', 1, 'p10'), ev('oppGoal', 2), ev('goal', 'SO', 'p10'), ev('goal', 'SO', 'p11'), ev('oppGoal', 'SO')],
-    }),
-  ]);
-  await open(page, '#/game/g1');
-  await expect(page.getByTestId('score-us')).toHaveText('1');
-  await expect(page.getByTestId('score-them')).toHaveText('1');
-  const shootout = page.getByTestId('shootout');
-  await expect(shootout).toBeVisible();
-  await expect(shootout).toHaveText('(2 – 1 pen.)');
-  expect(served.count, 'the previous viewer.css was served').toBeGreaterThan(0);
-  // The text colour against what is painted behind it: the backgrounds of the element and its ancestors, from the
-  // page outwards, stacked on white.
-  const [text, behind] = await shootout.evaluate(el => {
-    const layers = [];
-    for (let node = el; node; node = node.parentElement) layers.unshift(getComputedStyle(node).backgroundColor);
-    const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-    const hex = colour => {
-      context.clearRect(0, 0, 1, 1);
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, 1, 1);
-      context.fillStyle = colour;
-      context.fillRect(0, 0, 1, 1);
-      return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
-    };
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, 1, 1);
-    for (const layer of layers) {
-      context.fillStyle = layer;
-      context.fillRect(0, 0, 1, 1);
-    }
-    const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
-    const stacked = `#${[r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')}`;
-    return [hex(getComputedStyle(el).color), stacked];
-  });
-  expect(contrastRatio(text, behind), `${text} on ${behind}`).toBeGreaterThanOrEqual(4.5);
-});
-
-test.describe('the previous stylesheet beside the new timeline markup', () => {
+test.describe('mixed cache with R2 viewer files', () => {
   test.use({ serviceWorkers: 'block' });
 
-  test('a goal row and a foul row show their name, label and score as separate lines, and a tag has a separator', async ({ page }) => {
-    // The previous viewer.css has none of the row rules (grid, flex, spacing): only the markup keeps them apart.
-    const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
-    await page.route('**/css/viewer.css*', route => route.fulfill({ contentType: 'text/css', body: previous }));
+  test('a final shows the FINAL badge and shootout line with R2 viewer.css', async ({ page }) => {
+    const stylesheet = execFileSync('git', ['show', '720f124:css/viewer.css'], { encoding: 'utf8' });
+    let served = 0;
+    await page.route('**/css/viewer.css*', route => {
+      served++;
+      return route.fulfill({ contentType: 'text/css', body: stylesheet });
+    });
     await Promise.all([
       seed('team/main', { currentGameId: 'g1', roster }),
       seed('games/g1', {
-        opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup,
-        situations: true,
-        events: [ev('manUp', 1), ev('goal', 1, 'p10'), ev('oppGoal', 1), ev('excl', 1, 'p11'), ev('excl', 1, 'p11'), ev('excl', 1, 'p11')],
+        opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'final', period: 'SO', lineup,
+        events: [ev('goal', 1, 'p10'), ev('oppGoal', 2), ev('goal', 'SO', 'p10'), ev('goal', 'SO', 'p11'), ev('oppGoal', 'SO')],
       }),
     ]);
     await open(page, '#/game/g1');
-    await expect(page.getByTestId('timeline-item')).toHaveCount(5);
-    await expect(page.getByTestId('tl-manup')).toHaveCount(1);
-    const lines = row => row.evaluate(el => el.innerText.split('\n').map(line => line.trim()).filter(Boolean));
-    const items = page.getByTestId('timeline-item');
-    // Newest first: the third exclusion (out), two more, the opponent goal, our man-up goal.
-    const foul = await lines(items.nth(1));
-    expect(foul).toContain('#11 Παπαδόπουλος-Αθανασίου');
-    expect(foul).toContain('Exclusion');
-    // The event line and its tags: a separator between the label and each tag, not "Goalman-up" or "Exclusion· out".
-    const eventLine = row => row.locator('.tl-what').evaluate(el => el.innerText);
-    expect(await eventLine(items.nth(0))).toMatch(/^Exclusion\s+· out$/);
-    expect(await eventLine(items.nth(4))).toMatch(/^Goal\s+man-up$/);
-    const theirs = await lines(items.nth(3));
-    expect(theirs).toEqual(expect.arrayContaining(['Rivals', 'Goal', '1–1']));
-    const goal = await lines(items.nth(4));
-    expect(goal).toEqual(expect.arrayContaining(['#10 Αλεξίου', 'Goal man-up', '1–0']));
-    // No two of them run together.
-    for (const text of [...foul, ...theirs, ...goal]) expect(text).not.toMatch(/Αλεξίου.*Goal|Goal.*\d–\d|Rivals.*Goal|Αθανασίου.*Exclusion|Goalman|Exclusion·/);
+    expect(served, 'R2 viewer.css was served').toBeGreaterThan(0);
+    const finalBadge = page.getByTestId('final-badge');
+    await expect(finalBadge).toBeVisible();
+    await expect(finalBadge).toHaveText('Final');
+    await expect(page.getByTestId('score-us')).toHaveText('1');
+    await expect(page.getByTestId('score-them')).toHaveText('1');
+    const shootout = page.getByTestId('shootout');
+    await expect(shootout).toBeVisible();
+    await expect(shootout).toHaveText('(2 – 1 pen.)');
   });
-});
 
-test('the previous viewer.js (old markup) with this release stylesheet is still a readable board', async ({ page }) => {
-  const previous = execFileSync('git', ['show', '58f859d:js/viewer.js'], { encoding: 'utf8' });
-  await page.route('**/js/viewer.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
-  await seedLive();
-  await open(page, '#/game/g1');
-  await expect(page.getByTestId('score-us')).toHaveText('12');
-  await expect(page.getByTestId('score-them')).toHaveText('11');
-  // The old class names keep their rules: the dark board, amber digits, the opponent in the muted colour.
-  await expect(page.locator('.scoreboard')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
-  await expect(page.locator('.score')).toHaveCSS('color', 'rgb(255, 194, 61)');
-  await expect(page.locator('p.team-name')).toHaveCSS('color', 'rgb(169, 180, 194)');
-  await expect(page.getByTestId('timeline-item').first()).toBeVisible();
-});
-
-// The previous strings.js, served in place of this release's; the count says the route fired.
-async function servePreviousStrings(page) {
-  const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
-  const served = { count: 0 };
-  await page.route('**/js/strings.js*', route => {
-    served.count++;
-    return route.fulfill({ contentType: 'text/javascript', body: previous });
+  test('R2 viewer.js still shows the live banner, score and saves', async ({ page }) => {
+    const viewer = execFileSync('git', ['show', '720f124:js/viewer.js'], { encoding: 'utf8' });
+    let served = 0;
+    await page.route('**/js/viewer.js*', route => {
+      served++;
+      return route.fulfill({ contentType: 'text/javascript', body: viewer });
+    });
+    await seedLive();
+    await open(page);
+    const banner = page.getByTestId('live-banner');
+    await expect(banner).toContainText('LIVE · Q3');
+    await expect(banner.getByTestId('live-banner-text')).toContainText('12–11');
+    expect(served, 'R2 viewer.js was served').toBeGreaterThan(0);
+    await banner.click();
+    await expect(page.getByTestId('score-us')).toHaveText('12');
+    await expect(page.getByTestId('score-them')).toHaveText('11');
+    await expect(page.getByTestId('quarter-scores').locator('caption')).toHaveText('Goals by quarter');
+    await expect(page.getByTestId('timeline-item').filter({ hasText: /\bSave\b/ })).toHaveCount(2);
   });
-  return served;
-}
-// Only the previous file has no hasString: this release's has it, so its absence says whose file is running.
-const hasStringExport = page => page.evaluate(async () => typeof (await import('/js/strings.js')).hasString);
-
-test('this viewer.js with the previous strings.js still shows both scores, the grid and its fallback caption', async ({ page }) => {
-  const served = await servePreviousStrings(page);
-  await seedLive();
-  await open(page, '#/game/g1');
-  await expect(page.getByTestId('score-us')).toHaveText('12');
-  await expect(page.getByTestId('score-them')).toHaveText('11');
-  expect(served.count, 'the previous strings.js was served').toBeGreaterThan(0);
-  expect(await hasStringExport(page), 'the previous strings.js has no hasString').toBe('undefined');
-  await expect(page.getByTestId('quarter-scores')).toBeVisible();
-  await expect(page.getByTestId('quarter-scores').locator('caption')).toHaveText('Goals by quarter');
-  await expect(page.getByTestId('quarter-us').locator('td')).toHaveText(['4', '4', '4', '–']);
-});
-
-test('this viewer.js with the previous strings.js still names each result link by its outcome and score', async ({ page }) => {
-  const served = await servePreviousStrings(page);
-  await seedLive();
-  await open(page);
-  await expect(page.getByTestId('result-row')).toHaveCount(4);
-  expect(served.count, 'the previous strings.js was served').toBeGreaterThan(0);
-  expect(await hasStringExport(page), 'the previous strings.js has no hasString').toBe('undefined');
-  // The labels are this release's fallbacks, not key names.
-  await expect(page.getByTestId('result-link').nth(1)).toHaveAccessibleName(`Win 12 – 11 against ${longOpponent}, 08/11/2026`);
-  await expect(page.getByTestId('result-link').nth(2)).toHaveAccessibleName('Win 8 – 7 against Rivals, 18/10/2026');
-  for (const link of await page.getByTestId('result-link').all()) {
-    expect(await link.getAttribute('aria-label')).not.toMatch(/resultLabel|resultName|undefined/);
-  }
 });

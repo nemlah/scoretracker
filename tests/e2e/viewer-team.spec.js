@@ -512,9 +512,7 @@ test.describe('the stats module fails to load', () => {
   }
 });
 
-// A phone may hold the previous model.js beside this release's teamStats.js and teamView.js: the previous
-// gameResult has no excl or pens, so the foul totals come from the quarter counts.
-test.describe('the previous model.js beside the Team tab', () => {
+test.describe('R2 model.js beside the Team tab', () => {
   test.use({ serviceWorkers: 'block' });
 
   for (const screen of [
@@ -522,7 +520,7 @@ test.describe('the previous model.js beside the Team tab', () => {
     { name: 'home', hash: '', ready: 'result-row' },
   ]) {
     test(`on ${screen.name} the Team tab has real figures and no undefined`, async ({ page }) => {
-      const previous = execFileSync('git', ['show', '58f859d:js/model.js'], { encoding: 'utf8', maxBuffer: 1 << 20 });
+      const previous = execFileSync('git', ['show', '720f124:js/model.js'], { encoding: 'utf8', maxBuffer: 1 << 20 });
       let served = 0;
       await page.route('**/js/model.js*', route => {
         served++;
@@ -531,8 +529,7 @@ test.describe('the previous model.js beside the Team tab', () => {
       await seedHome(seasonStatsFull);
       await open(page, screen.hash);
       await expect(page.getByTestId(screen.ready).first()).toBeVisible();
-      // The previous file is the one running: it has no excl or pens in gameResult.
-      expect(served, 'the previous model.js was served').toBeGreaterThan(0);
+      expect(served, 'R2 model.js was served').toBeGreaterThan(0);
       await tab(page, 'team').click();
       if (screen.name === 'a game') {
         await expect(page.getByTestId('team-fouls-excl').getByTestId('team-total')).toHaveText(String(expected.fouls.excl));

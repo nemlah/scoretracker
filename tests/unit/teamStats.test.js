@@ -101,6 +101,16 @@ test('our longest run wins a tie even when the opponent run is first', () => {
   assert.deepEqual(stats.flow.longestRun, { us: 2, them: 0 });
 });
 
+test('game flow follows quarter order, not recording order', () => {
+  const { flow } = gameTeamStats(game([
+    ev('goal', 1, 1, 'p7'), ev('oppGoal', 2, 2), ev('oppGoal', 2, 3), ev('goal', 1, 4, 'p12'),
+  ]));
+  assert.equal(flow.biggestLead, 2);
+  assert.equal(flow.ties, 1);
+  assert.equal(flow.neverBehind, true);
+  assert.deepEqual(flow.longestRun, { us: 2, them: 0 });
+});
+
 test('flow follows timestamp order and preserves input order for equal timestamps', () => {
   const events = Object.freeze([
     ev('goal', 1, 30, 'p7'), ev('oppGoal', 1, 10, null, 'z'), ev('goal', 1, 10, 'p7', 'a'), ev('oppGoal', 1, 20),
@@ -108,6 +118,15 @@ test('flow follows timestamp order and preserves input order for equal timestamp
   const stats = gameTeamStats(game(events));
   assert.deepEqual(stats.flow, {
     biggestLead: 0, longestRun: { us: 1, them: 0 }, ties: 2, neverBehind: false, scorers: 1,
+  });
+});
+
+test('equal ts within a quarter keeps input order', () => {
+  const { flow } = gameTeamStats(game([
+    ev('oppGoal', 2, 10), ev('goal', 1, 20, 'p7', 'z'), ev('oppGoal', 1, 20, null, 'a'),
+  ]));
+  assert.deepEqual(flow, {
+    biggestLead: 1, longestRun: { us: 0, them: 2 }, ties: 1, neverBehind: false, scorers: 1,
   });
 });
 
