@@ -3,12 +3,16 @@ import { expect } from '@playwright/test';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import { EMULATOR } from '../../js/config.js';
 
+export function e2eProjectId() {
+  return `demo-scoretracker-${process.env.TEST_PARALLEL_INDEX ?? 0}`;
+}
+
 // Runs in the Playwright (Node) process; seeds Firestore with rules disabled.
 let envPromise = null;
 
 function env() {
   envPromise ??= initializeTestEnvironment({
-    projectId: EMULATOR.projectId,
+    projectId: e2eProjectId(),
     firestore: {
       host: EMULATOR.host,
       port: EMULATOR.firestorePort,
@@ -31,13 +35,10 @@ export const get = path => admin(async db => (await db.doc(path).get()).data());
 export const remove = path => admin(db => db.doc(path).delete());
 
 export async function resetAll() {
+  // Auth is shared across workers. Deleting accounts would sign out other workers' devices on reload.
+  // Anonymous UIDs are unique per browser context, and Auth starts empty on every emulators:exec.
   const testEnv = await env();
   await testEnv.clearFirestore();
-  const response = await fetch(
-    `http://${EMULATOR.host}:${EMULATOR.authPort}/emulator/v1/projects/${EMULATOR.projectId}/accounts`,
-    { method: 'DELETE' },
-  );
-  if (!response.ok) throw new Error(`Auth reset failed: ${response.status}`);
 }
 
 export async function closeAll() {

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { test as base } from '@playwright/test';
+import { e2eProjectId } from './helpers.js';
 
 export { expect } from '@playwright/test';
 
@@ -16,6 +17,7 @@ let activeNetworkTest;
 export async function prepareContext(context, owner, offline = false) {
   if (preparedContexts.has(context)) return;
   preparedContexts.add(context);
+  await context.addInitScript(projectId => { globalThis.__E2E_PROJECT_ID = projectId; }, e2eProjectId());
 
   context.on('console', message => {
     const text = message.text();

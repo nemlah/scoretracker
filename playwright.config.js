@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  workers: 1,
+  workers: Number(process.env.PW_WORKERS) || 3,
   reporter: 'list',
   use: { baseURL: 'http://127.0.0.1:4173' },
   webServer: {

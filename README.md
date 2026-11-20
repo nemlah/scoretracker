@@ -91,6 +91,8 @@ npm run dev
 
 `npm test` runs unit tests. The emulator and end-to-end commands start their own Firestore and Auth emulators. Run them separately from `npm run dev` so the ports are free. Initial dependency, browser and emulator downloads require internet access; browser SDK files and fonts are also loaded online on first use.
 
+End-to-end tests run on three Playwright workers by default, each with its own Firestore emulator project. For a serial run, use `PW_WORKERS=1 npm run test:e2e`.
+
 `npm run dev` starts the emulators for project `demo-scoretracker`, seeds the local edit code `TEST01`, and serves the site. Open:
 
 - Viewer: http://127.0.0.1:4173/index.html?emulator=1

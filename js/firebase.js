@@ -14,7 +14,7 @@ import { EMULATOR, firebaseConfig, useEmulator } from './config.js';
 // the primary tab for the tracker and run the tracker's listeners signed out.
 export function initFirebase({ emulator = useEmulator(), name } = {}) {
   const app = initializeApp(emulator
-    ? { projectId: EMULATOR.projectId, apiKey: 'demo' }
+    ? { projectId: globalThis.__E2E_PROJECT_ID ?? EMULATOR.projectId, apiKey: 'demo' }
     : firebaseConfig, name);
   const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
