@@ -519,14 +519,16 @@ test('a game starting while on home shows the banner', async ({ page }) => {
 
 // The bound for a celebration to appear after the goal is on screen.
 const CELEBRATION_MS = 2500;
+// The celebration module loads off the critical path; a goal that arrives before it is part of its baseline.
+const celebrationLoaded = page => page.waitForFunction(() => document.querySelector('[data-testid="celebration"]') !== null);
 
 test('a goal written while on home does not celebrate', async ({ page }) => {
   await seedSeason();
   await recordCelebration(page);
   await open(page);
   await expect(banner(page)).toContainText('ANOG 1–0 Waves');
-  // The celebration module loads off the critical path; its baseline is taken on the first render after it.
-  await page.waitForFunction(() => document.querySelector('[data-testid="celebration"]') !== null);
+  // Its baseline is taken on the first render after the module is in.
+  await celebrationLoaded(page);
   await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2')] });
   // A celebration would be shown in the same render that shows the new score.
   await expect(banner(page)).toContainText('ANOG 2–0 Waves', { timeout: 5000 });
@@ -537,7 +539,10 @@ test('the same goal on the game screen celebrates within the bound', async ({ pa
   await seedSeason();
   await open(page, '#/game/g2');
   await expect(page.getByTestId('score-us')).toHaveText('1');
+  await celebrationLoaded(page);
   await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2')] });
+  // The bound starts once the goal is on screen, not at the write.
+  await expect(page.getByTestId('score-us')).toHaveText('2');
   await expect(page.getByTestId('celebration')).toBeVisible({ timeout: CELEBRATION_MS });
 });
 
@@ -550,10 +555,12 @@ test('arriving at the live game from the banner does not celebrate its goals, an
   await expect(banner(page)).toContainText('ANOG 2–0 Waves', { timeout: 5000 });
   await banner(page).click();
   await expect(page.getByTestId('score-us')).toHaveText('2');
+  await celebrationLoaded(page);
   // Nothing to wait on: this checks that something did not happen, for as long as a celebration would play.
   await page.waitForTimeout(CELEBRATION_MS);
   expect(await celebrated(page)).toBe(false);
   await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2'), ev('goal', 2, 'p5')] });
+  await expect(page.getByTestId('score-us')).toHaveText('3');
   await expect(page.getByTestId('celebration')).toBeVisible({ timeout: CELEBRATION_MS });
 });
 
@@ -561,7 +568,9 @@ test('going back to the season during a celebration ends it', async ({ page }) =
   await seedSeason();
   await open(page, '#/game/g2');
   await expect(page.getByTestId('score-us')).toHaveText('1');
+  await celebrationLoaded(page);
   await update('games/g2', { events: [...liveEvents, ev('goal', 1, 'p2')] });
+  await expect(page.getByTestId('score-us')).toHaveText('2');
   await expect(page.getByTestId('celebration')).toBeVisible({ timeout: CELEBRATION_MS });
   await allGames(page).click();
   await expect(home(page)).toBeVisible();
@@ -693,7 +702,7 @@ test('each result link is named by its outcome, score, shootout, opponent and da
   await open(page);
   await expect(rows(page)).toHaveCount(4);
   const link = i => rows(page).nth(i).getByTestId('result-link');
-  await expect(link(0)).toHaveAccessibleName('Win 10 – 10 (pen. 4–3) against Won on pens, 20/11/2026');
+  await expect(link(0)).toHaveAccessibleName('Win 10 – 10, pen. 4–3 against Won on pens, 20/11/2026');
   await expect(link(1)).toHaveAccessibleName('Loss 5 – 8 against Lost, 19/11/2026');
   await expect(link(2)).toHaveAccessibleName('Draw 7 – 7 against Level, 18/11/2026');
   // No score, no outcome to name: the link still says which game it opens.

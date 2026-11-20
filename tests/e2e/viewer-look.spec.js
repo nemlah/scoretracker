@@ -955,14 +955,43 @@ test('the previous viewer.js (old markup) with this release stylesheet is still 
   await expect(page.getByTestId('timeline-item').first()).toBeVisible();
 });
 
-test('this viewer.js with the previous strings.js still shows both scores, the grid and its fallback caption', async ({ page }) => {
+// The previous strings.js, served in place of this release's; the count says the route fired.
+async function servePreviousStrings(page) {
   const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
-  await page.route('**/js/strings.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+  const served = { count: 0 };
+  await page.route('**/js/strings.js*', route => {
+    served.count++;
+    return route.fulfill({ contentType: 'text/javascript', body: previous });
+  });
+  return served;
+}
+// Only the previous file has no hasString: this release's has it, so its absence says whose file is running.
+const hasStringExport = page => page.evaluate(async () => typeof (await import('/js/strings.js')).hasString);
+
+test('this viewer.js with the previous strings.js still shows both scores, the grid and its fallback caption', async ({ page }) => {
+  const served = await servePreviousStrings(page);
   await seedLive();
   await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('12');
   await expect(page.getByTestId('score-them')).toHaveText('11');
+  expect(served.count, 'the previous strings.js was served').toBeGreaterThan(0);
+  expect(await hasStringExport(page), 'the previous strings.js has no hasString').toBe('undefined');
   await expect(page.getByTestId('quarter-scores')).toBeVisible();
   await expect(page.getByTestId('quarter-scores').locator('caption')).toHaveText('Goals by quarter');
   await expect(page.getByTestId('quarter-us').locator('td')).toHaveText(['4', '4', '4', '–']);
+});
+
+test('this viewer.js with the previous strings.js still names each result link by its outcome and score', async ({ page }) => {
+  const served = await servePreviousStrings(page);
+  await seedLive();
+  await open(page);
+  await expect(page.getByTestId('result-row')).toHaveCount(4);
+  expect(served.count, 'the previous strings.js was served').toBeGreaterThan(0);
+  expect(await hasStringExport(page), 'the previous strings.js has no hasString').toBe('undefined');
+  // The labels are this release's fallbacks, not key names.
+  await expect(page.getByTestId('result-link').nth(1)).toHaveAccessibleName(`Win 12 – 11 against ${longOpponent}, 08/11/2026`);
+  await expect(page.getByTestId('result-link').nth(2)).toHaveAccessibleName('Win 8 – 7 against Rivals, 18/10/2026');
+  for (const link of await page.getByTestId('result-link').all()) {
+    expect(await link.getAttribute('aria-label')).not.toMatch(/resultLabel|resultName|undefined/);
+  }
 });

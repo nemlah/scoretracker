@@ -970,7 +970,7 @@ function resultItem(result) {
   ];
   // The link's name has what the row shows: the outcome as a word (the chip's "W" alone is not one), the score
   // with its shootout, the opponent and the date. Without a score there is no outcome to name.
-  const score = pen ? `${scoreText(result, false).main} (${pen})` : scoreText(result, false).main;
+  const score = pen ? `${scoreText(result, false).main}, ${pen}` : scoreText(result, false).main;
   // remove in R3: the English fallbacks are for a phone holding the previous strings.js
   const word = outcome ? tOr(`resultName${outcome}`, { W: 'Win', L: 'Loss', D: 'Draw' }[outcome]) : null;
   const label = outcome
