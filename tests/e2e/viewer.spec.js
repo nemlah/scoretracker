@@ -460,12 +460,26 @@ test('live man-up shows the badge and the game figures', async ({ page }) => {
   await seedTracked();
   await open(page, '#/game/g1');
   await expect(page.getByTestId('situation-badge')).toHaveText('Man-down');
-  await update('games/g1', { events: [...trackedEvents(), { id: 's4', type: 'oppGoal', period: 1, ts: 4000 }] });
-  await expect(page.getByTestId('situation-badge')).toBeHidden();
-  // The per-game man-up and man-down figures (game-manup, game-mandown) left the scoreboard: they move to
-  // the Team tab (Task 9), which carries their assertions.
+  // The per-game man-up and man-down figures (game-manup, game-mandown) left the scoreboard: they are the
+  // Team tab's rows now, quarter by quarter.
   await expect(page.getByTestId('game-manup')).toHaveCount(0);
   await expect(page.getByTestId('game-mandown')).toHaveCount(0);
+  await page.getByTestId('tab-team').click();
+  const manUp = page.getByTestId('team-manup');
+  const manDown = page.getByTestId('team-mandown');
+  // Man-up 1/1 in Q1; the man-down the exclusion opened is still open, so it is not counted yet.
+  await expect(manUp.getByTestId('team-q')).toHaveText(['1/1', '–', '–', '–']);
+  await expect(manUp.getByTestId('team-total')).toHaveText('1/1');
+  await expect(manUp.getByTestId('team-pct')).toHaveText('100%');
+  await expect(manDown.getByTestId('team-q')).toHaveText(['–', '–', '–', '–']);
+  await expect(manDown.getByTestId('team-total')).toHaveText('–');
+  await expect(manDown.getByTestId('team-pct')).toHaveCount(0);
+  // The opponent's goal ends it unstopped.
+  await update('games/g1', { events: [...trackedEvents(), { id: 's4', type: 'oppGoal', period: 1, ts: 4000 }] });
+  await expect(page.getByTestId('situation-badge')).toBeHidden();
+  await expect(manDown.getByTestId('team-q')).toHaveText(['0/1', '–', '–', '–']);
+  await expect(manDown.getByTestId('team-total')).toHaveText('0/1');
+  await expect(manDown.getByTestId('team-pct')).toHaveText('0%');
 });
 
 test('the situation chip is green for man-up and orange for man-down, and absent with nothing open', async ({ page }) => {
@@ -572,6 +586,10 @@ test('untracked game shows no badge', async ({ page }) => {
   await seedTracked([ev('goal', 1, 'p5')], false);
   await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('1');
+  // game-manup / game-mandown ('Man-up —') are the Team tab's untracked line now.
+  await page.getByTestId('tab-team').click();
+  await expect(page.getByTestId('team-untracked')).toHaveText("Man-up and man-down weren't tracked in this game");
+  await expect(page.getByTestId('team-manup')).toHaveCount(0);
   await expect(page.getByTestId('situation-badge')).toBeHidden();
   await expect(page.getByTestId('situation-badge')).not.toHaveAttribute('data-kind', /.+/);
 });
@@ -599,9 +617,23 @@ test('per-game figures and Pen. columns on the season', async ({ page }) => {
   await expect(page.getByTestId('result-row')).toHaveCount(2);
   // The season's man-up and man-down line is gone from the season block.
   await expect(page.getByTestId('season-situations')).toHaveCount(0);
-  await expect(page.getByTestId('result-situations')).toHaveCount(0); // retired; the season Team tab carries the figures (Task 9)
+  await expect(page.getByTestId('result-situations')).toHaveCount(0); // retired; the season Team tab carries the figures
   await page.getByTestId('tab-players').click();
   await expect(page.getByTestId('season-pen')).toHaveText(['2', '0']);
+  // The per-game figures ('MU 3/7 · MD 4/6', '—') are the Team tab's rows; a game without them shows dashes.
+  // The season total sums the games' own figures (3/7, 4/6), not the stats document's situations field.
+  await page.getByTestId('tab-team').click();
+  const gameRows = page.getByTestId('season-team-game-row');
+  await expect(gameRows).toHaveCount(2);
+  await expect(gameRows.nth(0).getByTestId('season-team-mu')).toHaveText('3/7');
+  await expect(gameRows.nth(0).getByTestId('season-team-md')).toHaveText('4/6');
+  await expect(gameRows.nth(1).getByTestId('season-team-mu')).toHaveText('–');
+  await expect(gameRows.nth(1).getByTestId('season-team-md')).toHaveText('–');
+  const total = page.getByTestId('season-team-total');
+  await expect(total.getByTestId('season-team-mu-total')).toHaveText('3/7');
+  await expect(total.getByTestId('season-team-mu-pct')).toHaveText('43%');
+  await expect(total.getByTestId('season-team-md-total')).toHaveText('4/6');
+  await expect(total.getByTestId('season-team-md-pct')).toHaveText('67%');
 });
 
 test('an old stats document without the new fields still renders', async ({ page }) => {
@@ -617,6 +649,14 @@ test('an old stats document without the new fields still renders', async ({ page
   await expect(page.getByTestId('season-situations')).toHaveCount(0);
   await page.getByTestId('tab-players').click();
   await expect(page.getByTestId('season-pen')).toHaveText('0');
+  // On the Team tab the missing figures are dashes, never undefined or NaN.
+  await page.getByTestId('tab-team').click();
+  const row = page.getByTestId('season-team-game-row');
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('season-team-mu')).toHaveText('–');
+  await expect(row.getByTestId('season-team-md')).toHaveText('–');
+  await expect(row.getByTestId('season-team-excl')).toHaveText('–');
+  await expect(page.getByTestId('panel-team')).not.toContainText(/NaN|undefined/);
 });
 
 test('narrow screens: long opponent, shootout and figures do not cause sideways scrolling', async ({ page }) => {
