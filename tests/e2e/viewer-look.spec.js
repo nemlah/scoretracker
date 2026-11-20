@@ -157,6 +157,7 @@ for (const blockFonts of [false, true]) {
       } else {
         await expect(page.getByTestId('games-list')).toBeVisible();
         await expect(page.getByTestId('result-link').first().locator('.result-opp')).toHaveText(longOpponent);
+        await expect(page.getByTestId('live-banner')).toBeVisible();
       }
       if (!blockFonts) {
         // Then the fonts, for that very text. check() alone is true when no face matches, so also require a
@@ -564,6 +565,7 @@ for (const [scheme, board, line] of [['light', '#0b1320', 'rgb(122, 135, 150)'],
       expect(colours[0]).toBe(colours[1]);
       expect(await hexOf(page, colours[0])).toBe(board);
       // It sits above the board, with the live banner (a live game exists) above the strip.
+      await expect(page.getByTestId('live-banner')).toBeVisible();
       const tops = await page.evaluate(() => ['live-banner', 'all-games'].map(id => document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect().top)
         .concat(document.querySelector('.board').getBoundingClientRect().top));
       expect(tops[0]).toBeLessThan(tops[1]);
