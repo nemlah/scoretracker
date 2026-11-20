@@ -17,7 +17,20 @@
 - **Todos outside R2:**
   - WebKit tracker test races (`withTwoDevices`, goalie and situation timing) flake on main too.
   - Stub `apis.google.com` in e2e: a real 500 tripped the viewer-team console gate once.
-- **Next:** the owner approves the R2 build page, then "merge and deploy". After deploy, open the tracker and the viewer once on Wi-Fi on every phone (cache v3). Then plan Release 3.
+- **Deployed 20/11/2026:**
+  - No game was live (3 games, all final). main pushed at 11e0ca7, and Pages built it.
+  - Headless live check:
+    - season home with tabs and real results (1 W · 2 L);
+    - Players and Team panels with no undefined or NaN;
+    - game screen with the two-row board, quarter grid and 39 timeline rows;
+    - no sideways scroll at 390 px;
+    - the tracker reaches its unlock screen in the viewer's context;
+    - no console errors.
+  - The season's exclusion and quarter figures show "–" until the tracker's next boot recount writes them.
+- **Next:**
+  - Service-worker cache is now v3: open the tracker and the viewer once on Wi-Fi on every phone before the next game.
+  - Re-sync the design system to R2.
+  - Plan Release 3; the carry-overs are in the spec under "R3 carry-overs from R2".
 
 ## 19/11/2026 - Direction B, Release 1 (the look) built on branch direction-b-r1
 - Built in the worktree `.worktrees/direction-b-r1` from the plan `docs/superpowers/plans/2026-11-19-direction-b-r1-look.md`: club-colour helper `js/accent.js` (Codex), tokens + Sofia fonts + contrast test (Codex), viewer and tracker CSS restyle with look e2e specs (sonnet), home-screen icons, manifest and link preview, service-worker cache v2 (sonnet). No DOM, class or test-id changes.
