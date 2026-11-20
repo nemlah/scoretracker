@@ -22,7 +22,13 @@
   - New string keys degrade to key names.
   - New state fields are read with a fallback.
   - CSS for markup that R3 replaces stays one release, under `/* R2 tracker markup, kept for mixed caches; remove in R4 */`, whenever an R2 `js/tracker/**` file would still render that markup against R3 CSS.
+  - **R3 tracker markup keeps the R2 class names** on the same elements and adds new ones. New R3 rules are gated on the new classes, so an R2 module under R3 CSS keeps its R2 look, and an R3 module under R2 CSS falls back to the R2 look.
+  - Remove an export, string key or CSS rule only when nothing at 720f124 reads it, namespace reads included: `git grep -n "<name>" 720f124 -- js css`.
   - Check every changed module against `git show 720f124:<path>`.
+- **Read-only device:**
+  - Controls that only navigate or reveal get no `data-write`: Continue tracking, the Change scorer/Edit toggles, Next/Back.
+  - Edit controls keep the writable and availability checks they have today.
+  - A new control must not let the shell's blanket `.disabled` pass (`app.js` ~512) override a control's own guard.
 - **Keep every `data-testid`** unless the task says it replaces the element. When a test id is replaced, update its e2e in the same commit.
 - **Optional modules:** `js/icons.js` is loaded only through a caught `import()`. Until it loads, or when it fails, the glyph strings stay (`tlGoalIcon`, `tlExclIcon` in `js/strings.js`).
 - **Tracker stays light.** No dark mode.
@@ -51,7 +57,7 @@
 2. **In-place updates:** a Firestore snapshot that lands mid-tap must not rebuild a button. This holds for the new header score, the situation band, the pips and the events-sheet row editors (an open `<select>` must survive a snapshot). Owned by Tasks 4 and 5.
 3. **Long Greek names and two-digit caps at 360 px**, in the tile, the goalie sheet header, the events rows with their "Change scorer" button, the home live card's opponent and the past-game rows. Owned by Tasks 4–6 and 8.
 4. **Shootout and live states:** a live game on the past-games list shows LIVE, not a W/L chip; a shootout final shows the pen line; a level final shows the grey D chip. The detail scoreboard handles live, final and shootout. Owned by Task 6.
-5. **Read-only device** (another device has control): the moved banner shows, and the new controls (Change scorer, Next, Continue tracking) respect `data-write` the same way today's controls do. Owned by Tasks 3, 5 and 7.
+5. **Read-only device** (another device has control): the moved banner shows. Continue tracking, the row toggles and Next/Back still work, and edit controls stay guarded as today (Global Constraints). Owned by Tasks 3, 5, 6 and 7.
 
 ---
 
@@ -67,15 +73,19 @@
 
 - [ ] **Step 1: Failing unit test** `game flow follows quarter order, not recording order`. Events: Q1 `goal`, Q2 `oppGoal`, Q2 `oppGoal`, then a Q1 `goal` recorded last (highest `ts`, period 1). Timeline order is Q1 goal, Q1 goal, Q2 oppGoal, Q2 oppGoal. Assert `biggestLead === 2`, `ties === 1`, `neverBehind === true`, `longestRun` is `{ us: 2, them: 0 }`. (Recording order would give lead 1, then 0, -1, 0: biggestLead 1, ties 2, neverBehind false.)
 - [ ] **Step 2:** `npm test`. Expected: the new test fails.
-- [ ] **Step 3:** In `js/teamStats.js`, run `goalFlow` in the timeline's order, oldest first. `timeline(events)` returns `[{ period, events }]` newest first at both levels (SO, Q4 … Q1, each newest `ts` first), so reverse both levels: Q1 → Q4 → SO, ascending `ts`. Shootout goals stay in, last, as today. Keep the return shape. Add a second test: equal `ts` within a quarter keeps input order.
-- [ ] **Step 4: Remove the shims.**
-  - Every `remove in R3` item in `js/viewer.js`, `js/strings.js` and `js/teamStats.js`. `model.x?.` and `strings.x?.` reads become named imports, but only of exports present at 720f124. Check each one with `git show 720f124:js/model.js` / `js/strings.js`. `fallbackState`, `BANNER_SLOTS` and the cached-repo deadline case go.
-  - `tOr(key, fallback, params)` calls become `t(key, params)`.
-  - Remove `hasString` from `js/strings.js` only if no file at 720f124 named-imports it (`git grep -n "hasString" 720f124 -- js`). Otherwise keep it and say so in the report.
-  - The `TIMELINE_SAVES` check in `js/viewer.js` (~797–801) goes. The export stays in `js/model.js`, because an R2 `viewer.js` still reads it.
-  - The R1-only man-up/man-down keys in `js/strings.js` (~27–31) go. First check that no `js/tracker/**` file reads them.
+- [ ] **Step 3:** In `js/teamStats.js`, run `goalFlow` in the timeline's order, oldest first. `timeline(events)` returns `[{ period, events }]` newest first at both levels (SO, Q4 … Q1, each newest `ts` first), so reverse both levels: Q1 → Q4, ascending `ts`. Keep today's regulation-only filter: shootout goals stay out, and the existing shootout-exclusion test (`tests/unit/teamStats.test.js` ~45) keeps passing. Keep the return shape. Add a second test: equal `ts` within a quarter keeps input order.
+- [ ] **Step 4: Remove the viewer-side shims.**
+  - Every `remove in R3` item in `js/viewer.js` and `js/teamStats.js`. `model.x?.` and `strings.x?.` reads become named imports, but only of exports present at 720f124.
+  - `fallbackState` and `BANNER_SLOTS` go. **Keep the deadline's cached-repo case** (`viewer.js` ~119/166). It is the only path that turns a silent subscription into a load error. Drop only its "remove in R3" tag and keep its regression test (`viewer-home.spec.js` ~620).
+  - `tOr(key, fallback, params)` calls become `t(key, params)`, and `tOr` goes.
+  - The `TIMELINE_SAVES` check in `js/viewer.js` (~797–801) goes.
+- [ ] **Step 4b: Exports and keys an R2 file still reads stay** (R2 `viewer.js` reads them through a namespace):
+  - `hasString` and the `liveBanner` key in `js/strings.js`;
+  - every `TIMELINE_SAVES` export.
+
+  Re-tag each `remove in R4: read by the R2 viewer.js`. Remove `emptyTitle`/`emptyBody` and the R1-only man-up/man-down keys and formatters (~27–31, ~404) only after `git grep` at 720f124 shows no reader in `js/`. Update the assertions in `tests/unit/strings.test.js` (~117, ~177) in the same commit, and keep the coverage for `situationShort`.
 - [ ] **Step 5:** Remove the CSS block under `/* R1 markup, kept for mixed caches; remove in R3 */` in `css/viewer.css`, and `.rope` in `css/base.css` (check that no JS emits `rope`).
-- [ ] **Step 6:** Delete or rewrite the e2e tests that only exercised the removed shims (R1 `model.js`/`strings.js`/CSS pairings, among them "the R1-CSS shootout test"). List each deleted test in the report. Tests of R2-era behaviour stay.
+- [ ] **Step 6:** Delete or rewrite the e2e tests that only exercised the removed shims (R1 `model.js`/`strings.js`/CSS pairings). List each deleted test in the report. Tests of R2-era behaviour stay. The R1-CSS shootout test (`viewer-look.spec.js` ~1000) is replaced by a seeded **final** with a shootout, run against 720f124's `css/viewer.css`. It asserts the FINAL badge and the shootout line.
 - [ ] **Step 7:** `npm test` passes. `npx playwright test --list` lists without errors. `grep -rn "remove in R3\|tOr(" js css` prints nothing.
 - [ ] **Step 8: Commit.** `refactor(viewer): drop R2 mixed-cache shims; game flow in timeline order`.
 
@@ -89,7 +99,10 @@
 
 - [ ] **Step 1:** Move each duplicated helper into `tests/e2e/helpers.js` once, and import it in every spec that had a copy. Behaviour stays the same. Where two copies differ, keep the stricter one and note it.
 - [ ] **Step 2: Test gap.** `instrument-repo.spec.js` must see the second snapshot enter the queue. Make the instrumentation record each queued snapshot with a counter. Assert that the counter reaches 2 before the assertion that follows today.
-- [ ] **Step 3: Test gap.** The season-switch Team test in `viewer-team.spec.js` must reach the stats-key gate. Seed two seasons whose stats documents differ, switch seasons, and assert that the Team tab shows the second season's numbers. Also assert that a stats snapshot for the first season arriving late does not replace them: re-write the first season's stats after the switch, then expect no change. That expect is a "nothing happened" check; give the reason in a comment.
+- [ ] **Step 3: Test gap.** The season-switch Team test in `viewer-team.spec.js` must reach the stats-key gate (`viewer.js` ~139, ~887). Rewriting the old season after the switch proves nothing, because the old watch has already unsubscribed.
+  - Use `instrumentRepo` to hold the first season's stats callback, switch seasons, then release the held callback.
+  - Assert that it was delivered (an instrumentation counter), and that the Team tab still shows the second season's numbers.
+  - Add a direct test of the gate with a stats snapshot whose key doesn't match the shown season.
 - [ ] **Step 4:** `npm test` passes. `npx playwright test --list` lists the same test count as before, plus the new tests and minus none.
 - [ ] **Step 5: Commit.** `test(e2e): shared viewer helpers; queue and season-switch gaps`.
 
@@ -107,8 +120,9 @@
 - [ ] **Step 2: Failing e2e** (tracker-access, the takeover test): `takeover-banner` holds a title "Tracking moved to another device" and a second line "Taps here are paused." (new key `takeoverPaused`). `take-over` is still in the banner.
 - [ ] **Step 3: Failing e2e** (offline, the failed-tap test): each `failed-row` shows a warning icon, the title (`tapNotSaved` / `tapsNotSaved`) and a description line (`data-testid="failed-desc"`). For the game on screen, the line reads `DD/MM/YYYY · Opponent: ` followed by the first two failed taps' labels, then `+N more` when there are more. For another game, it shows `failed-game-link` as today. `retry-failed` and `discard-failed` become two equal full-width buttons (48 px) under it.
 - [ ] **Step 4: Implement.**
-  - The description builds labels with the existing `eventLabel`, using the lineup of `state.game` when its id matches the group's game.
-  - The journal entries already hold `type`, `playerId` and `period` (see `failedGroups`). Extend the group with `entries` (the first 2) and `more`.
+  - The description builds labels with the existing `eventLabel` from each journal entry's `entry.event` (`js/journal.js` ~5). It uses the date, opponent and lineup of `state.game` when its id matches the group's game. Otherwise there is no description line, and `failed-game-link` or `failed-gone` shows as today.
+  - Extend each group with `events` (the first 2) and `more`.
+  - **Rows are keyed by game id and updated in place.** `renderFailed()` today replaces every row when the signature changes. Change it so a snapshot that changes a description never replaces the Retry or Discard button.
   - The warning icon is inline SVG built with `createElementNS`, path from TLive's banner, `aria-hidden`.
   - New strings: `takeoverPaused`, `failedMore: '+{n} more'`.
 - [ ] **Step 5: Mixed cache.** R2 `app.js` with R3 `tracker.css` must still render today's header and banners. R3 `app.js` with R2 `tracker.css` must keep the crest at most 32 px. Use width/height attributes on the `<img>`, not only CSS.
@@ -140,7 +154,12 @@
 - [ ] **Step 4: Implement** in place. Elements are built once in `mount`/`buildTile` and only their text, `hidden` and `data-*` change in `update`.
   - The band reuses the existing `situationTick` and `openSituation`, and writes both the band and the dock seconds in one function.
   - The page tint during a situation stays as R1 has it.
-- [ ] **Step 5: Mixed cache.** R2 `live.js` with R3 `tracker.css`: today's `.live-score`, `.score-dash` and `.pips` rules stay, under the R4 removal tag, wherever the new rules changed them. R3 `live.js` with R2 CSS: the band shows as an unstyled line, and nothing overlaps.
+- [ ] **Step 5: Mixed cache.**
+  - `.bar` belongs to `app.js`, `.live-top` to `live.js`, and R2 also sets `body.on-live`. So R3 `live.js` adds a gate class: `live-top--board` on `.live-top`, and `body.live-r3` next to `on-live`, removed on unmount.
+  - Every R3 rule that merges the score row into the header, or moves the dock, is scoped to those classes.
+  - R2 `live.js` with R3 `tracker.css` keeps its separate score row and today's fixed dock (`.live-score`, `.score-dash` and `.pips` rules under the R4 tag).
+  - R3 `live.js` with R2 CSS: the band shows as an unstyled line, and nothing overlaps.
+  - Test both pairings in one e2e. Route `js/tracker/views/live.js` (or `css/tracker.css`) to its 720f124 content, then assert that `score-us`, `period-next`, `undo` and `events-open` are visible and clickable.
 - [ ] **Step 6:** `npm test`; `npx playwright test --list`.
 - [ ] **Step 7: Commit.** `feat(tracker): live header row, situation band, board tiles and goalie sheet`.
 
@@ -151,25 +170,43 @@
 - Test: `tests/e2e/tracker-events.spec.js`, `tests/e2e/offline.spec.js` (it uses `ev-*`), `tests/e2e/tracker-helpers.js`
 
 **Interfaces:**
-- Consumes: `timelineRows(events)` from `js/model.js` (exists at 720f124) for the running score. `icon(name)` from `js/icons.js` through a caught `import()`.
-- Produces: `editEvent(row)` in `tests/e2e/tracker-helpers.js`. It clicks the row's `ev-edit` and waits for its editor.
+- Consumes: `icon(name)` from `js/icons.js` through a caught `import()`. Running scores: compute them in `events.js` from the full event list (quarter, then `ts`, as the timeline does), or join `timelineRows(events)` by event id. `timelineRows` leaves out situation records and `gkIn`, and those rows must stay listed and correctable.
+- Produces:
+  - `createEventsPanel(ctx, root, { onEnded, rowToggles = false })`. The live sheet passes `rowToggles: true`. The game detail and an R2 `games.js` get today's always-visible editors.
+  - `editEvent(row)` in `tests/e2e/tracker-helpers.js`. It clicks the row's `ev-edit` and waits for its editor.
 
 - [ ] **Step 1: Failing e2e** (tracker-events), for the board TEvents:
-  - The sheet head holds the title, a close X (`events-close`, `aria-label` "Close events", 48 px) and one row with `open-lineup` and `end-game`.
+  - The sheet has a grabber, the title and a close X (`events-close`, `aria-label` "Close events", 48 px). Directly under them, at the top of the sheet body, is one row with `open-lineup` and `end-game`.
   - The list is grouped under period headings: the newest period first, with "· newest first" on the first heading.
-  - Each `ev-row` has an icon box (`data-kind` = goal | oppGoal | save | excl | pen | situation), the label (`eventLabel`), and a meta line (`data-testid="ev-meta"`). The meta line has the running score after goals and opponent goals, "Man-up · " in front of a man-up goal, and "Third · out" on a foul-out.
+  - Every event type stays listed. Each `ev-row` has an icon box (`data-kind`), the label (`eventLabel`), and a meta line (`data-testid="ev-meta"`, empty when there is nothing to say).
+  - Icon mapping (`icon()` throws on other names):
+    - `goal`: `goal`, filled;
+    - `oppGoal`: `goal`, outlined;
+    - `save`, `penSave` and `gkIn`: `save`;
+    - `excl`: `excl`;
+    - `pen`: `pen`;
+    - situation records: no svg, the box shows `situationShort`.
+  - Meta line: the running score after goals and opponent goals, "Man-up · " in front of a man-up goal, "Third · out" on a foul-out.
   - `ev-delete` is a 44 px icon button with `aria-label` "Delete {label}".
-- [ ] **Step 2: Failing e2e:**
+- [ ] **Step 2: Failing e2e** (the live sheet, `rowToggles: true`):
   - Goal rows have `ev-edit` labelled "Change scorer". Other rows have `ev-edit` labelled "Edit" only when they have an editor (a save with a goalie choice, an opponent goal with an in-goal choice).
   - Clicking it shows that row's editor: today's `ev-scorer`, `ev-manup`, `ev-goalie`, `ev-in-goal`, unchanged and with the same test ids. Clicking it again hides the editor.
-  - The editor stays open across a snapshot. Test: open it, then write the game from Firestore. Expect the editor still open and the `<select>` still the same element (mark it with `evaluate`; the mark survives).
-  - Rewrite every existing test that uses `ev-scorer`/`ev-manup`/`ev-goalie`/`ev-in-goal` to call `editEvent(row)` first.
-- [ ] **Step 3: Overlay.**
-  - Add a grabber bar (`.sheet-grabber`, `aria-hidden`) at the top of every bottom sheet.
-  - The close button becomes an X icon with `aria-label` = `t('sheetClose')` + title ("Close events"). Its test id is unchanged.
+  - **The editor survives snapshots.** Open it and focus the `<select>`. Then write a change from Firestore that shows on screen (another event's label changes) and wait for that text. Assert that:
+    - the editor is still open;
+    - the `<select>` is the same node, still `isConnected`, still focused, and keeps its options.
+
+    Repeat with a write that adds an event in a new period, so a new period group appears.
+  - Rewrite the live-sheet tests that use `ev-scorer`/`ev-manup`/`ev-goalie`/`ev-in-goal` to call `editEvent(row)` first (tracker-events, tracker-goalies, tracker-situations, offline). Game-detail tests stay as they are.
+- [ ] **Step 3: Overlay** (internal only; `createOverlay`'s options and returned API stay as at 720f124):
+  - The grabber is a CSS `::before` on `.sheet`, with no markup.
+  - The close button's content becomes an X svg, with `aria-label` = `t('sheetClose')` + title ("Close events"). Keep the `sheetClose` key and the test id.
   - Lineup and goalie sheets get the same change, and their tests keep passing.
-- [ ] **Step 4: Implement** in place: one record per event id holds the row and an `editing` flag. Keep `add-unknown-goal`, `add-goal-period` and `period-prev`, in a row under the list. The same panel is used in the game detail (`createEventsPanel`), so the detail shows the same rows.
-- [ ] **Step 5: Mixed cache.** R3 `events.js` with an R2 `overlay.js` still works (no new named imports from `overlay.js`). R2 `events.js` with R3 CSS keeps today's `.ev-line`/`.ev-controls` look, under the R4 removal tag.
+  - R2 callers keep their focus trap and dismissal behaviour.
+- [ ] **Step 4: Implement** in place: one record per event id holds the row and an `editing` flag. Keep `add-unknown-goal`, `add-goal-period` and `period-prev`, in a row under the list.
+- [ ] **Step 5: Mixed cache.**
+  - R3 `events.js` with an R2 `overlay.js` works: no new overlay API, and the action row lives in `body`.
+  - R2 `events.js` with R3 CSS keeps today's `.ev-line`/`.ev-controls` look, under the R4 removal tag.
+  - R2 `games.js` with R3 `events.js` gets always-visible editors (the default).
 - [ ] **Step 6:** `npm test`; `npx playwright test --list`.
 - [ ] **Step 7: Commit.** `feat(tracker): board events sheet with per-row editors`.
 
@@ -194,7 +231,8 @@
 - [ ] **Step 3: Failing e2e** (game detail, board TGameDetail):
   - `games-back` reads "‹ Past games".
   - `game-score` sits in a dark scoreboard card: a FINAL or LIVE badge and the date, then two rows (team name + score, opponent + score), then the shootout line when there is one.
-  - Under the card come the events panel, the info form and the actions (`reopen-game`, `delete-game`), each in a card, with every existing test id and behaviour unchanged.
+  - Under the card come the events panel (Task 5's rows, with editors always visible), the info form and the actions (`reopen-game`, `delete-game`), each in a card, with every existing test id and behaviour unchanged.
+- [ ] **Step 3b: Failing e2e** (read-only device): with another device in control, `home-resume` still navigates to `#/live`. It gets no `data-write`.
 - [ ] **Step 4: Implement.**
   - The home count reads once per mount and is cancelled on unmount (no write after unmount).
   - The W/L/D outcome is `resultOutcome(gameResult(game))` from `js/model.js`. Both exist at 720f124, so named imports are fine. It is shown only for `status === 'final'`.
@@ -213,13 +251,14 @@
 
 - [ ] **Step 1: Failing e2e:**
   - Step 1 shows `opponent-input`, `date-input` and `season-input`, plus `newgame-next`; `sel-list` is hidden.
-  - With an empty opponent, Next shows today's opponent error and stays on step 1.
+  - A blank opponent is allowed and still saves as today's default (`newgame.js` ~117).
+  - An invalid season shows `season-error` on step 1, and Next stays disabled until the season is valid. That is today's rule (it disables Start), moved to Next.
   - Next shows step 2 (`sel-list`, `start-game`) and moves focus to the step 2 heading.
   - Back returns to step 1 with the typed values kept.
   - Starting a game writes the same Firestore document as today (assert opponent, date, season and lineup in Firestore).
-  - A season error found at Start returns to step 1 with `season-error` shown.
-- [ ] **Step 2: Implement** as two sections in the one view, with no new route. Enter in the opponent field goes to Next.
-- [ ] **Step 3:** Update every test or helper that fills the form and clicks `start-game`, so it clicks `newgame-next` first.
+  - The `resume-live` note (a game is already live) still shows instead of the form.
+- [ ] **Step 2: Implement** as two sections in the one view, with no new route. Enter in the opponent field goes to Next. `start-game` keeps its guards.
+- [ ] **Step 3:** Update every test or helper that edits the lineup or clicks `start-game` (e.g. `tracker-live.spec.js` ~35, ~94) to click `newgame-next` first.
 - [ ] **Step 4: Mixed cache.** R2 `newgame.js` with R3 CSS keeps a usable one-page form.
 - [ ] **Step 5:** `npm test`; `npx playwright test --list`.
 - [ ] **Step 6: Commit.** `feat(tracker): new game in two steps`.
@@ -234,7 +273,9 @@
 - Consumes: Task 3's header, Task 4's `.live-top` and `.situation-band`, the dock.
 
 - [ ] **Step 1: Failing e2e** (landscape, 844×390 and 667×375, board TLandscape): on the live screen, the header, the scoreboard row, the situation band and the dock sit in a left column no wider than 300 px. The tiles fill the right side in two columns (two tiles share a `top`). No sideways scroll. Every dock button is fully visible and at least 44 px.
-- [ ] **Step 2: Implement.** Prefer CSS only, under `@media (orientation: landscape) and (max-height: 500px)` on `body.on-live`. Add a wrapper only if CSS can't place the elements. Then keep the DOM order (header, banners, scoreboard, tiles, dock) for screen readers, and keep every test id.
+- [ ] **Step 2: Implement.**
+  - Prefer CSS only, under `@media (orientation: landscape) and (max-height: 500px)` and scoped to `body.live-r3` (Task 4's gate class). An R2 `live.js` under R3 CSS keeps today's landscape layout, with every control reachable.
+  - Add a wrapper only if CSS can't place the elements. Then keep the DOM order (header, banners, scoreboard, tiles, dock) for screen readers, and keep every test id.
 - [ ] **Step 3: Failing e2e** (360×740 worst case, light, every club colour):
   - live: two-digit caps, a long Greek name, 3 pips, a 2-digit goal count, man-down band, unsaved banner;
   - events sheet: a long Greek goal label with Change scorer;
@@ -243,7 +284,7 @@
 
   No sideways scroll. Names are ellipsised on one line, `scrollWidth > clientWidth` on the name element. Buttons stay at least 44 px.
 - [ ] **Step 4:** Fix whatever Step 3 finds, in CSS.
-- [ ] **Step 5:** Bump `CACHE` in `sw.js` to `wp-shell-v4`. `tests/unit/sw-shell.test.js` passes.
+- [ ] **Step 5:** Bump `CACHE` in `sw.js` to `wp-shell-v4`. In the same commit, update every hard-coded `wp-shell-v3` expectation (`grep -rn "wp-shell-v3" tests`: `sw-shell.test.js` ~73, `sw-fetch.test.js` ~161, `brand.test.js` ~55, `offline.spec.js` ~376). `npm test` passes.
 - [ ] **Step 6:** Full e2e run. Expected: all pass, except flakes on the known waiver list (memory `e2e-known-flakes`), each re-run alone and passing.
 - [ ] **Step 7: Commit.** `feat(tracker): landscape split; 360 px worst case; cache v4`.
 

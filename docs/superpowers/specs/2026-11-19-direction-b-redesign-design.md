@@ -409,7 +409,7 @@ Each item keeps its existing test ids, or replaces them in the same commit as it
 3. **Deferred:** carry-over 4's SVG and panel-card consolidation. Moving shared builders into a module is a refactor with mixed-cache risk and no visible change. It waits for the versioned release shell. The test-helper consolidation is in.
 4. **Done already:** carry-over 7 (the WebKit races and the `apis.google.com` stub) landed with the e2e-speed branch on 20/11/2026.
 5. **Mixed caches:** R3 is safe against R2 files, as Goal 7 asks. A phone still holding R1 files (last opened before 20/11/2026) can fail for one load once the R3 shims are gone. That is two releases back, so it is accepted.
-6. **Events sheet editing:** each row's editors (scorer, man-up, goalie, in goal) sit behind one button on the row: "Change scorer" on goals, "Edit" on other rows that have an editor. The sheet shows the board's one-line rows.
+6. **Events sheet editing:** in the live events sheet, each row's editors (scorer, man-up, goalie, in goal) sit behind one button on the row: "Change scorer" on goals, "Edit" on other rows that have an editor. The sheet shows the board's one-line rows. The game detail uses the same rows with the editors always visible, as today.
 7. **Game detail:** a dark scoreboard card (badge, date, two score rows, shootout line) on top, with no quarter grid. Under it come today's events panel, game info form and actions, restyled as cards. Editing stays inline, so there is no "Edit events" toggle.
 8. **Home counts:** "N players" counts the roster's active players. The past-games count comes from one `listGames()` read on home and is hidden until that read answers.
 
