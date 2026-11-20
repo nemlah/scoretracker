@@ -63,12 +63,16 @@ function situationRow(id, label, sub, counts, successful) {
 }
 
 // A bar that shows `part` of `total`, with a legend naming the part and the rest. Without a part (the game
-// was not tracked) it is the total alone.
+// was not tracked) it is the total alone. A tracked side with no goals keeps its legend ("0 man-up · 0 other"):
+// its bar is an empty track, with no fill, and still says the figures.
 function goalsBlock(testid, kind, label, total, part, partLabel) {
-  const split = isCount(part) && part <= total && total > 0;
+  const split = isCount(part) && isCount(total) && part <= total;
   const rest = split ? total - part : null;
-  const fill = h('span', { class: `team-bar-fill team-bar-fill--${kind}`, 'data-testid': 'team-bar-fill' });
-  fill.style.width = split ? `${Math.round(100 * part / total)}%` : '0%';
+  let fill = null;
+  if (split && part > 0) {
+    fill = h('span', { class: `team-bar-fill team-bar-fill--${kind}`, 'data-testid': 'team-bar-fill' });
+    fill.style.width = `${Math.round(100 * part / total)}%`;
+  }
   return h('div', { class: 'team-goals', 'data-testid': testid },
     h('div', { class: 'team-goals-head' },
       h('span', { class: 'team-goals-label' }, label),

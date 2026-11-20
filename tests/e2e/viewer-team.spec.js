@@ -2,8 +2,10 @@ import { test, expect } from '@playwright/test';
 import {
   closeAll, delivered, instrumentRepo, resetAll, seed, update,
 } from './helpers.js';
-import { teamGame } from '../fixtures/team-game.js';
-import { seasonStatsFull, seasonStatsOld } from '../fixtures/season-stats.js';
+import { teamGame, teamGameExpected } from '../fixtures/team-game.js';
+import {
+  seasonStatsFull, seasonStatsFullExpected, seasonStatsOld, seasonStatsOldExpected,
+} from '../fixtures/season-stats.js';
 
 const roster = [
   { id: 'p1', name: 'Νίκος Λέκκας', cap: 1, archived: false },
@@ -62,6 +64,12 @@ const openHomeTeam = async (page, stats) => {
 
 const noBadText = page => expect(page.getByTestId('panel-team')).not.toContainText(/NaN|undefined|null/);
 
+
+// Figures are the fixtures' expected values (the unit tests' source too); only how they are written is literal here.
+const dashed = count => (count > 0 ? String(count) : '–');
+const outOf = (quarter, key) => (quarter.played > 0 ? `${quarter[key]}/${quarter.played}` : '–');
+const expected = teamGameExpected;
+
 test.describe('the game Team tab', () => {
   test('man-up and man-down by quarter, with totals and percentages', async ({ page }) => {
     await openGameTeam(page);
@@ -70,18 +78,17 @@ test.describe('the game Team tab', () => {
     const up = page.getByTestId('team-manup');
     await expect(up.locator('th')).toContainText(['Man-up']);
     await expect(up).toContainText('scored');
-    await expect(up.getByTestId('team-q')).toHaveText(['1/1', '0/1', '–', '–']);
-    await expect(up.getByTestId('team-total')).toHaveText('1/2');
+    await expect(up.getByTestId('team-q')).toHaveText(expected.manUp.quarters.map(quarter => outOf(quarter, 'scored')));
+    await expect(up.getByTestId('team-total')).toHaveText(`${expected.manUp.scored}/${expected.manUp.played}`);
     await expect(up.getByTestId('team-pct')).toHaveText('50%');
     const down = page.getByTestId('team-mandown');
     await expect(down).toContainText('Man-down');
     await expect(down).toContainText('stopped');
-    await expect(down.getByTestId('team-q')).toHaveText(['0/1', '1/1', '1/1', '–']);
-    await expect(down.getByTestId('team-total')).toHaveText('2/3');
+    await expect(down.getByTestId('team-q')).toHaveText(expected.manDown.quarters.map(quarter => outOf(quarter, 'stopped')));
+    await expect(down.getByTestId('team-total')).toHaveText(`${expected.manDown.stopped}/${expected.manDown.played}`);
     await expect(down.getByTestId('team-pct')).toHaveText('67%');
     // A quarter with none played is drawn dim.
-    const dash = up.getByTestId('team-q').nth(2);
-    await expect(dash).toHaveClass(/is-none/);
+    await expect(up.getByTestId('team-q').nth(2)).toHaveClass(/is-none/);
     await expect(up.getByTestId('team-q').nth(0)).not.toHaveClass(/is-none/);
     await expect(page.getByTestId('team-untracked')).toHaveCount(0);
     await noBadText(page);
@@ -89,22 +96,23 @@ test.describe('the game Team tab', () => {
 
   test('goals for and against, each a bar and a legend', async ({ page }) => {
     await openGameTeam(page);
+    const { goals } = expected;
     const bars = [
-      ['team-goals-for', 'Goals for', '5', '1', 'man-up', '4', 0.2],
-      ['team-goals-against', 'Goals against', '3', '1', 'while a man down', '2', 1 / 3],
+      ['team-goals-for', 'Goals for', goals.for, goals.manUpFor, 'man-up'],
+      ['team-goals-against', 'Goals against', goals.against, goals.manDownAgainst, 'while a man down'],
     ];
-    for (const [id, label, total, part, partLabel, rest, share] of bars) {
-      const goals = page.getByTestId(id);
-      await expect(goals).toContainText(label);
-      await expect(goals.getByTestId('team-goals-total')).toHaveText(total);
-      await expect(goals.getByTestId('team-goals-part')).toHaveText(`${part} ${partLabel}`);
-      await expect(goals.getByTestId('team-goals-rest')).toHaveText(`${rest} other`);
-      await expect(goals.locator('.team-bar')).toHaveAttribute('aria-label', `${total} · ${part} ${partLabel}`);
-      const widths = await goals.evaluate(el => ({
+    for (const [id, label, total, part, partLabel] of bars) {
+      const block = page.getByTestId(id);
+      await expect(block).toContainText(label);
+      await expect(block.getByTestId('team-goals-total')).toHaveText(String(total));
+      await expect(block.getByTestId('team-goals-part')).toHaveText(`${part} ${partLabel}`);
+      await expect(block.getByTestId('team-goals-rest')).toHaveText(`${total - part} other`);
+      await expect(block.locator('.team-bar')).toHaveAttribute('aria-label', `${total} · ${part} ${partLabel}`);
+      const widths = await block.evaluate(el => ({
         fill: el.querySelector('.team-bar-fill').getBoundingClientRect().width,
         bar: el.querySelector('.team-bar').getBoundingClientRect().width,
       }));
-      expect(widths.fill / widths.bar, `${id} fill share`).toBeCloseTo(share, 1);
+      expect(widths.fill / widths.bar, `${id} fill share`).toBeCloseTo(part / total, 1);
     }
   });
 
@@ -113,53 +121,69 @@ test.describe('the game Team tab', () => {
     await expect(page.getByTestId('team-fouls').locator('thead th')).toHaveText(['Q1', 'Q2', 'Q3', 'Q4', 'Total']);
     const excl = page.getByTestId('team-fouls-excl');
     await expect(excl).toContainText('Exclusions');
-    await expect(excl.getByTestId('team-q')).toHaveText(['1', '1', '1', '–']);
-    await expect(excl.getByTestId('team-total')).toHaveText('3');
+    await expect(excl.getByTestId('team-q')).toHaveText(expected.fouls.quarters.map(quarter => dashed(quarter.excl)));
+    await expect(excl.getByTestId('team-total')).toHaveText(String(expected.fouls.excl));
     const pens = page.getByTestId('team-fouls-pens');
     await expect(pens).toContainText('Penalty fouls');
-    await expect(pens.getByTestId('team-q')).toHaveText(['–', '–', '1', '1']);
-    await expect(pens.getByTestId('team-total')).toHaveText('2');
+    await expect(pens.getByTestId('team-q')).toHaveText(expected.fouls.quarters.map(quarter => dashed(quarter.pens)));
+    await expect(pens.getByTestId('team-total')).toHaveText(String(expected.fouls.pens));
   });
 
   test('foul trouble: the order, the pips and the text', async ({ page }) => {
     await openGameTeam(page);
     const rows = page.getByTestId('foul-trouble-row');
-    await expect(rows).toHaveCount(2);
+    await expect(rows).toHaveCount(expected.trouble.length);
     // Not out first, then out, each by cap: the order teamStats gives.
-    await expect(rows.nth(0)).toHaveAttribute('data-cap', '7');
-    await expect(rows.nth(0).locator('.cap')).toHaveText('7');
-    await expect(rows.nth(0).getByTestId('foul-trouble-name')).toHaveText('Άρης Λάμπρου');
-    await expect(rows.nth(0).getByTestId('foul-trouble-note')).toHaveText('2 of 3 fouls · one more and out');
-    await expect(rows.nth(1)).toHaveAttribute('data-cap', '12');
-    await expect(rows.nth(1).locator('.cap')).toHaveText('12');
-    await expect(rows.nth(1).getByTestId('foul-trouble-name')).toHaveText('Αλέξανδρος Κωνσταντίνος Παπαγεωργίου');
-    await expect(rows.nth(1).getByTestId('foul-trouble-note')).toHaveText('Out');
+    for (const [index, player] of expected.trouble.entries()) {
+      await expect(rows.nth(index)).toHaveAttribute('data-cap', String(player.cap));
+      await expect(rows.nth(index).locator('.cap')).toHaveText(String(player.cap));
+      await expect(rows.nth(index).getByTestId('foul-trouble-name')).toHaveText(player.name);
+      await expect(rows.nth(index).getByTestId('foul-trouble-note')).toHaveText(
+        player.out ? 'Out' : `${player.fouls} of 3 fouls · one more and out`);
+    }
     // Three 12 px pips each: exclusions, then penalty fouls, then what is left.
     const pips = row => row.locator('.team-pip').evaluateAll(els => els.map(el => {
       const box = el.getBoundingClientRect();
       return { kind: el.className.replace('team-pip team-pip--', ''), w: box.width, h: box.height };
     }));
-    expect(await pips(rows.nth(0))).toEqual([
-      { kind: 'excl', w: 12, h: 12 }, { kind: 'excl', w: 12, h: 12 }, { kind: 'empty', w: 12, h: 12 },
-    ]);
-    expect(await pips(rows.nth(1))).toEqual([
-      { kind: 'excl', w: 12, h: 12 }, { kind: 'pen', w: 12, h: 12 }, { kind: 'pen', w: 12, h: 12 },
-    ]);
-    // What a reader of the pips hears.
+    const pip = kind => ({ kind, w: 12, h: 12 });
+    // p7: two exclusions; p12: an exclusion and two penalty fouls (from the fixture's events).
+    expect(await pips(rows.nth(0))).toEqual([pip('excl'), pip('excl'), pip('empty')]);
+    expect(await pips(rows.nth(1))).toEqual([pip('excl'), pip('pen'), pip('pen')]);
     await expect(rows.nth(0).locator('.team-pips')).toHaveAttribute('aria-label', 'Exclusions: 2, penalty fouls: 0');
     await expect(rows.nth(1).locator('.team-pips')).toHaveAttribute('aria-label', 'Exclusions: 1, penalty fouls: 2');
     // The out note is in the out colour; the other is muted.
     const colours = await rows.evaluateAll(els => els.map(el => getComputedStyle(el.querySelector('.team-trouble-note')).color));
     expect(colours[0]).not.toBe(colours[1]);
-    await expect(page.getByTestId('team-pens-against')).toHaveText('2 faced · 1 saved');
+    await expect(page.getByTestId('team-pens-against')).toHaveText(
+      `${expected.pensAgainst.faced} faced · ${expected.pensAgainst.saved} saved`);
   });
 
   test('game flow', async ({ page }) => {
     await openGameTeam(page);
-    await expect(page.getByTestId('flow-lead')).toHaveText('+2');
-    await expect(page.getByTestId('flow-run')).toHaveText('2–0');
-    await expect(page.getByTestId('flow-ties')).toHaveText('2 · never behind');
+    const { flow } = expected;
+    await expect(page.getByTestId('flow-lead')).toHaveText(`+${flow.biggestLead}`);
+    await expect(page.getByTestId('flow-run')).toHaveText(`${flow.longestRun.us}–${flow.longestRun.them}`);
+    await expect(page.getByTestId('flow-ties')).toHaveText(`${flow.ties} · never behind`);
+    expect(flow.neverBehind).toBe(true);
+    await expect(page.getByTestId('flow-scorers')).toHaveText(String(flow.scorers));
+  });
+
+  test('penalties faced and saved, and the scorer count, follow the game', async ({ page }) => {
+    await openGameTeam(page);
+    await expect(page.getByTestId('team-pens-against')).toHaveText('2 faced · 1 saved');
     await expect(page.getByTestId('flow-scorers')).toHaveText('2');
+    // A save of the other penalty, a goal by the goalie-less cap 1 (a third scorer), and one with no scorer.
+    await update('games/team-g1', {
+      events: [
+        ...teamGame.events,
+        { id: 'e19', type: 'penSave', period: 4, ts: 19000, playerId: 'p1' },
+        { id: 'e20', type: 'goal', period: 4, ts: 20000, playerId: 'p1' },
+        { id: 'e21', type: 'goal', period: 4, ts: 21000 },
+      ],
+    });
+    await expect(page.getByTestId('team-pens-against')).toHaveText('2 faced · 2 saved');
+    await expect(page.getByTestId('flow-scorers')).toHaveText('3');
   });
 
   test('a game never ahead, behind in its longest run, with no goals of its own to count', async ({ page }) => {
@@ -180,7 +204,6 @@ test.describe('the game Team tab', () => {
   });
 
   test('a game with no goals shows a dash for the run', async ({ page }) => {
-    // The score is 0–0, so the score-us wait of the helper is different here.
     await seedGame({ ...teamGame, events: [], situations: false });
     await open(page, '#/game/team-g1');
     await expect(page.getByTestId('score-us')).toHaveText('0');
@@ -195,35 +218,97 @@ test.describe('the game Team tab', () => {
     await expect(page.getByTestId('team-untracked')).toHaveText("Man-up and man-down weren't tracked in this game");
     await expect(page.getByTestId('team-situations')).toHaveCount(0);
     await expect(page.getByTestId('team-manup')).toHaveCount(0);
-    await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('5');
-    await expect(page.getByTestId('team-goals-against').getByTestId('team-goals-total')).toHaveText('3');
+    await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText(String(expected.goals.for));
+    await expect(page.getByTestId('team-goals-against').getByTestId('team-goals-total')).toHaveText(String(expected.goals.against));
     await expect(page.locator('.team-bar')).toHaveCount(0);
     await expect(page.getByTestId('team-goals-part')).toHaveCount(0);
     // The fouls, trouble and flow do not depend on it.
-    await expect(page.getByTestId('team-fouls-excl').getByTestId('team-total')).toHaveText('3');
-    await expect(page.getByTestId('foul-trouble-row')).toHaveCount(2);
-    await expect(page.getByTestId('flow-lead')).toHaveText('+2');
+    await expect(page.getByTestId('team-fouls-excl').getByTestId('team-total')).toHaveText(String(expected.fouls.excl));
+    await expect(page.getByTestId('foul-trouble-row')).toHaveCount(expected.trouble.length);
+    await expect(page.getByTestId('flow-lead')).toHaveText(`+${expected.flow.biggestLead}`);
+  });
+
+  // A tracked side with no goals still has known counts: they are zeros, not "untracked".
+  test('tracked, our side scoreless: its legend and an empty bar stay', async ({ page }) => {
+    const events = [
+      { id: 'z1', type: 'manUp', period: 1, ts: 1000 },
+      { id: 'z2', type: 'manUpEnd', period: 1, ts: 2000 },
+      { id: 'z3', type: 'oppGoal', period: 1, ts: 3000 },
+      { id: 'z4', type: 'oppGoal', period: 2, ts: 4000 },
+    ];
+    await openGameTeam(page, { ...teamGame, events }, '0');
+    const forGoals = page.getByTestId('team-goals-for');
+    await expect(forGoals.getByTestId('team-goals-total')).toHaveText('0');
+    await expect(forGoals.getByTestId('team-goals-part')).toHaveText('0 man-up');
+    await expect(forGoals.getByTestId('team-goals-rest')).toHaveText('0 other');
+    await expect(forGoals.locator('.team-bar')).toHaveAttribute('aria-label', '0 · 0 man-up');
+    await expect(forGoals.locator('.team-bar')).toBeVisible();
+    await expect(forGoals.locator('.team-bar-fill')).toHaveCount(0);
+    // The other side is tracked too: two goals against, none while a man down.
+    const against = page.getByTestId('team-goals-against');
+    await expect(against.getByTestId('team-goals-total')).toHaveText('2');
+    await expect(against.getByTestId('team-goals-part')).toHaveText('0 while a man down');
+    await expect(against.getByTestId('team-goals-rest')).toHaveText('2 other');
+    await expect(against.locator('.team-bar-fill')).toHaveCount(0);
+    await noBadText(page);
+  });
+
+  test('tracked shutout: the goals against show a known 0 while a man down', async ({ page }) => {
+    const events = [
+      { id: 's1', type: 'manUp', period: 1, ts: 1000 },
+      { id: 's2', type: 'goal', period: 1, ts: 2000, playerId: 'p7' },
+      { id: 's3', type: 'goal', period: 2, ts: 3000, playerId: 'p7' },
+    ];
+    await openGameTeam(page, { ...teamGame, events }, '2');
+    const against = page.getByTestId('team-goals-against');
+    await expect(against.getByTestId('team-goals-total')).toHaveText('0');
+    await expect(against.getByTestId('team-goals-part')).toHaveText('0 while a man down');
+    await expect(against.getByTestId('team-goals-rest')).toHaveText('0 other');
+    await expect(against.locator('.team-bar')).toHaveAttribute('aria-label', '0 · 0 while a man down');
+    await expect(against.locator('.team-bar-fill')).toHaveCount(0);
+    // Our side keeps its bar: 2 goals, 1 of them on a man-up.
+    const forGoals = page.getByTestId('team-goals-for');
+    await expect(forGoals.getByTestId('team-goals-part')).toHaveText('1 man-up');
+    await expect(forGoals.locator('.team-bar-fill')).toHaveCount(1);
+  });
+
+  test('a tracked 0–0 game: both sides keep their zero legends', async ({ page }) => {
+    await openGameTeam(page, { ...teamGame, events: [{ id: 'q1', type: 'manUp', period: 1, ts: 1000 }, { id: 'q2', type: 'manUpEnd', period: 1, ts: 2000 }] }, '0');
+    for (const [id, label] of [['team-goals-for', 'man-up'], ['team-goals-against', 'while a man down']]) {
+      const block = page.getByTestId(id);
+      await expect(block.getByTestId('team-goals-total')).toHaveText('0');
+      await expect(block.getByTestId('team-goals-part')).toHaveText(`0 ${label}`);
+      await expect(block.getByTestId('team-goals-rest')).toHaveText('0 other');
+      await expect(block.locator('.team-bar')).toBeVisible();
+      await expect(block.locator('.team-bar-fill')).toHaveCount(0);
+    }
+    await noBadText(page);
   });
 
   test('the panel follows the game: a new goal changes the figures', async ({ page }) => {
     await openGameTeam(page);
-    await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('5');
+    await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText(String(expected.goals.for));
     await update('games/team-g1', {
       events: [...teamGame.events, { id: 'e19', type: 'goal', period: 4, ts: 19000, playerId: 'p7' }],
     });
-    await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('6');
-    await expect(page.getByTestId('flow-scorers')).toHaveText('2');
-    await expect(page.getByTestId('flow-lead')).toHaveText('+3');
+    await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText(String(expected.goals.for + 1));
+    await expect(page.getByTestId('flow-scorers')).toHaveText(String(expected.flow.scorers));
+    await expect(page.getByTestId('flow-lead')).toHaveText(`+${expected.flow.biggestLead + 1}`);
   });
 });
 
-// The by-game rows and the totals the full fixture gives (tests/fixtures/season-stats.js).
-const fullRows = [
-  ['Harbour WPC', '16/11/2026', '1/2', '2/3', '3'],
-  ['Marina WP', '09/11/2026', '2/3', '1/2', '2'],
-  ['Northside WPC', '02/11/2026', '–', '–', '1'],
-  ['Bay Aquatics', '26/10/2026', '0/1', '0/0', '0'],
-];
+// The by-game rows the fixtures expect, as the screen writes them.
+const gameRowTexts = games => games.map(game => [
+  game.opponent,
+  game.date.split('-').reverse().join('/'),
+  game.manUp === null ? '–' : `${game.manUp.scored}/${game.manUp.played}`,
+  game.manDown === null ? '–' : `${game.manDown.stopped}/${game.manDown.played}`,
+  game.excl === null ? '–' : String(game.excl),
+]);
+const full = seasonStatsFullExpected;
+const old = seasonStatsOldExpected;
+const quarterText = values => values.map(String);
+const signedText = value => (value > 0 ? `+${value}` : value < 0 ? `−${-value}` : '0');
 
 async function rowTexts(page) {
   return page.getByTestId('season-team-game-row').evaluateAll(rows => rows.map(row => [
@@ -238,15 +323,15 @@ async function rowTexts(page) {
 test.describe('the season Team tab', () => {
   test('by game, with the season total and the legend', async ({ page }) => {
     await openHomeTeam(page, seasonStatsFull);
-    expect(await rowTexts(page)).toEqual(fullRows);
+    expect(await rowTexts(page)).toEqual(gameRowTexts(full.games));
     const total = page.getByTestId('season-team-total');
     await expect(total).toContainText('Season');
-    await expect(total.getByTestId('season-team-mu-total')).toHaveText('3/6');
+    await expect(total.getByTestId('season-team-mu-total')).toHaveText(`${full.total.manUp.scored}/${full.total.manUp.played}`);
     await expect(total.getByTestId('season-team-mu-pct')).toHaveText('50%');
-    await expect(total.getByTestId('season-team-md-total')).toHaveText('3/5');
+    await expect(total.getByTestId('season-team-md-total')).toHaveText(`${full.total.manDown.stopped}/${full.total.manDown.played}`);
     await expect(total.getByTestId('season-team-md-pct')).toHaveText('60%');
-    await expect(total.getByTestId('season-team-excl-total')).toHaveText('6');
-    await expect(total.getByTestId('season-team-excl-avg')).toHaveText('1.5/game');
+    await expect(total.getByTestId('season-team-excl-total')).toHaveText(String(full.total.excl));
+    await expect(total.getByTestId('season-team-excl-avg')).toHaveText(`${(full.total.excl / full.total.exclGames).toFixed(1)}/game`);
     await expect(page.locator('.team-legend-note')).toHaveText(
       'MU: man-up goals / man-ups · MD: man-downs stopped / man-downs · EXCL: our exclusions');
     await noBadText(page);
@@ -254,19 +339,20 @@ test.describe('the season Team tab', () => {
 
   test('goals by quarter: the rows, the total, a loss in the difference, the note and the coverage', async ({ page }) => {
     await openHomeTeam(page, seasonStatsFull);
+    const q = full.quarters;
     await expect(page.getByTestId('season-quarters').locator('thead th')).toHaveText(['Q1', 'Q2', 'Q3', 'Q4', 'Total']);
     const forRow = page.getByTestId('sq-for');
     const against = page.getByTestId('sq-against');
     const diff = page.getByTestId('sq-diff');
     await expect(forRow).toContainText('For');
-    await expect(forRow.getByTestId('team-q')).toHaveText(['3', '1', '4', '3']);
-    await expect(forRow.getByTestId('team-total')).toHaveText('11');
+    await expect(forRow.getByTestId('team-q')).toHaveText(quarterText(q.for));
+    await expect(forRow.getByTestId('team-total')).toHaveText(String(q.totalFor));
     await expect(against).toContainText('Against');
-    await expect(against.getByTestId('team-q')).toHaveText(['2', '3', '2', '3']);
-    await expect(against.getByTestId('team-total')).toHaveText('10');
+    await expect(against.getByTestId('team-q')).toHaveText(quarterText(q.against));
+    await expect(against.getByTestId('team-total')).toHaveText(String(q.totalAgainst));
     await expect(diff).toContainText('Difference');
-    await expect(diff.getByTestId('team-q')).toHaveText(['+1', '−2', '+2', '0']);
-    await expect(diff.getByTestId('team-total')).toHaveText('+1');
+    await expect(diff.getByTestId('team-q')).toHaveText(q.diff.map(signedText));
+    await expect(diff.getByTestId('team-total')).toHaveText(signedText(q.totalDiff));
     // A loss is in the out colour (and so is nothing else in the row).
     const colours = await diff.getByTestId('team-q').evaluateAll(els => els.map(el => getComputedStyle(el).color));
     const outColour = await page.evaluate(() => {
@@ -277,26 +363,27 @@ test.describe('the season Team tab', () => {
       probe.remove();
       return colour;
     });
-    expect(colours[1]).toBe(outColour);
-    expect(colours[0]).not.toBe(outColour);
-    expect(colours[2]).not.toBe(outColour);
-    expect(colours[3]).not.toBe(outColour);
+    q.diff.forEach((value, index) => {
+      if (value < 0) expect(colours[index], `quarter ${index + 1} is a loss`).toBe(outColour);
+      else expect(colours[index], `quarter ${index + 1} is not a loss`).not.toBe(outColour);
+    });
     await expect(page.getByTestId('season-quarters-note')).toHaveText('Q2 is the only quarter we lose.');
-    await expect(page.getByTestId('season-quarters-coverage')).toHaveText('Covers 3 of 4 games');
+    await expect(page.getByTestId('season-quarters-coverage')).toHaveText(`Covers ${q.covered} of ${q.of} games`);
   });
 
   test('goals: for and against with the man-up and man-down split, and what the split covers', async ({ page }) => {
     await openHomeTeam(page, seasonStatsFull);
-    const goals = page.getByTestId('season-goals');
-    const forGoals = goals.getByTestId('team-goals-for');
-    await expect(forGoals.getByTestId('team-goals-total')).toHaveText('14');
-    await expect(forGoals.getByTestId('team-goals-part')).toHaveText('3 man-up');
-    await expect(forGoals.getByTestId('team-goals-rest')).toHaveText('11 other');
-    const against = goals.getByTestId('team-goals-against');
-    await expect(against.getByTestId('team-goals-total')).toHaveText('14');
-    await expect(against.getByTestId('team-goals-part')).toHaveText('2 while a man down');
-    await expect(against.getByTestId('team-goals-rest')).toHaveText('12 other');
-    await expect(page.getByTestId('season-goals-coverage')).toHaveText('Man-up figures cover 3 of 4 games');
+    const { goals } = full;
+    const card = page.getByTestId('season-goals');
+    const forGoals = card.getByTestId('team-goals-for');
+    await expect(forGoals.getByTestId('team-goals-total')).toHaveText(String(goals.for));
+    await expect(forGoals.getByTestId('team-goals-part')).toHaveText(`${goals.manUpFor} man-up`);
+    await expect(forGoals.getByTestId('team-goals-rest')).toHaveText(`${goals.for - goals.manUpFor} other`);
+    const against = card.getByTestId('team-goals-against');
+    await expect(against.getByTestId('team-goals-total')).toHaveText(String(goals.against));
+    await expect(against.getByTestId('team-goals-part')).toHaveText(`${goals.manDownAgainst} while a man down`);
+    await expect(against.getByTestId('team-goals-rest')).toHaveText(`${goals.against - goals.manDownAgainst} other`);
+    await expect(page.getByTestId('season-goals-coverage')).toHaveText(`Man-up figures cover ${goals.situationGames} of ${goals.of} games`);
   });
 
   test('two losing quarters, and none', async ({ page }) => {
@@ -333,21 +420,23 @@ test.describe('the season Team tab', () => {
   test('an older stats document: dashes, the coverage lines, and no NaN or undefined', async ({ page }) => {
     await openHomeTeam(page, seasonStatsOld);
     // The man-up and man-down figures are there; EXCL is not.
-    expect((await rowTexts(page)).map(row => row.slice(2))).toEqual([
-      ['1/2', '2/3', '–'], ['2/3', '1/2', '–'], ['–', '–', '–'], ['0/1', '0/0', '–'],
-    ]);
+    expect(await rowTexts(page)).toEqual(gameRowTexts(old.games));
+    expect(old.games.every(game => game.excl === null)).toBe(true);
     const total = page.getByTestId('season-team-total');
+    expect(old.total.exclGames).toBe(0);
     await expect(total.getByTestId('season-team-excl-total')).toHaveText('–');
     await expect(total.getByTestId('season-team-excl-avg')).toHaveText('–');
-    await expect(total.getByTestId('season-team-mu-total')).toHaveText('3/6');
+    await expect(total.getByTestId('season-team-mu-total')).toHaveText(`${old.total.manUp.scored}/${old.total.manUp.played}`);
     // No game has its quarters: every cell is a dash, with the coverage line saying why.
+    expect(old.quarters.covered).toBe(0);
     for (const row of ['sq-for', 'sq-against', 'sq-diff']) {
       await expect(page.getByTestId(row).getByTestId('team-q')).toHaveText(['–', '–', '–', '–']);
       await expect(page.getByTestId(row).getByTestId('team-total')).toHaveText('–');
     }
-    await expect(page.getByTestId('season-quarters-coverage')).toHaveText('Covers 0 of 4 games');
+    await expect(page.getByTestId('season-quarters-coverage')).toHaveText(`Covers ${old.quarters.covered} of ${old.quarters.of} games`);
     await expect(page.getByTestId('season-quarters-note')).toHaveCount(0);
-    await expect(page.getByTestId('season-goals-coverage')).toHaveText('Man-up figures cover 3 of 4 games');
+    await expect(page.getByTestId('season-goals-coverage')).toHaveText(
+      `Man-up figures cover ${old.goals.situationGames} of ${old.goals.of} games`);
     await noBadText(page);
   });
 
@@ -361,11 +450,11 @@ test.describe('the season Team tab', () => {
     await expect(total.getByTestId('season-team-md-total')).toHaveText('–');
     await expect(total.getByTestId('season-team-mu-pct')).toHaveCount(0);
     await expect(total.getByTestId('season-team-md-pct')).toHaveCount(0);
-    await expect(total.getByTestId('season-team-excl-total')).toHaveText('6');
+    await expect(total.getByTestId('season-team-excl-total')).toHaveText(String(full.total.excl));
     const goals = page.getByTestId('season-goals');
-    await expect(goals.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('14');
+    await expect(goals.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText(String(full.goals.for));
     await expect(goals.locator('.team-bar')).toHaveCount(0);
-    await expect(page.getByTestId('season-goals-coverage')).toHaveText('Man-up figures cover 0 of 4 games');
+    await expect(page.getByTestId('season-goals-coverage')).toHaveText(`Man-up figures cover 0 of ${full.goals.of} games`);
     await noBadText(page);
   });
 
@@ -378,7 +467,7 @@ test.describe('the season Team tab', () => {
       ],
     });
     expect((await rowTexts(page))[0]).toEqual(['Broken FC', '01/11/2026', '–', '–', '–']);
-    expect((await rowTexts(page))[1]).toEqual(fullRows[0]);
+    expect((await rowTexts(page))[1]).toEqual(gameRowTexts(full.games)[0]);
     await noBadText(page);
   });
 
@@ -391,6 +480,7 @@ test.describe('the season Team tab', () => {
     await expect(page.getByTestId('season-team-game-row')).toHaveCount(0);
   });
 });
+
 
 test.describe('the stats module fails to load', () => {
   test.use({ serviceWorkers: 'block' });
@@ -469,8 +559,53 @@ const geometry = page => page.evaluate(() => {
   };
 });
 
+
+// Whether the page, and every card on the Team panel, holds together; and whether the named elements are on show
+// and inside the viewport, side to side.
+async function expectFits(page) {
+  const g = await geometry(page);
+  expect(g.scroll[0], 'no sideways scroll').toBeLessThanOrEqual(g.scroll[1]);
+  for (const card of g.cards) {
+    expect(card.overflowing, 'nothing leaves its card').toEqual([]);
+    for (const row of card.rows) {
+      for (let i = 1; i < row.cells.length; i += 1) {
+        expect(row.cells[i].left, `${row.cells[i].text} against ${row.cells[i - 1].text}`).toBeGreaterThanOrEqual(row.cells[i - 1].right - 0.5);
+      }
+    }
+  }
+}
+async function expectInView(page, ids) {
+  for (const id of ids) {
+    await expect(page.getByTestId(id), `${id} is shown`).toBeVisible();
+    const box = await page.getByTestId(id).evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: r.width, h: r.height, vw: document.documentElement.clientWidth };
+    });
+    expect(box.w, `${id} has a width`).toBeGreaterThan(0);
+    expect(box.h, `${id} has a height`).toBeGreaterThan(0);
+    expect(box.left, `${id} starts inside the viewport`).toBeGreaterThanOrEqual(-0.5);
+    expect(box.right, `${id} ends inside the viewport`).toBeLessThanOrEqual(box.vw + 0.5);
+  }
+}
+
+// The screens' own badges with the Team tab selected: a live game (LIVE, the quarter, the open man-down) and a
+// final decided on a shootout; and home with the live banner and a season that holds a shootout result.
+const liveWorst = { ...worstGame, status: 'live', period: 4 };
+const shootoutWorst = {
+  ...worstGame,
+  status: 'final',
+  period: 'SO',
+  events: [
+    ...worstEvents(),
+    { id: 'so1', type: 'goal', period: 'SO', ts: 90000, playerId: 'p13' },
+    { id: 'so2', type: 'oppGoal', period: 'SO', ts: 90010 },
+    { id: 'so3', type: 'goal', period: 'SO', ts: 90020, playerId: 'p13' },
+  ],
+};
+const shootoutResults = worstResults.map((result, index) => (index < 2 ? { ...result, soUs: 14, soThem: 13 } : result));
+
 for (const scheme of ['light', 'dark']) {
-  for (const [width, height] of [[360, 740], [740, 360]]) {
+  for (const [width, height] of [[360, 740], [844, 390]]) {
     test.describe(`Team tab at ${width} x ${height}, ${scheme}`, () => {
       test.use({ colorScheme: scheme, viewport: { width, height } });
 
@@ -569,6 +704,43 @@ for (const scheme of ['light', 'dark']) {
         if (width === 360) expect(labels.cut, 'the name is cut at 360').toBe(true);
         // The quarter table with two-digit goals.
         await expect(page.getByTestId('sq-for').getByTestId('team-q').first()).toHaveText('96');
+      });
+
+      test('a live game keeps LIVE, the quarter and the open man-down in view over the Team figures', async ({ page }) => {
+        await seedGame(liveWorst);
+        await open(page, '#/game/team-g1');
+        await expect(page.getByTestId('score-us')).toHaveText('20');
+        await tab(page, 'team').click();
+        await expect(page.getByTestId('team-manup').getByTestId('team-q').first()).toHaveText('10/12');
+        await expectInView(page, ['live-badge', 'period', 'situation-badge', 'score-us', 'score-them', 'tab-team']);
+        await expect(page.getByTestId('period')).toHaveText('Q4');
+        await expect(page.getByTestId('situation-badge')).toHaveText('Man-down');
+        await expect(page.getByTestId('final-badge')).toBeHidden();
+        await expectFits(page);
+      });
+
+      test('a final decided on a shootout keeps FINAL and the shootout score in view over the Team figures', async ({ page }) => {
+        await seedGame(shootoutWorst);
+        await open(page, '#/game/team-g1');
+        await expect(page.getByTestId('score-us')).toHaveText('20');
+        await tab(page, 'team').click();
+        await expect(page.getByTestId('team-manup').getByTestId('team-q').first()).toHaveText('10/12');
+        await expectInView(page, ['final-badge', 'shootout', 'score-us', 'score-them', 'tab-team']);
+        await expect(page.getByTestId('shootout')).toHaveText(/2.*1/);
+        await expect(page.getByTestId('live-badge')).toBeHidden();
+        // The shootout is no part of the Team figures: goals stay the regulation 20.
+        await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('20');
+        await expectFits(page);
+      });
+
+      test('home keeps the live banner and the record in view over the season Team figures', async ({ page }) => {
+        await Promise.all([seedGame(liveWorst), seed('stats/2026-27', { ...seasonStatsFull, results: shootoutResults })]);
+        await open(page);
+        await expect(page.getByTestId('result-row')).toHaveCount(8);
+        await tab(page, 'team').click();
+        await expect(page.getByTestId('season-team-total').getByTestId('season-team-mu-total')).toHaveText('96/136');
+        await expectInView(page, ['live-banner', 'season-record', 'tab-team']);
+        await expectFits(page);
       });
     });
   }
