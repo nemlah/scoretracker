@@ -1,11 +1,12 @@
 import { expect } from '@playwright/test';
-import { get } from './helpers.js';
+import { get, update } from './helpers.js';
 import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from './network-noise.js';
 
 export const TRACKER_URL = '/track.html?emulator=1';
 // An explicit #/ is a deliberate visit to Home; a bare address resumes a live game.
 export const HOME_URL = `${TRACKER_URL}#/`;
 export const CODE = 'AB12CD';
+export const SERVER_WAIT = 20000;
 
 export function formatConsoleProblem(text, url) {
   return text.startsWith('Failed to load resource') && url ? `console: ${text} <${url}>` : `console: ${text}`;
@@ -26,11 +27,17 @@ export function collectProblems(page, problems) {
 export async function unlockTracker(page, code = CODE) {
   await page.getByTestId('code-input').fill(code);
   await page.getByTestId('unlock-btn').click();
-  await expect(page.getByTestId('home-new')).toBeVisible();
+  await expect(page.getByTestId('home-new')).toBeVisible({ timeout: SERVER_WAIT });
 }
 
 export async function waitForTrackerControl() {
   await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
+}
+
+// These tests start with an empty control document and one tracker. Let its claim reach Firestore first.
+export async function otherDeviceTakesControl() {
+  await waitForTrackerControl();
+  await update('control/tracker', { activeUid: 'another-device' });
 }
 
 // Browsers report in-flight Firestore channel requests that they abort on navigation or

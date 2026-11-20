@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso } from '../../js/model.js';
 import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
+import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const roster = [
@@ -296,7 +296,8 @@ test('the live screen resumes after a reload with the score intact', async ({ pa
 
 test('read-only device cannot tap', async ({ page }) => {
   await startGame(page);
-  await update('control/tracker', { activeUid: 'another-device' });
+  await currentGameId();
+  await otherDeviceTakesControl();
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await expect(tile(page, 5).getByTestId('tile-goal')).toBeDisabled();
   await expect(tile(page, 5).getByTestId('tile-excl')).toBeDisabled();
@@ -395,7 +396,8 @@ test('failed taps can be discarded', async ({ page }) => {
 test('retry is unavailable while another device is tracking', async ({ page }) => {
   await startGame(page);
   await seedJournal(page, [lostGoal('failed')]);
-  await update('control/tracker', { activeUid: 'another-device' });
+  await currentGameId();
+  await otherDeviceTakesControl();
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await expect(page.getByTestId('retry-failed')).toBeDisabled();
   await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved');

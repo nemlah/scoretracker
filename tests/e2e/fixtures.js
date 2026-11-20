@@ -50,6 +50,8 @@ export async function prepareContext(context, owner, offline = false) {
 }
 
 async function handleRoute(route, problems, offline) {
+  if (offline) return route.abort('internetdisconnected');
+
   const url = new URL(route.request().url());
   const reject = message => {
     problems.push(message);
@@ -58,7 +60,6 @@ async function handleRoute(route, problems, offline) {
 
   // Firestore's WebChannel uses this image to check connectivity after a channel error.
   if (url.origin === 'https://www.google.com' && url.pathname === '/images/cleardot.gif') {
-    if (offline) return route.abort('internetdisconnected');
     return route.fulfill({ status: 200, contentType: 'image/gif', body: clearDot });
   }
 

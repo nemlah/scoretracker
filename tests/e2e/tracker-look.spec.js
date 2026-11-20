@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, collectProblems, formatConsoleProblem, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, collectProblems, formatConsoleProblem, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
 const longOpponent = 'Πανελλήνιος Γυμναστικός Σύλλογος Πειραιώς Ολυμπιακός';
@@ -166,7 +166,7 @@ test('the moved banner is pale amber and the live screen under it is dimmed', as
   await openGame(page, { events: [ev('gkIn', 1, 'g1')] });
   // Before the banner nothing is dimmed, so the assertion below can only pass because of it.
   expect(await effectiveOpacity(page.locator('.live-score'))).toBe(1);
-  await update('control/tracker', { activeUid: 'another-device' });
+  await otherDeviceTakesControl();
   const banner = page.getByTestId('takeover-banner');
   await expect(banner).toBeVisible();
   expect(await css(banner, 'backgroundColor')).toBe('rgb(255, 244, 214)');
@@ -255,7 +255,7 @@ for (const [width, height, name] of viewports) {
       await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
       await expect(tile(page, 11).getByTestId('tile-out')).toBeVisible();
       await expect(tile(page, 1).getByTestId('tile-save')).toBeVisible();
-      await update('control/tracker', { activeUid: 'another-device' });
+      await otherDeviceTakesControl();
       await expect(page.getByTestId('takeover-banner')).toBeVisible();
       // Both banners at once, the failed one with its longest wording.
       await page.evaluate(() => {

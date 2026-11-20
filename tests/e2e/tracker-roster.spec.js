@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { closeAll, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, otherDeviceTakesControl, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -107,7 +107,7 @@ test('a rejected save rolls the roster back to the authoritative rows', async ({
   await expect(activeRows(page)).toHaveCount(1);
 
   // Another device takes control, then this page (still showing enabled controls) writes anyway.
-  await update('control/tracker', { activeUid: 'another-device' });
+  await otherDeviceTakesControl();
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await page.evaluate(() => {
     for (const el of document.querySelectorAll('[data-write]')) el.disabled = false;
@@ -131,7 +131,7 @@ test('a rejected save keeps the draft and editor of another player being edited'
   await openRoster(page, HOME_URL);
   await expect(activeRows(page)).toHaveCount(2);
 
-  await update('control/tracker', { activeUid: 'another-device' });
+  await otherDeviceTakesControl();
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await page.evaluate(() => {
     for (const el of document.querySelectorAll('[data-write]')) el.disabled = false;

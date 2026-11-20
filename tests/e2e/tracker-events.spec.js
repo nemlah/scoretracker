@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso, formatDate } from '../../js/model.js';
 import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const SEASON = seasonFor(todayIso());
@@ -383,7 +383,10 @@ test('sheet controls are disabled while another device is tracking', async ({ pa
   await startGame(page);
   await goals(page, [5]);
   await openEvents(page);
-  await update('control/tracker', { activeUid: 'another-device' });
+  // Losing control would make the server reject a goal that is still pending.
+  const gameId = await currentGameId();
+  await expect.poll(async () => (await get(`games/${gameId}`))?.events?.length).toBe(1);
+  await otherDeviceTakesControl();
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await expect(page.getByTestId('ev-delete')).toBeDisabled();
   await expect(page.getByTestId('ev-scorer')).toBeDisabled();

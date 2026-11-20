@@ -2,10 +2,9 @@ import { execSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
 import { closeAll, get, remove, resetAll, seed, update } from './helpers.js';
 import { EMULATOR } from '../../js/config.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, SERVER_WAIT, TRACKER_URL, collectProblems, dropNetworkNoise, otherDeviceTakesControl, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
-const SERVER_WAIT = 20000;
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -528,7 +527,7 @@ test('a device that becomes active recounts the season of the current game', asy
   await expect.poll(async () => (await get('stats/2026-27'))?.results?.[0]?.us).toBe(1);
 
   // Taking over from another device repairs it too: with no live game the first touch does it.
-  await update('control/tracker', { activeUid: 'another-device' });
+  await otherDeviceTakesControl();
   await remove('stats/2026-27');
   // Nothing on the page shows that this device learned of it, so touch until control moves: the
   // first touch after it learned takes control (earlier ones find the device still in control).
