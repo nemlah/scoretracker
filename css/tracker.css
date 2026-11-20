@@ -800,6 +800,8 @@ body.live-r3 .toast { padding-inline: 0.875rem; }
     /* Header, score row, banners, dock. The banners get the room between the score row and the dock and scroll inside
        it, so the dock never leaves the screen. They are drawn below the score row; the DOM order is unchanged. */
     grid-template-rows: auto auto minmax(0, 1fr) auto;
+    /* The base min-height is 100vh, taller than the visible area while a mobile toolbar shows: reset it. */
+    min-height: 0;
     height: 100vh;
     height: 100dvh;
   }

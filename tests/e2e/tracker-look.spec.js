@@ -393,6 +393,14 @@ for (const [width, height] of [[844, 390], [667, 375]]) {
       expect(box.x, `${name} starts at the left edge`).toBeLessThanOrEqual(0.5);
       expect(box.x + box.width, `${name} is no wider than 300 px`).toBeLessThanOrEqual(300.5);
     }
+    // The grid is exactly the visible height: a base min-height of 100vh would make it taller than the visible area
+    // under a mobile toolbar (the browser chrome cannot be shown here, so the rule is what is checked).
+    const grid = await page.locator('#app').evaluate(el => ({
+      height: el.getBoundingClientRect().height, minHeight: getComputedStyle(el).minHeight, inner: window.innerHeight,
+    }));
+    expect(grid.minHeight, '#app min-height').toBe('0px');
+    expect(grid.height, '#app height is the visible height').toBe(grid.inner);
+    expect(left.dock.y + left.dock.height, 'the dock ends inside the visible height').toBeLessThanOrEqual(grid.inner + 0.5);
     // One stack: header, then the score row (with the band inside it), then the dock at the foot.
     expect(left.top.y).toBeGreaterThanOrEqual(left.bar.y + left.bar.height - 0.5);
     expect(left.band.y).toBeGreaterThan(left.top.y);
@@ -431,7 +439,7 @@ for (const [width, height] of [[844, 390], [667, 375]]) {
     const narrow = await page.getByTestId('tiles').evaluate(el => [...el.querySelectorAll('button')]
       .filter(button => getComputedStyle(button).visibility !== 'hidden' && button.getBoundingClientRect().width > 0)
       .map(button => ({ name: `${button.dataset.testid}:${button.closest('.tile').dataset.cap}`, ...button.getBoundingClientRect().toJSON() }))
-      .filter(({ width, height }) => width < 43.5 || height < 43.5)
+      .filter(({ width, height }) => width < 44 || height < 44)
       .map(({ name, width, height }) => `${name} ${Math.round(width)}x${Math.round(height)}`));
     expect(narrow, 'tile buttons under 44 px').toEqual([]);
     expect(await tile(page, 13).getByTestId('tile-pen-save').count(), 'a goalie tile is checked').toBe(1);
