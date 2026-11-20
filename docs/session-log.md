@@ -1,5 +1,49 @@
 # Session log
 
+## 20/11/2026 - E2e speed: hermetic fixture, per-worker projects, 3 workers (branch e2e-speed, not merged)
+- **Result:** the full e2e run takes 3.6 min on 3 workers (856 passed), down from 18.8 min serial. Serial (`PW_WORKERS=1`) takes 10.5 min. Unit tests: 313.
+- **How:**
+  - `tests/e2e/fixtures.js` serves the Firebase SDK, Sofia fonts (`tests/fixtures/fonts/`, OFL), a gapi stub and cleardot locally in every context. It fails any other external request.
+  - Fixture routes abort while a context is offline, so service-worker cache misses still show.
+  - WebKit blocks its service worker.
+  - Each worker has its own Firestore project, `demo-scoretracker-<n>`, read only in `initFirebase`'s emulator branch. Auth stays shared.
+- **Flakes fixed on the way:**
+  - takeover tests wait for the app's server-confirmed control claim before seeding another holder;
+  - the situations and goalies tests wait for server writes;
+  - `unlockTracker` waits up to 20 s;
+  - viewer-look waits for the live banner before measuring.
+
+  Every test on the waiver list had one of these races.
+- **Built by Codex** (gpt-6.2-sol): 13 commits. Codex did the plan review and the per-task reviews; the final whole-branch review was by sonnet (merge after fixes, and both were fixed). After the fix wave: 3 full runs at 3 workers and 1 serial run. One failure (viewer-look:548) was fixed in 1ff5f28. The final run at 1ff5f28 passed 856/856, and viewer-look passed 3/3 alone.
+- **Deferred minors (the reviewer said they can wait):**
+  - `dropNetworkNoise` filters by text alone;
+  - tracker-access/offline re-read the holder after a poll;
+  - tracker-look's font-host excuse doesn't check `blockedUrls`;
+  - the SDK matcher accepts query variants, and the font regex rejects encoded names;
+  - `waitForTrackerControl` should require the page's own UID;
+  - `PW_TEST_REUSE_CONTEXT` bypasses the fixture;
+  - the teardown counters are heavier than needed;
+  - the fonts CSS route ignores the query;
+  - handler rejections are swallowed in the drain.
+- **Where we left off:** branch `e2e-speed` in `.worktrees/e2e-speed`, waiting for the owner's merge decision. The flake waiver list is kept; proposal: drop it after a week of clean runs on main.
+
+## 20/11/2026 - Why e2e takes ~19 min and how to cut it (investigation, no code changed)
+- **Measured on main:** unit 4 s, emulator 8 s, e2e 18.8 min. 872 runs in series (`workers: 1`, needed because `resetAll` wipes the one shared emulator project). WebKit 744 s, Chromium 370 s, median test 1.06 s. The 27 tests over 4 s add 173 s; fixed sleeps add about 30 s per browser.
+- **CDN cost:** every test downloads the Firebase SDK (~950 KB from gstatic) and Google Fonts again with an empty cache. Serving them from `node_modules` cut viewer.spec from 60–72 s to 38 s (two runs each way).
+- **Parallel experiment** (throwaway worktree): one emulator project per worker plus the CDN stub, 3 workers. Full suite in 4.7 min instead of 18.8.
+  - Emulator: `singleProjectMode: false`.
+  - App: in emulator mode `js/config.js` reads `globalThis.__EMU_PROJECT`, set by an init script.
+  - Helpers: `demo-scoretracker-<TEST_PARALLEL_INDEX>`.
+  - One fixture prepares every context, including those made with `browser.newContext`.
+- **Failures in that run:**
+  - 6 layout tests broke because of the experiment's empty-font stub. They wait for Sofia, so serve the real woff2 files.
+  - 2 WebKit load flakes that pass alone: tracker-goalies:246 (waived) and tracker-events:419 (the console gate caught "network connection was lost").
+- **Serial-run flake:** tracker-access:242 is not waived and passes alone. Root cause: `withTwoDevices` reads `activeUid()` once right after unlock (line 84), with no poll.
+- **Where we left off:** waiting for the owner's go on a test-infra branch, in this order:
+  1. Fix the `withTwoDevices` race and the WebKit connection-lost noise.
+  2. Make the network hermetic: Firebase SDK, real fonts, apis.google.com.
+  3. Per-worker projects with 3 workers.
+
 ## 20/11/2026 - R2.1: our goals stand out on the timeline (deployed)
 - **Request:** the owner's canvas comment asked for our goals to pop more than other events. They picked option A, larger with no tint. The VGame board on the canvas is updated: name 17 px/700, pill 22 px, row 56 px.
 - **Code** (sonnet, Codex-reviewed, one fix round), in `css/viewer.css`:
