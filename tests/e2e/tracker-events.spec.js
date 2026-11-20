@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso, formatDate } from '../../js/model.js';
 import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, editEvent, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const SEASON = seasonFor(todayIso());
@@ -121,6 +121,7 @@ test('scorer-unknown goal, then assign scorer', async ({ page }) => {
   await expect(page.getByTestId('score-us')).toHaveText('1');
   for (const goalsText of await page.getByTestId('tile-goals').allTextContents()) expect(goalsText).toBe('0');
   await expect(page.getByTestId('ev-row')).toHaveCount(1);
+  await editEvent(sheet(page).getByTestId('ev-row'));
   await expect(page.getByTestId('ev-scorer')).toHaveValue('');
   await page.getByTestId('ev-scorer').selectOption('p5');
   await expect(tile(page, 5).getByTestId('tile-goals')).toHaveText('1');
@@ -389,6 +390,8 @@ test('sheet controls are disabled while another device is tracking', async ({ pa
   await otherDeviceTakesControl();
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await expect(page.getByTestId('ev-delete')).toBeDisabled();
+  await editEvent(sheet(page).getByTestId('ev-row'));
+  await expect(page.getByTestId('ev-scorer')).toBeVisible();
   await expect(page.getByTestId('ev-scorer')).toBeDisabled();
   await expect(page.getByTestId('add-unknown-goal')).toBeDisabled();
   await expect(page.getByTestId('end-game')).toBeDisabled();
@@ -550,6 +553,133 @@ async function openSeeded(page, game) {
   await expect(page.getByTestId('score-us')).toBeVisible();
 }
 
+test('the live events sheet groups every event with its icon, label and metadata', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const name = 'Παναγιώτης Παπαδόπουλος';
+  const now = Date.now();
+  const rows = [
+    ['goal', 3, -9000, 'p2', `Goal · #22 ${name}`, 'Man-up · 2–1', 'goal'],
+    ['manUp', 3, -10000, null, 'Man-up', '', 'MU'],
+    ['penSave', 1, -1100, 'g1', 'Penalty save · #1 Nikolaou', '', 'save'],
+    ['save', 1, -1200, 'g1', 'Save · #1 Nikolaou', '', 'save'],
+    ['gkIn', 1, -1300, 'g1', 'In goal · #1 Nikolaou', '', 'save'],
+    ['manUpEnd', 1, -1400, null, 'End man-up · no goal', '', 'MU'],
+    ['manDownEnd', 1, -1500, null, 'End man-down · stopped', '', 'MD'],
+    ['excl', 1, -1600, 'p2', `Exclusion · #22 ${name}`, 'Third · out', 'excl'],
+    ['pen', 1, -1700, 'p2', `Penalty foul · #22 ${name}`, '', 'pen'],
+    ['excl', 1, -1800, 'p2', `Exclusion · #22 ${name}`, '', 'excl'],
+    ['goal', 1, -2000, 'p2', `Goal · #22 ${name}`, '1–1', 'goal'],
+    ['oppGoal', 1, -2000, null, 'Opponent goal', '0–1', 'goal'],
+  ];
+  const events = rows.map(([type, period, offset, playerId], index) => ({
+    id: `event-${index}`, type, period, ts: now + offset, ...(playerId && { playerId }),
+  })).reverse();
+  await openSeeded(page, {
+    period: 3, situations: true, events,
+    lineup: [{ playerId: 'p2', name, cap: 22 }, { playerId: 'g1', name: 'Nikolaou', cap: 1, goalie: true }],
+  });
+  await openEvents(page);
+
+  const dialog = sheet(page);
+  await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Events');
+  expect(await dialog.evaluate(el => {
+    const grip = getComputedStyle(el, '::before');
+    return [grip.width, grip.height];
+  })).toEqual(['40px', '4px']);
+  const close = dialog.getByTestId('events-close');
+  await expect(close).toHaveAccessibleName('Close events');
+  await expect(close).toHaveCSS('width', '48px');
+  await expect(close).toHaveCSS('height', '48px');
+  await expect(close.locator('svg')).toHaveCount(1);
+  const actions = dialog.locator('.sheet-body > :first-child > :first-child');
+  await expect(actions.getByTestId('open-lineup')).toHaveText('Adjust lineup');
+  await expect(actions.getByTestId('end-game')).toHaveText('End game');
+  const lineup = await dialog.getByTestId('open-lineup').boundingBox();
+  const end = await dialog.getByTestId('end-game').boundingBox();
+  expect(lineup.y).toBe(end.y);
+  expect(lineup.x).toBeLessThan(end.x);
+  expect(await dialog.evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(360);
+
+  const list = dialog.getByTestId('ev-list');
+  await expect(list.getByRole('heading')).toHaveText(['Q3 · newest first', 'Q1']);
+  await expect(list.getByTestId('ev-row')).toHaveCount(rows.length);
+  const iconPaths = new Map();
+  for (const [index, [type, , , , label, meta, icon]] of rows.entries()) {
+    const row = list.getByTestId('ev-row').nth(index);
+    const box = row.getByTestId('ev-icon');
+    await expect(box).toHaveAttribute('data-kind', type);
+    await expect(box).toHaveCSS('width', '28px');
+    const situation = icon === 'MU' || icon === 'MD';
+    await expect(box.locator('svg')).toHaveCount(situation ? 0 : 1);
+    if (situation) {
+      await expect(box).toHaveText(icon);
+    } else {
+      const path = await box.locator('svg path').getAttribute('d');
+      expect(path).toBeTruthy();
+      if (iconPaths.has(icon)) expect(path).toBe(iconPaths.get(icon));
+      else iconPaths.set(icon, path);
+    }
+    await expect(row.locator('.ev-label')).toHaveText(label);
+    await expect(row.getByTestId('ev-meta')).toHaveText(meta);
+    const remove = row.getByTestId('ev-delete');
+    await expect(remove).toHaveAccessibleName(`Delete ${label}`);
+    await expect(remove).toHaveCSS('width', '44px');
+    await expect(remove).toHaveCSS('height', '44px');
+    await expect(remove.locator('svg')).toHaveCount(1);
+  }
+  expect(new Set(iconPaths.values()).size).toBe(4);
+  const first = list.getByTestId('ev-row').first();
+  await expect(first.locator('.ev-label')).toHaveCSS('text-overflow', 'ellipsis');
+  await expect(list.getByTestId('ev-row').nth(1).getByTestId('ev-edit')).toHaveCount(0);
+  await editEvent(first);
+  expect(await dialog.locator('.ev-history').evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+test('a live row editor keeps its select, focus and options through Firestore snapshots', async ({ page }) => {
+  const now = Date.now();
+  const goal = { id: 'g', type: 'goal', period: 1, ts: now - 1000, playerId: 'p5' };
+  const exclusion = { id: 'e', type: 'excl', period: 1, ts: now - 2000, playerId: 'p2' };
+  await openSeeded(page, { events: [exclusion, goal] });
+  await openEvents(page);
+  const row = evRow(page, 'Goal · #5 Alexiou');
+  const toggle = row.getByTestId('ev-edit');
+  const picker = row.getByTestId('ev-scorer');
+  await expect(toggle).toHaveAccessibleName('Change scorer');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(picker).toBeHidden();
+  await editEvent(row);
+  await picker.focus();
+  await expect(picker).toBeFocused();
+  const original = await picker.elementHandle();
+  const options = () => picker.locator('option').evaluateAll(items => items.map(({ value, text }) => [value, text]));
+  const originalOptions = await options();
+  expect(originalOptions.map(([value]) => value)).toEqual(['', 'p2', 'p5', 'p7']);
+
+  async function expectEditorToSurvive() {
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(picker).toBeVisible();
+    expect(await original.evaluate(el => el.isConnected)).toBe(true);
+    expect(await picker.evaluate((el, previous) => el === previous, original)).toBe(true);
+    await expect(picker).toBeFocused();
+    expect(await options()).toEqual(originalOptions);
+  }
+
+  const corrected = { ...exclusion, playerId: 'p7' };
+  await update('games/g1', { events: [corrected, goal] });
+  await expect(evRow(page, 'Exclusion · #7 Georgiou')).toBeVisible();
+  await expectEditorToSurvive();
+
+  const next = { id: 'o', type: 'oppGoal', period: 2, ts: now };
+  await update('games/g1', { period: 2, events: [corrected, goal, next] });
+  await expect(sheet(page).getByRole('heading', { name: 'Q2 · newest first' })).toBeVisible();
+  await expectEditorToSurvive();
+  await original.dispose();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(picker).toBeHidden();
+});
+
 test('Man-up goal switch adds and removes a man-up for that goal', async ({ page }) => {
   await startGame(page);
   await goals(page, [5]);
@@ -557,6 +687,7 @@ test('Man-up goal switch adds and removes a man-up for that goal', async ({ page
   const eventsOf = async () => (await get(`games/${gameId}`)).events;
   await expect(figures(page)).toHaveText('MU 0/0 · MD 0/0');
   await openEvents(page);
+  await editEvent(sheet(page).getByTestId('ev-row'));
   await expect(manUpBox(page)).not.toBeChecked();
   await manUpBox(page).check();
   await expect.poll(async () => (await eventsOf()).filter(event => event.type === 'manUp').length).toBe(1);
@@ -581,6 +712,7 @@ test('switching off a live-tapped man-up goal counts the man-up as missed', asyn
   await expect(figures(page)).toHaveText('MU 1/1 · MD 0/0');
   const gameId = await currentGameId();
   await openEvents(page);
+  await editEvent(evRow(page, /^Goal ·/));
   await expect(manUpBox(page)).toBeChecked();
   await manUpBox(page).uncheck();
   await expect.poll(async () => (await get(`games/${gameId}`)).events.filter(event => event.type === 'manUpEnd').length).toBe(1);
@@ -615,7 +747,9 @@ test('no Man-up goal switch on untracked games or shootout goals', async ({ page
   await openSeeded(page, { events: [{ id: 'g', type: 'goal', period: 1, ts: Date.now() - 1000, playerId: 'p5' }] });
   await openEvents(page);
   await expect(page.getByTestId('ev-row')).toHaveCount(1);
+  await editEvent(sheet(page).getByTestId('ev-row'));
   await expect(manUpBox(page)).toBeHidden();
+  await sheet(page).getByTestId('ev-edit').click();
   await sheet(page).getByTestId('events-close').click();
   await update('games/g1', {
     situations: true,
@@ -626,8 +760,13 @@ test('no Man-up goal switch on untracked games or shootout goals', async ({ page
   });
   await openEvents(page);
   await expect(page.getByTestId('ev-row')).toHaveCount(2);
-  await expect(page.getByTestId('ev-row').filter({ hasText: 'Shootout' }).getByTestId('ev-manup')).toBeHidden();
-  await expect(page.getByTestId('ev-row').filter({ hasText: 'Q1' }).getByTestId('ev-manup')).toBeVisible();
+  const shootout = sheet(page).getByTestId('ev-row').first();
+  await expect(shootout.getByTestId('ev-meta')).toHaveText('1–0');
+  await editEvent(shootout);
+  await expect(shootout.getByTestId('ev-manup')).toBeHidden();
+  const regulation = sheet(page).getByTestId('ev-row').last();
+  await editEvent(regulation);
+  await expect(regulation.getByTestId('ev-manup')).toBeVisible();
 });
 
 const goalieRoster = [
@@ -650,7 +789,10 @@ test('a save row\'s goalie picker moves the save to the other goalie', async ({ 
   expect(before).toMatchObject({ type: 'save', playerId: 'g1' });
 
   await openEvents(page);
-  const picker = sheet(page).getByTestId('ev-goalie');
+  const row = sheet(page).getByTestId('ev-row');
+  await expect(row.getByTestId('ev-edit')).toHaveAccessibleName('Edit');
+  await editEvent(row);
+  const picker = row.getByTestId('ev-goalie');
   await expect(picker).toHaveValue('g1');
   await expect(picker.locator('option')).toHaveCount(2);
   await picker.selectOption('g13');
@@ -671,20 +813,24 @@ test('an opponent-goal row shows who was in goal and can change it', async ({ pa
   const gkIns = async () => (await get(`games/${gameId}`)).events.filter(event => event.type === 'gkIn');
 
   await openEvents(page);
-  const picker = sheet(page).getByTestId('ev-in-goal');
+  const row = evRow(page, /^Opponent goal$/);
+  await editEvent(row);
+  const picker = row.getByTestId('ev-in-goal');
   await expect(picker).toHaveValue('g1');
   await picker.selectOption('g13');
   await expect.poll(async () => (await gkIns()).length).toBe(1);
   expect((await gkIns())[0]).toMatchObject({ playerId: 'g13', ts: oppGoal.ts - 1, period: oppGoal.period });
   await expect(picker).toHaveValue('g13');
+  await row.getByTestId('ev-edit').click();
   await sheet(page).getByTestId('events-close').click();
   await expect(tile(page, 13)).toHaveAttribute('data-in-goal', 'true');
 
   await openEvents(page);
-  await expect(sheet(page).locator('[data-testid="ev-row"]:has(.ev-label:text-is("Opponent goal")) [data-testid="ev-in-goal"]')).toHaveValue('g13');
-  await sheet(page).getByTestId('ev-in-goal').selectOption('g1');
+  await editEvent(row);
+  await expect(picker).toHaveValue('g13');
+  await picker.selectOption('g1');
   await expect.poll(async () => (await gkIns()).length).toBe(0);
-  await expect(sheet(page).getByTestId('ev-in-goal')).toHaveValue('g1');
+  await expect(picker).toHaveValue('g1');
 });
 
 test('no goalie pickers in games without goalies', async ({ page }) => {
@@ -697,6 +843,7 @@ test('no goalie pickers in games without goalies', async ({ page }) => {
   });
   await openEvents(page);
   await expect(page.getByTestId('ev-row')).toHaveCount(2);
+  await expect(sheet(page).getByTestId('ev-edit')).toHaveCount(0);
   await expect(sheet(page).getByTestId('ev-goalie')).toBeHidden();
   await expect(sheet(page).getByTestId('ev-in-goal')).toBeHidden();
 });

@@ -22,6 +22,19 @@ function onKeydown(event) {
   }
 }
 
+function closeIcon() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  for (const [name, value] of [
+    ['viewBox', '0 0 24 24'], ['width', '22'], ['height', '22'], ['fill', 'none'],
+    ['stroke', 'currentColor'], ['stroke-width', '2'], ['stroke-linecap', 'round'], ['aria-hidden', 'true'],
+  ]) svg.setAttribute(name, value);
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M6 6l12 12M18 6L6 18');
+  svg.append(path);
+  return svg;
+}
+
 /**
  * A modal dialog over the page: focus moves into it, Tab stays inside, Escape and the Close
  * button dismiss it, and focus returns to whatever opened it.
@@ -30,11 +43,13 @@ export function createOverlay({ title, testid, closeTestId, raised = false, onCl
   titleCounter += 1;
   const titleId = `overlay-title-${titleCounter}`;
   const body = h('div', { class: 'sheet-body' });
+  const closeLabel = `${t('sheetClose')} ${typeof title === 'string' ? title.toLocaleLowerCase() : title?.textContent ?? ''}`.trim();
   const closeButton = h('button', {
-    type: 'button', class: 'btn btn--small btn--ghost', 'data-testid': closeTestId, onclick: () => api.close(),
-  }, t('sheetClose'));
+    type: 'button', class: 'btn btn--small btn--ghost sheet-close', 'aria-label': closeLabel,
+    'data-testid': closeTestId, onclick: () => api.close(),
+  }, closeIcon());
   const panel = h('div', {
-    class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1', 'data-testid': testid,
+    class: 'sheet sheet--board', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1', 'data-testid': testid,
   }, h('div', { class: 'sheet-head' }, h('h2', { id: titleId }, title), closeButton), body);
   const el = h('div', { class: raised ? 'sheet-backdrop sheet-backdrop--raised' : 'sheet-backdrop', hidden: true }, panel);
   // A press on the dimmed area (not on the panel) dismisses it.

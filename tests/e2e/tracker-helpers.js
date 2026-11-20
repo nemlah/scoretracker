@@ -25,6 +25,14 @@ export async function unlockTracker(page, code = CODE) {
   await expect(page.getByTestId('home-new')).toBeVisible({ timeout: SERVER_WAIT });
 }
 
+export async function editEvent(row) {
+  const toggle = row.getByTestId('ev-edit');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  const editorId = await toggle.getAttribute('aria-controls');
+  await expect(row.locator(`[id="${editorId}"]`)).toBeVisible();
+}
+
 export async function waitForTrackerControl() {
   await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
 }

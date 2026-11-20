@@ -246,6 +246,15 @@ const STRINGS = {
   scorerOption: '#{cap} {name}',
   evDelete: 'Delete',
   evDeleteFor: 'Delete {label}',
+  evEdit: 'Edit',
+  evChangeScorer: 'Change scorer',
+  evAdjustLineup: 'Adjust lineup',
+  evNewestPeriod: '{label} · newest first',
+  evRunningScore: '{us}–{them}',
+  evManUpScore: 'Man-up · {score}',
+  evThirdOut: 'Third · out',
+  evManUpShort: 'MU',
+  evManDownShort: 'MD',
   addUnknownGoal: 'Add goal, scorer unknown',
   periodPrev: 'Back to {label}',
   periodPrevNone: 'No earlier period',
@@ -387,7 +396,10 @@ export function goalCountLabel(n) {
   return t(n === 1 ? 'tileGoalsOne' : 'tileGoalsLabel');
 }
 
-export function situationShort(counts) {
+export function situationShort(counts, eventType) {
+  // Event icons need the abbreviation alone. Cached R2 strings show the untracked dash for null.
+  if (eventType === 'manUp' || eventType === 'manUpEnd') return t('evManUpShort');
+  if (eventType === 'manDownEnd') return t('evManDownShort');
   if (counts === null) return t('notTracked');
   return t('situationShort', {
     scored: counts.manUp.scored, muPlayed: counts.manUp.played,

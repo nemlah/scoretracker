@@ -444,6 +444,7 @@ test('the goalie sheet shows the cap, name and current in-goal badge above its a
   await expect(sheet.getByTestId('more-in-goal')).toBeVisible();
   const cancel = sheet.getByTestId('goalie-more-close');
   await expect(cancel).toHaveText('Cancel');
+  await expect(cancel).toHaveAccessibleName('Cancel');
   const [goal, excl, pen, bottom] = await Promise.all(['more-goal', 'more-excl', 'more-pen', 'goalie-more-close']
     .map(id => sheet.getByTestId(id).boundingBox()));
   expect(goal.width).toBeCloseTo(2 * excl.width, 0);

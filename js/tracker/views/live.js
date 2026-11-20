@@ -69,6 +69,7 @@ function buildTile(player, ctx, onGoalieTap, host) {
     header.append(inGoalBadge);
     cancel.classList.add('more-cancel');
     cancel.textContent = t('sheetCancel');
+    cancel.removeAttribute('aria-label');
     // A snapshot may have put the goalie OUT, or taken control away, since the sheet opened:
     // the state is read at tap time, and the sheet closes either way.
     const choose = type => () => {

@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { closeAll, get, openLiveGame, recordedHome, recordHome, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, editEvent, reloadTracker, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const VIEWER_URL = '/index.html?emulator=1';
@@ -306,6 +306,7 @@ test('a refused goal and its refused scorer change are retried as one goal with 
     await page.getByTestId('events-open').click();
     await expect(page.getByTestId('events-sheet')).toBeVisible();
     await expect(page.getByTestId('ev-row')).toHaveCount(1);
+    await editEvent(page.getByTestId('ev-row'));
     await expect(page.getByTestId('ev-scorer')).toHaveValue('p5');
     await page.getByTestId('ev-scorer').selectOption('p2');
     await expect(page.getByTestId('ev-scorer')).toHaveValue('p2');

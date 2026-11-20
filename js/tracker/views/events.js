@@ -1,9 +1,7 @@
-import { EVENT_TYPES, prevPeriod, makeEvent, withPlayer } from '../../model.js';
-const ADD_PERIODS = [1, 2, 3, 4, 'SO'];
-const DEFAULT_ADD_PERIOD = '4';
+import { EVENT_TYPES, PERIODS, foulOutIds, makeEvent, prevPeriod, timelineRows, withPlayer } from '../../model.js';
 import { inGoalAt, inGoalSwitch } from '../../goalies.js';
-import { isTracked, manUpGoalIds, manUpSwitch } from '../../situations.js';
-import { eventLabel, periodLabel, t } from '../../strings.js';
+import { SITUATION_TYPES, isTracked, manUpGoalIds, manUpSwitch } from '../../situations.js';
+import { eventLabel, periodLabel, situationShort, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
 import { h } from '../../ui/dom.js';
 import { createOverlay } from '../../ui/overlay.js';
@@ -11,12 +9,39 @@ import { recountAfter } from '../recount.js';
 import { createLineupSheet } from './lineup.js';
 
 const PERIOD_LOCK_MS = 1000;
+const DEFAULT_ADD_PERIOD = '4';
+const EVENT_ICONS = new Map([
+  ['goal', 'goal'], ['oppGoal', 'goal'], ['save', 'save'], ['penSave', 'save'],
+  ['gkIn', 'save'], ['excl', 'excl'], ['pen', 'pen'],
+]);
+const ICON_GLYPH = { goal: 'tlGoalIcon', save: 'tlSaveIcon', excl: 'tlExclIcon', pen: 'tlPenIcon' };
+const icons = import('../../icons.js').catch(() => null);
+let editorCounter = 0;
 
-// Newest first; two events in the same millisecond keep their order in the game (later first).
-function newestFirst(events) {
-  return events.map((event, index) => ({ event, index }))
-    .sort((a, b) => b.event.ts - a.event.ts || b.index - a.index)
-    .map(entry => entry.event);
+// Reverse the array first so a timestamp tie puts the later entry first.
+function groupEvents(events) {
+  const ordered = [...events].reverse().sort((a, b) =>
+    PERIODS.indexOf(b.period) - PERIODS.indexOf(a.period) || b.ts - a.ts);
+  const groups = new Map();
+  for (const event of ordered) {
+    if (!groups.has(event.period)) groups.set(event.period, []);
+    groups.get(event.period).push(event);
+  }
+  return groups;
+}
+
+function deleteIcon() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  for (const [name, value] of [
+    ['viewBox', '0 0 24 24'], ['width', '20'], ['height', '20'], ['fill', 'none'],
+    ['stroke', 'currentColor'], ['stroke-width', '2'], ['stroke-linecap', 'round'],
+    ['stroke-linejoin', 'round'], ['aria-hidden', 'true'],
+  ]) svg.setAttribute(name, value);
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3');
+  svg.append(path);
+  return svg;
 }
 
 function lineupSignature(lineup) {
@@ -54,11 +79,22 @@ function hasOption(select, value) {
  * assignment, plus period, lineup and end-game actions. Shared by the live screen's dialog and
  * the past-game detail, where it sits inline. `host` receives the lineup dialog.
  */
-export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
-  const rows = new Map(); // event id -> { el, label, period, select, remove, shown, lineupKey }
+export function createEventsPanel(ctx, host, { onEnded = () => {}, rowToggles = false } = {}) {
+  const rows = new Map();
+  const groups = new Map();
   let game = null;
   let periodLocked = false;
   let periodTimer = null;
+  let drawIcon;
+
+  icons.then(module => {
+    drawIcon = module?.icon;
+    if (!drawIcon) return;
+    for (const { iconBox } of rows.values()) {
+      const name = EVENT_ICONS.get(iconBox.dataset.kind);
+      if (name) iconBox.replaceChildren(drawIcon(name));
+    }
+  });
 
   const lineupSheet = createLineupSheet(ctx, host);
 
@@ -68,23 +104,24 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
   // A goal added to a game that is no longer live has no "current" period: ask, defaulting to Q4.
   const addPeriod = h('select', {
     class: 'input ev-addperiod', 'aria-label': t('addGoalPeriodLabel'), 'data-testid': 'add-goal-period', hidden: true,
-  }, ADD_PERIODS.map(period => h('option', { value: String(period) }, periodLabel(period))));
+  }, PERIODS.map(period => h('option', { value: String(period) }, periodLabel(period))));
   addPeriod.value = DEFAULT_ADD_PERIOD;
   const periodPrev = h('button', {
     type: 'button', class: 'btn', 'data-testid': 'period-prev', onclick: onPeriodPrev,
   }, t('periodPrevNone'));
   const openLineup = h('button', {
     type: 'button', class: 'btn', 'data-testid': 'open-lineup', onclick: event => game && lineupSheet.open(game, event.currentTarget),
-  }, t('openLineup'));
+  }, t(rowToggles ? 'evAdjustLineup' : 'openLineup'));
   const endGame = createConfirmButton({
     label: t('endGame'), testid: 'end-game', className: 'btn--end',
     onConfirm: () => onEnd(),
   });
-  const list = h('ul', { class: 'ev-list', 'data-testid': 'ev-list' });
+  const list = h('div', { 'data-testid': 'ev-list' });
   const empty = h('p', { class: 'help', 'data-testid': 'ev-empty' }, t('eventsEmpty'));
-  const el = h('div', { class: 'events' },
-    h('div', { class: 'ev-actions' }, h('span', { class: 'ev-add' }, addUnknown, addPeriod), periodPrev, openLineup, endGame.el),
-    empty, list);
+  const el = h('div', { class: 'events events--board' },
+    h('div', { class: 'ev-actions ev-actions--game' }, openLineup, endGame.el),
+    h('div', { class: 'ev-history' }, empty, list,
+      h('div', { class: 'ev-actions ev-actions--correction' }, h('span', { class: 'ev-add' }, addUnknown, addPeriod), periodPrev)));
 
   // Writes on a final game change the season stats; those also queue a recount.
   function send(target, start) {
@@ -209,9 +246,15 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
   function buildRow(event) {
     const period = h('span', { class: 'ev-period' }, periodLabel(event.period));
     const label = h('span', { class: 'ev-label' });
+    const meta = h('span', { class: 'ev-meta', 'data-testid': 'ev-meta' });
+    const iconName = EVENT_ICONS.get(event.type);
+    const iconBox = h('span', {
+      class: 'ev-icon', 'data-testid': 'ev-icon', 'data-kind': event.type, 'aria-hidden': 'true',
+    }, iconName ? drawIcon?.(iconName) ?? t(ICON_GLYPH[iconName])
+      : SITUATION_TYPES.includes(event.type) ? situationShort(null, event.type) : null);
     const remove = h('button', {
-      type: 'button', class: 'btn btn--small', 'data-testid': 'ev-delete', onclick: () => onDelete(event.id),
-    }, t('evDelete'));
+      type: 'button', class: 'btn btn--small ev-delete', 'data-testid': 'ev-delete', onclick: () => onDelete(event.id),
+    }, deleteIcon());
     const select = event.type === 'goal' ? h('select', {
       class: 'input ev-scorer', 'data-testid': 'ev-scorer', onchange: () => onScorer(event.id, select.value),
     }) : null;
@@ -226,13 +269,39 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
       class: 'input ev-in-goal', 'data-testid': 'ev-in-goal', hidden: true, onchange: () => onInGoal(event.id, inGoal.value),
     }) : null;
     const manUp = manUpBox ? h('label', { class: 'ev-manup', hidden: true }, manUpBox, t('evManUpGoal')) : null;
-    const li = h('li', { class: 'ev-row', 'data-testid': 'ev-row', 'data-event-id': event.id },
-      h('div', { class: 'ev-line' }, period, label),
-      h('div', { class: 'ev-controls' }, select, goalie, inGoal, manUp, remove));
-    return {
-      el: li, label, period, select, manUp, manUpBox, manUpShown: false, remove, shown: null, lineupKey: null,
+    const editor = select || goalie || inGoal
+      ? h('div', { class: 'ev-controls', hidden: rowToggles }, select, goalie, inGoal, manUp)
+      : null;
+    const parts = {
+      label, meta, period, iconBox, editor, editing: !rowToggles,
+      select, manUp, manUpBox, manUpShown: false, remove, shown: null, lineupKey: null,
       goalie, goalieShown: null, goalieKey: null, inGoal, inGoalShown: null, inGoalKey: null,
     };
+    if (rowToggles && editor) {
+      editor.id = `event-editor-${++editorCounter}`;
+      parts.toggle = h('button', {
+        type: 'button', class: 'btn btn--small ev-edit', 'data-testid': 'ev-edit',
+        'aria-controls': editor.id, 'aria-expanded': 'false', onclick: () => {
+          parts.editing = !parts.editing;
+          syncEditor(parts);
+        },
+      }, t(select ? 'evChangeScorer' : 'evEdit'));
+    }
+    parts.el = h('li', { class: 'ev-row', 'data-testid': 'ev-row', 'data-event-id': event.id },
+      h('div', { class: 'ev-line' }, period, iconBox, h('span', { class: 'ev-summary' }, label, meta), remove),
+      editor);
+    return parts;
+  }
+
+  function syncEditor(parts) {
+    if (!parts.editor) return;
+    const available = parts.select !== null || parts.goalie?.hidden === false || parts.inGoal?.hidden === false;
+    parts.editor.hidden = !available || !parts.editing;
+    if (parts.toggle) {
+      if (!available) parts.toggle.remove();
+      else if (!parts.toggle.parentNode) parts.remove.before(parts.toggle);
+      parts.toggle.setAttribute('aria-expanded', String(!parts.editor.hidden));
+    }
   }
 
   // The box always follows the figures, so a refused or no-op write puts it back.
@@ -290,16 +359,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     parts.inGoal.disabled = !writable;
   }
 
-  function syncRow(parts, event, lineup, lineupKey, writable, manUpIds) {
-    parts.period.textContent = periodLabel(event.period);
-    const text = eventLabel(event, lineup);
-    parts.label.textContent = event.type === 'goal' ? t('goalPlain') : text;
-    parts.remove.setAttribute('aria-label', t('evDeleteFor', { label: `${text} (${periodLabel(event.period)})` }));
-    parts.remove.disabled = !writable;
-    syncGoalie(parts, event, lineup, lineupKey, writable, text);
-    syncInGoal(parts, event, lineup, lineupKey, writable, text);
-    if (parts.select === null) return;
-    syncManUp(parts, event, text, writable, manUpIds);
+  function syncScorer(parts, event, lineup, lineupKey, writable, text) {
     const wanted = event.playerId ?? '';
     // Options are rebuilt only when the lineup changed, so a snapshot cannot close an open picker.
     if (parts.lineupKey !== lineupKey) {
@@ -310,11 +370,30 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     // What the list last showed, not what the picker says now: a pick that the server refuses
     // comes back as the old scorer and must put the picker back too.
     if (parts.shown !== wanted) {
+      if (!hasOption(parts.select, wanted)) parts.select.replaceChildren(...scorerOptions(event, lineup));
       parts.select.value = wanted;
       parts.shown = wanted;
     }
     parts.select.setAttribute('aria-label', t('scorerFor', { label: `${text} (${periodLabel(event.period)})` }));
     parts.select.disabled = !writable;
+  }
+
+  function syncRow(parts, event, lineup, lineupKey, writable, manUpIds, score, out) {
+    parts.period.textContent = periodLabel(event.period);
+    const text = eventLabel(event, lineup);
+    parts.label.textContent = text;
+    const running = score ? t('evRunningScore', score) : '';
+    parts.meta.textContent = out ? t('evThirdOut')
+      : manUpIds?.has(event.id) ? t('evManUpScore', { score: running }) : running;
+    parts.remove.setAttribute('aria-label', t('evDeleteFor', { label: text }));
+    parts.remove.disabled = !writable;
+    syncGoalie(parts, event, lineup, lineupKey, writable, text);
+    syncInGoal(parts, event, lineup, lineupKey, writable, text);
+    if (parts.select) {
+      syncManUp(parts, event, text, writable, manUpIds);
+      syncScorer(parts, event, lineup, lineupKey, writable, text);
+    }
+    syncEditor(parts);
   }
 
   function update(current, state) {
@@ -337,21 +416,48 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     endGame.el.disabled = !writable;
     if (!live) endGame.disarm();
 
-    const events = newestFirst(current.events ?? []);
+    const events = current.events ?? [];
+    const byPeriod = groupEvents(events);
+    const scores = new Map();
+    for (const group of timelineRows(events)) {
+      for (const event of group.events) {
+        if (event.score) scores.set(event.id, event.score);
+      }
+    }
+    const foulOuts = foulOutIds(events);
     empty.hidden = events.length > 0;
     const keep = new Set(events.map(event => event.id));
     for (const [id, parts] of rows) {
       if (!keep.has(id)) { parts.el.remove(); rows.delete(id); }
     }
-    events.forEach((event, index) => {
-      let parts = rows.get(event.id);
-      if (!parts) {
-        parts = buildRow(event);
-        rows.set(event.id, parts);
+    for (const [period, group] of groups) {
+      if (!byPeriod.has(period)) { group.el.remove(); groups.delete(period); }
+    }
+    let groupIndex = 0;
+    for (const [period, entries] of byPeriod) {
+      let group = groups.get(period);
+      if (!group) {
+        const heading = h('h3', { class: 'ev-heading' });
+        const items = h('ul', { class: 'ev-list' });
+        group = { el: h('section', {}, heading, items), heading, items };
+        groups.set(period, group);
       }
-      syncRow(parts, event, lineup, key, writable, manUpIds);
-      if (list.children[index] !== parts.el) list.insertBefore(parts.el, list.children[index] ?? null);
-    });
+      const label = periodLabel(period);
+      group.heading.textContent = groupIndex === 0 ? t('evNewestPeriod', { label }) : label;
+      // Insert new groups around existing ones so their focused editors stay attached.
+      const nextGroup = list.children[groupIndex++];
+      if (nextGroup !== group.el) list.insertBefore(group.el, nextGroup ?? null);
+      for (const [index, event] of entries.entries()) {
+        let parts = rows.get(event.id);
+        if (!parts) {
+          parts = buildRow(event);
+          rows.set(event.id, parts);
+        }
+        syncRow(parts, event, lineup, key, writable, manUpIds, scores.get(event.id), foulOuts.has(event.id));
+        const nextRow = group.items.children[index];
+        if (nextRow !== parts.el) group.items.insertBefore(parts.el, nextRow ?? null);
+      }
+    }
     lineupSheet.update(current);
   }
 
@@ -361,6 +467,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
     disarm: () => endGame.disarm(),
     destroy() {
       clearTimeout(periodTimer);
+      rows.clear();
       endGame.destroy();
       lineupSheet.destroy();
     },
@@ -369,10 +476,11 @@ export function createEventsPanel(ctx, host, { onEnded = () => {} } = {}) {
 
 /** The events panel in a dialog: the live screen's Events button opens it. */
 export function createEventsSheet(ctx, host) {
-  const panel = createEventsPanel(ctx, host, { onEnded });
+  const panel = createEventsPanel(ctx, host, { onEnded, rowToggles: true });
   const overlay = createOverlay({
     title: t('eventsHeading'), testid: 'events-sheet', closeTestId: 'events-close', onClose: () => panel.disarm(),
   });
+  overlay.body.closest('.sheet').classList.add('sheet--events');
   overlay.body.append(panel.el);
   host.append(overlay.el);
 
