@@ -340,6 +340,8 @@ for (const scheme of ['light', 'dark']) {
         const text = page.getByTestId('live-banner-text');
         await expectInside(banner.locator('.home-live-team'), text, 'team in banner text');
         await expectInside(banner.locator('.home-live-score'), text, 'score in banner text');
+        // The opponent gives way first: the team name stays whole while the long opponent is cut.
+        await expectWhole(banner.locator('.home-live-team'), 'team name');
         await expectCutOnOneLine(banner.locator('.home-live-opp'), 'banner opponent', width === 360);
         await expectCutOnOneLine(page.getByTestId('result-row').first().locator('.result-opp'), 'row opponent', width === 360);
         // The shootout row: its score, date and "pen. 14–13" are whole while the opponent is cut.

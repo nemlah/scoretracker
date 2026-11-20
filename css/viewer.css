@@ -126,11 +126,12 @@ body.viewer {
 }
 .home-live-text-slots { gap: 0; } /* the old template carries its own spaces */
 .home-live-score, .home-live-gap { flex: none; }
-/* The pill, the score and Watch never give way: the team name and the opponent shrink and are cut. */
+/* The pill, the score and Watch never give way. The opponent is cut first (a far larger shrink weight); the team
+   name is cut only once the opponent is gone, as in the shootout on a narrow screen. */
 .home-live-team { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .home-live-gap { white-space: pre; }
 .home-live-score { font: 800 1.5rem/1 var(--font-num); }
-.home-live-opp { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.home-live-opp { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .home-live-watch { flex: none; display: inline-flex; align-items: center; gap: 0.125rem; }
 
 /* Scoreboard: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
