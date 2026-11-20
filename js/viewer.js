@@ -811,7 +811,9 @@ function renderSeason(plan, tabsShown) {
   renderRecord(shown ? stats?.results : null);
   if (plan.mode !== 'home' || !tabsShown) return;
   renderIfChanged(panelEls.results, [results, stats], () => resultsPanel(results, stats));
-  renderIfChanged(panelEls.players, [results, stats], () => seasonPlayersPanel(results, stats));
+  // The season's totals carry no cap: it comes from the current roster, by player id.
+  const caps = rosterCaps();
+  renderIfChanged(panelEls.players, [results, stats, caps], () => seasonPlayersPanel(results, stats, caps));
   // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
   renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus], () => {
     if (results === 'failed') return teamUnavailable();
@@ -830,7 +832,17 @@ function resultsPanel(results, stats) {
       : h('p', { class: 'result-card result-empty muted', 'data-testid': 'results-empty' }, t('resultsEmpty')))];
 }
 
-function seasonPlayersPanel(results, stats) {
+// Cap numbers of the current roster, by player id. A player the roster no longer holds has none.
+function rosterCaps() {
+  const caps = {};
+  const roster = state.team.data?.roster;
+  for (const player of Array.isArray(roster) ? roster : []) {
+    if (typeof player?.id === 'string' && Number.isInteger(player.cap)) caps[player.id] = player.cap;
+  }
+  return caps;
+}
+
+function seasonPlayersPanel(results, stats, caps) {
   if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
   if (results === 'failed') return [h('p', { class: 'muted' }, t('resultsFailed'))];
   const players = Object.entries(stats?.players ?? {})
@@ -841,8 +853,8 @@ function seasonPlayersPanel(results, stats) {
     .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
   if (!players.length && !goalies.length) return [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))];
   return [
-    players.length ? panelBlock(t('totalsHeading'), totalsTable(players)) : null,
-    goalies.length ? panelBlock(t('goaliesHeading'), seasonGoaliesTable(goalies)) : null,
+    players.length ? panelBlock(t('totalsHeading'), totalsTable(players, caps)) : null,
+    goalies.length ? panelBlock(t('goaliesHeading'), seasonGoaliesTable(goalies, caps)) : null,
   ].filter(block => block !== null);
 }
 
@@ -892,7 +904,12 @@ function resultItem(result) {
   return h('li', { class: 'result-item', 'data-testid': 'result-row' }, link);
 }
 
-function seasonGoaliesTable(goalies) {
+// A season row's name, with the cap chip when the roster still knows the player.
+const seasonWho = (player, caps) => h('span', { class: 'who' },
+  caps[player.id] === undefined ? null : capBadge(caps[player.id], false),
+  h('span', { class: 'who-name' }, player.name));
+
+function seasonGoaliesTable(goalies, caps) {
   return h('table', { class: 'goalies', 'aria-label': t('goaliesHeading'), 'data-testid': 'season-goalies' },
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col' }, t('colPlayer')),
@@ -902,7 +919,7 @@ function seasonGoaliesTable(goalies) {
       h('th', { scope: 'col', class: 'num' }, t('colGA')),
       h('th', { scope: 'col', class: 'num' }, t('colSavePct')))),
     h('tbody', {}, goalies.map(goalie => h('tr', { 'data-testid': 'season-goalie-row' },
-      h('td', {}, h('span', { class: 'who' }, h('span', { class: 'who-name' }, goalie.name))),
+      h('td', {}, seasonWho(goalie, caps)),
       h('td', { class: 'num' }, goalie.games),
       h('td', { class: 'num' }, goalie.saves),
       h('td', { class: 'num' }, goalie.penSaves),
@@ -912,7 +929,7 @@ function seasonGoaliesTable(goalies) {
       }))))));
 }
 
-function totalsTable(players) {
+function totalsTable(players, caps) {
   return h('table', { 'aria-label': t('totalsHeading') },
     h('thead', {}, h('tr', {},
       h('th', { scope: 'col' }, t('colPlayer')),
@@ -921,7 +938,7 @@ function totalsTable(players) {
       h('th', { scope: 'col', class: 'num' }, t('colExcl')),
       h('th', { scope: 'col', class: 'num' }, t('colPen')))),
     h('tbody', {}, players.map(player => h('tr', { 'data-testid': 'season-row' },
-      h('td', {}, h('span', { class: 'who' }, h('span', { class: 'who-name' }, player.name))),
+      h('td', {}, seasonWho(player, caps)),
       h('td', { class: 'num' }, player.games),
       h('td', { class: 'num' }, player.goals),
       h('td', { class: 'num' }, player.excl),

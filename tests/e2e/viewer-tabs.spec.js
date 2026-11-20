@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { closeAll, resetAll, seed, update } from './helpers.js';
+import { closeAll, get, resetAll, seed, update } from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
 
 const roster = [
@@ -45,11 +45,22 @@ const screens = [
 ];
 
 let problems;
+// Set by a test that intercepts a module: the one console error the browser logs for that URL is expected.
+let blockedUrl;
+let blockedErrors;
 test.beforeEach(async ({ page }) => {
   problems = [];
+  blockedUrl = null;
+  blockedErrors = [];
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
+    if (message.type() !== 'error') return;
+    // Only an error whose own location (or text) names the intercepted URL; anything else still fails the test.
+    if (blockedUrl && (blockedUrl.test(message.location()?.url ?? '') || blockedUrl.test(message.text()))) {
+      blockedErrors.push(message.text());
+      return;
+    }
+    problems.push(`console: ${message.text()}`);
   });
   await resetAll();
 });
@@ -177,6 +188,10 @@ test('a newly written goal keeps Team selected and focused on a live game', asyn
   await tab(page, 'team').focus();
   await update('games/g1', { events: [...liveEvents(), ev('goal', 2, 'p5')] });
   await expect(page.getByTestId('score-us')).toHaveText('3', { timeout: 5000 });
+  // The write is in Firestore: the goal is the last event of the game.
+  const saved = await get('games/g1');
+  expect(saved.events).toHaveLength(liveEvents().length + 1);
+  expect(saved.events.at(-1)).toMatchObject({ type: 'goal', period: 2, playerId: 'p5' });
   expect(await selectedTabs(page)).toEqual(['tab-team']);
   expect(await focused(page)).toBe('tab-team');
   expect(await panelOnShow(page, 'team')).toBe(true);
@@ -192,10 +207,10 @@ test('the selection starts again on the first tab when the screen changes', asyn
   await expect(page.getByTestId('result-row')).toHaveCount(2);
   expect(await selectedTabs(page)).toEqual(['tab-results']);
   expect(await panelOnShow(page, 'results')).toBe(true);
-  // Another tab on home, then the next game: it opens on the timeline.
+  // Players on home, then the next game straight from there: it opens on the timeline.
   await tab(page, 'players').click();
-  await page.getByTestId('tab-results').click();
-  await page.getByTestId('result-link').last().click();
+  expect(await selectedTabs(page)).toEqual(['tab-players']);
+  await page.evaluate(() => { location.hash = '#/game/g0'; });
   await expect(page.getByTestId('score-us')).toHaveText('1');
   expect(await selectedTabs(page)).toEqual(['tab-timeline']);
   expect(await panelOnShow(page, 'timeline')).toBe(true);
@@ -219,6 +234,7 @@ test.describe('the Team module fails to load', () => {
 
   for (const screen of screens) {
     test(`on ${screen.name} the Team tab says so and the other tabs still work`, async ({ page }) => {
+      blockedUrl = /\/js\/teamView\.js(\?|$)/;
       await page.route('**/js/teamView.js', route => route.abort());
       await seedAll();
       await open(page, screen.hash);
@@ -231,10 +247,6 @@ test.describe('the Team module fails to load', () => {
       await expect(page.getByTestId(screen.name === 'home' ? 'season-row' : 'player-row').first()).toBeVisible();
       await tab(page, screen.tabs[0]).click();
       await expect(page.getByTestId(screen.name === 'home' ? 'result-row' : 'timeline-item').first()).toBeVisible();
-      // The one console error is the injected failure itself.
-      for (let i = problems.length - 1; i >= 0; i -= 1) {
-        if (/teamView|Failed to load resource|Importing a module script failed|error loading dynamically imported module/i.test(problems[i])) problems.splice(i, 1);
-      }
     });
   }
 });
@@ -282,7 +294,188 @@ test.describe('the Players tab', () => {
     await expect(page.getByTestId('season-row')).toBeVisible();
     await expect(page.getByTestId('season-row')).toContainText('Alexiou');
   });
+
+  test('a season row has its cap chip when the roster knows the player, and the name alone when it does not', async ({ page }) => {
+    await seedAll();
+    // Totals are keyed by player id and carry no cap: it comes from the roster. 'pold' and 'gold' left it.
+    await Promise.all([
+      seed('team/main', { currentGameId: 'g1', roster: [...roster, { id: 'g1x', name: 'Georgiou', cap: 1, archived: false, goalie: true }] }),
+      seed('stats/2026-27', {
+        players: {
+          p5: { name: 'Alexiou', games: 2, goals: 3, excl: 0, pens: 0 },
+          p12: { name: 'Κωνσταντινίδης', games: 2, goals: 2, excl: 0, pens: 0 },
+          pold: { name: 'Old Player', games: 1, goals: 1, excl: 0, pens: 0 },
+        },
+        goalies: {
+          g1x: { name: 'Georgiou', games: 2, saves: 9, penSaves: 1, goalsAgainst: 7 },
+          gold: { name: 'Old Keeper', games: 1, saves: 2, penSaves: 0, goalsAgainst: 3 },
+        },
+        results: [{ gameId: 'g1', date: '2026-11-08', opponent: 'Opponent FC', us: 2, them: 1 }],
+      }),
+    ]);
+    await open(page, '#/');
+    await tab(page, 'players').click();
+    await expect(page.getByTestId('season-row')).toHaveCount(3);
+    const row = name => page.locator('[data-testid="season-row"]', { hasText: name });
+    const keeper = name => page.locator('[data-testid="season-goalie-row"]', { hasText: name });
+    await expect(row('Alexiou').locator('.cap')).toHaveText('5');
+    await expect(row('Κωνσταντινίδης').locator('.cap')).toHaveText('12');
+    await expect(row('Old Player').locator('.cap')).toHaveCount(0);
+    await expect(row('Old Player').locator('.who-name')).toHaveText('Old Player');
+    await expect(keeper('Georgiou').locator('.cap')).toHaveText('1');
+    await expect(keeper('Old Keeper').locator('.cap')).toHaveCount(0);
+    await expect(keeper('Old Keeper').locator('.who-name')).toHaveText('Old Keeper');
+  });
 });
+
+// The worst row: a very long Greek name, a two-digit cap, a foul-out ("Out"). It must stay one line, cut with an
+// ellipsis, with the chip and the badge whole inside the row, at the narrowest portrait width and in landscape.
+const LONG = 'Παπαδόπουλος-Αθανασίου-Κωνσταντινίδης-Χατζηγεωργίου-Παπαντωνίου-Οικονομόπουλος';
+const worstRoster = [
+  { id: 'w12', name: LONG, cap: 12, archived: false },
+  { id: 'w13', name: LONG, cap: 13, archived: false, goalie: true },
+];
+const seedWorst = () => Promise.all([
+  seed('team/main', { currentGameId: 'g1', roster: worstRoster }),
+  seed('games/g1', {
+    opponent: 'Opponent FC', date: '2026-11-08', season: '2026-27', status: 'live', period: 2,
+    lineup: [{ playerId: 'w12', name: LONG, cap: 12 }, { playerId: 'w13', name: LONG, cap: 13, goalie: true }],
+    events: [ev('gkIn', 1, 'w13'), ev('goal', 1, 'w12'), ev('excl', 2, 'w12'), ev('excl', 2, 'w12'), ev('excl', 2, 'w12'),
+      ev('save', 2, 'w13'), ev('oppGoal', 2)],
+  }),
+  seed('stats/2026-27', {
+    players: { w12: { name: LONG, games: 12, goals: 27, excl: 11, pens: 12 } },
+    goalies: { w13: { name: LONG, games: 12, saves: 88, penSaves: 12, goalsAgainst: 77 } },
+    results: [{ gameId: 'g1', date: '2026-11-08', opponent: 'Opponent FC', us: 1, them: 1 }],
+  }),
+]);
+
+async function expectWorstRow(row, { out }) {
+  await expect(row).toBeVisible();
+  await expect(row.locator('.cap')).toBeVisible();
+  if (out) await expect(row.getByTestId('player-out')).toBeVisible();
+  const g = await row.evaluate(tr => {
+    const box = el => {
+      const b = el.getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height };
+    };
+    const name = tr.querySelector('.who-name');
+    const style = getComputedStyle(name);
+    return {
+      row: box(tr),
+      name: box(name),
+      chip: box(tr.querySelector('.cap')),
+      badge: tr.querySelector('[data-testid="player-out"]') ? box(tr.querySelector('[data-testid="player-out"]')) : null,
+      lineHeight: parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5,
+      clipped: name.scrollWidth > name.clientWidth,
+      cut: [style.overflowX, style.textOverflow],
+      scroll: [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth],
+    };
+  });
+  expect(g.clipped, 'the name is cut (scrollWidth > clientWidth)').toBe(true);
+  expect(g.cut, 'the cut is an ellipsis, not an overflow').toEqual(['hidden', 'ellipsis']);
+  expect(Math.abs(g.name.height - g.lineHeight), 'the name is one line').toBeLessThanOrEqual(1);
+  expect(g.name.width, 'some of the name shows').toBeGreaterThanOrEqual(24);
+  const inside = (box, what) => {
+    expect(box.left, `${what} left`).toBeGreaterThanOrEqual(g.row.left - 0.5);
+    expect(box.right, `${what} right`).toBeLessThanOrEqual(g.row.right + 0.5);
+    expect(box.top, `${what} top`).toBeGreaterThanOrEqual(g.row.top - 0.5);
+    expect(box.bottom, `${what} bottom`).toBeLessThanOrEqual(g.row.bottom + 0.5);
+  };
+  inside(g.chip, 'chip');
+  expect(g.chip.width, 'the chip is not squeezed').toBeGreaterThanOrEqual(30);
+  expect(g.chip.right, 'the chip is left of the name').toBeLessThanOrEqual(g.name.left + 0.5);
+  if (out) {
+    expect(g.badge, 'Out badge').not.toBeNull();
+    inside(g.badge, 'Out');
+    expect(g.badge.left, 'Out is right of the name').toBeGreaterThanOrEqual(g.name.right - 0.5);
+  }
+  expect(g.row.height, 'the row is one line tall').toBeLessThanOrEqual(60);
+  expect(g.scroll[0], 'no sideways scroll').toBeLessThanOrEqual(g.scroll[1]);
+}
+
+for (const scheme of ['light', 'dark']) {
+  for (const [width, height] of [[360, 740], [844, 390]]) {
+    test.describe(`worst Players rows, ${width} x ${height}, ${scheme}`, () => {
+      test.use({ colorScheme: scheme });
+
+      test('game Players: the name is one cut line, the chip and Out stay whole', async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        await seedWorst();
+        await open(page, '#/game/g1');
+        await expect(page.getByTestId('score-us')).toHaveText('1');
+        await tab(page, 'players').click();
+        await expectWorstRow(page.locator('[data-testid="player-row"][data-cap="12"]'), { out: true });
+        await expectWorstRow(page.locator('[data-testid="goalie-row"][data-cap="13"]'), { out: false });
+      });
+
+      test('home Players: the name is one cut line, the chip stays whole', async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        await seedWorst();
+        await open(page, '#/');
+        await expect(page.getByTestId('result-row')).toHaveCount(1);
+        await tab(page, 'players').click();
+        await expectWorstRow(page.getByTestId('season-row'), { out: false });
+        await expectWorstRow(page.getByTestId('season-goalie-row'), { out: false });
+      });
+    });
+  }
+}
+
+const chipColours = (page, selector) => page.locator(selector).evaluate(el => {
+  const style = getComputedStyle(el);
+  return { fg: style.color, bg: style.backgroundColor };
+});
+
+for (const scheme of ['light', 'dark']) {
+  test.describe(`cap chips, ${scheme}`, () => {
+    test.use({ colorScheme: scheme });
+
+    for (const accent of ['#0057b8', '#c8102e', '#f2b705', '#00843d']) {
+      test(`the cap number clears 4.5:1 on ${accent}, on a game and on home`, async ({ page }) => {
+        await seedAll();
+        await open(page, '#/game/g1');
+        await expect(page.getByTestId('score-us')).toHaveText('2');
+        await tab(page, 'players').click();
+        // The page's own accent.js import sets its pair a moment after first paint: wait for it, then override.
+        await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim())).not.toBe('');
+        const paint = colour => page.evaluate(async value => {
+          document.documentElement.style.setProperty('--accent', value);
+          const { applyAccentPair } = await import('/js/accent.js');
+          applyAccentPair(document.documentElement.style, value);
+        }, colour);
+        await paint(accent);
+        const chip = '[data-testid="player-row"][data-cap="12"] .cap';
+        const read = await chipColours(page, chip);
+        const fg = await hexOf(page, read.fg);
+        const bg = await hexOf(page, read.bg);
+        expect(contrastRatio(fg, bg), `cap 12: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        // The playing chip really is the club colour.
+        expect(bg).toBe(accent);
+        // The same chip on home's season rows (the roster knows cap 5).
+        await page.getByTestId('all-games').click();
+        await tab(page, 'players').click();
+        await paint(accent);
+        const season = await chipColours(page, '[data-testid="season-row"] .cap');
+        const seasonFg = await hexOf(page, season.fg);
+        const seasonBg = await hexOf(page, season.bg);
+        expect(contrastRatio(seasonFg, seasonBg), `season cap: ${seasonFg} on ${seasonBg}`).toBeGreaterThanOrEqual(4.5);
+        expect(seasonBg).toBe(accent);
+      });
+    }
+
+    test('the out chip clears 4.5:1', async ({ page }) => {
+      await seedAll();
+      await open(page, '#/game/g1');
+      await expect(page.getByTestId('score-us')).toHaveText('2');
+      await tab(page, 'players').click();
+      const read = await chipColours(page, '[data-testid="player-row"][data-cap="2"] .cap');
+      const fg = await hexOf(page, read.fg);
+      const bg = await hexOf(page, read.bg);
+      expect(contrastRatio(fg, bg), `out chip: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+}
 
 const hexOf = (page, colour) => page.evaluate(value => {
   const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
@@ -292,37 +485,3 @@ const hexOf = (page, colour) => page.evaluate(value => {
   return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
 }, colour);
 
-for (const scheme of ['light', 'dark']) {
-  test.describe(`cap chips, ${scheme}`, () => {
-    test.use({ colorScheme: scheme });
-
-    for (const accent of ['#0057b8', '#c8102e', '#f2b705', '#00843d']) {
-      test(`the cap number clears 4.5:1 on ${accent}, and the out chip too`, async ({ page }) => {
-        await seedAll();
-        await open(page, '#/game/g1');
-        await expect(page.getByTestId('score-us')).toHaveText('2');
-        await tab(page, 'players').click();
-        // The page's own accent.js import sets its pair a moment after first paint: wait for it, then override.
-        await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim())).not.toBe('');
-        await page.evaluate(async colour => {
-          document.documentElement.style.setProperty('--accent', colour);
-          const { applyAccentPair } = await import('/js/accent.js');
-          applyAccentPair(document.documentElement.style, colour);
-        }, accent);
-        for (const cap of ['12', '2']) {
-          const chip = page.locator(`[data-testid="player-row"][data-cap="${cap}"] .cap`);
-          const read = await chip.evaluate(el => {
-            const style = getComputedStyle(el);
-            return { fg: style.color, bg: style.backgroundColor };
-          });
-          const fg = await hexOf(page, read.fg);
-          const bg = await hexOf(page, read.bg);
-          expect(contrastRatio(fg, bg), `cap ${cap}: ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
-        }
-        // The playing chip really is the club colour.
-        const fill = await page.locator('[data-testid="player-row"][data-cap="12"] .cap').evaluate(el => getComputedStyle(el).backgroundColor);
-        expect(await hexOf(page, fill)).toBe(accent);
-      });
-    }
-  });
-}
