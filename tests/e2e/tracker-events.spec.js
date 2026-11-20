@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso, formatDate } from '../../js/model.js';
 import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';

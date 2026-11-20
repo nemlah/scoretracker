@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { closeAll, remove, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
 

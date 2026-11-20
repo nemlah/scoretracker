@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { closeAll, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, collectProblems, formatConsoleProblem, unlockTracker } from './tracker-helpers.js';
 

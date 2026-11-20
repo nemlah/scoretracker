@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso } from '../../js/model.js';
 import {
   closeAll, delivered, get, instrumentRepo, recordedHome, recordHome, remove, resetAll, restartHomeRecord, seed, update,

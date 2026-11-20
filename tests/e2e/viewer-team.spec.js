@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import {
   closeAll, delivered, instrumentRepo, resetAll, seed, update,
 } from './helpers.js';

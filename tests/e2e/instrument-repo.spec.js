@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { closeAll, instrumentRepo, resetAll, seed, update } from './helpers.js';
 
 // The test helper itself: a held path keeps the order of its snapshots.

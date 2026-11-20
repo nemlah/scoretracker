@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { closeAll, get, resetAll, seed, update } from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
 
