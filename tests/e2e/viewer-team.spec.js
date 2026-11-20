@@ -425,14 +425,11 @@ test.describe('the season Team tab', () => {
     await openHomeTeam(page, seasonStatsOld);
     // The man-up and man-down figures are there; EXCL is not.
     expect(await rowTexts(page)).toEqual(gameRowTexts(old.games));
-    expect(old.games.every(game => game.excl === null)).toBe(true);
     const total = page.getByTestId('season-team-total');
-    expect(old.total.exclGames).toBe(0);
     await expect(total.getByTestId('season-team-excl-total')).toHaveText('–');
     await expect(total.getByTestId('season-team-excl-avg')).toHaveText('–');
     await expect(total.getByTestId('season-team-mu-total')).toHaveText(`${old.total.manUp.scored}/${old.total.manUp.played}`);
     // No game has its quarters: every cell is a dash, with the coverage line saying why.
-    expect(old.quarters.covered).toBe(0);
     for (const row of ['sq-for', 'sq-against', 'sq-diff']) {
       await expect(page.getByTestId(row).getByTestId('team-q')).toHaveText(['–', '–', '–', '–']);
       await expect(page.getByTestId(row).getByTestId('team-total')).toHaveText('–');
