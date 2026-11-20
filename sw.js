@@ -29,6 +29,7 @@ const SHELL = [
   './js/strings.js',
   './js/sw-register.js',
   './js/teamStats.js',
+  './js/teamView.js',
   './js/viewer.js',
   './js/tracker/app.js',
   './js/tracker/ownership.js',

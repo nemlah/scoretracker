@@ -37,6 +37,8 @@ const state = {
   live: { key: null, data: undefined, meta: null }, // the current game, for the banner
   stats: { key: null, data: undefined, meta: null }, // the home season's results
   offline: !navigator.onLine,
+  teamView: null, // js/teamView.js, once it has loaded
+  teamViewStatus: 'pending', // 'pending' | 'ready' | 'failed': a string, so it survives JSON.stringify
 };
 
 // The celebration is optional and loaded off the critical path: if either module fails to load
@@ -58,6 +60,19 @@ let celebratingId = null; // the game whose goal is being celebrated
     console.warn('Goal celebration unavailable', err);
   }
 })();
+
+// The Team panels are optional and loaded off the critical path, once. Until the module is in the panel is
+// empty; if it fails to load (a mixed old/new cache, a lost connection) the panel says so and the rest of the
+// viewer is unaffected.
+import('./teamView.js').then(module => {
+  state.teamView = module;
+  state.teamViewStatus = 'ready';
+  update();
+}, err => {
+  console.warn('Team stats unavailable', err);
+  state.teamViewStatus = 'failed';
+  update();
+});
 
 // '#/game/<id>' opens that game; every other hash, '#/games' included, is home, the current season. A
 // game route whose id could not be a Firestore document id is 'invalid' ('/' can never be an id): it is
@@ -269,7 +284,7 @@ function runUpdate() {
   lastShown = {
     gameKey: plan.watch.game, mode: plan.mode, statsKey: plan.watch.stats, results: plan.results,
   };
-  render(plan);
+  render(plan, route);
 }
 
 // An event that arrives while an update runs (a snapshot delivered synchronously) runs after it.
@@ -360,9 +375,96 @@ const seasonBrand = h('div', { class: 'season-brand' }, crest, h('p', { class: '
 const gamesList = h('header', { class: 'season-head', 'data-testid': 'games-list', hidden: true },
   seasonBrand,
   h('div', { class: 'season-title' }, h('h1', {}, t('seasonHeading')), seasonRecord));
-const gameSections = h('div', { class: 'stack' });
-const seasonSection = h('div', { class: 'stack' });
-root.append(note, pastNav, gamesList, unavailable, gameSections, seasonSection);
+// One tab bar and its panels: the scoreboard (game) or the season header (home) above, the reconnect note
+// below. Both are built when the screen changes (see buildTabs); a tab press and a snapshot only update them.
+const tabs = h('div', { class: 'tabs', role: 'tablist', 'data-testid': 'tabs', hidden: true });
+const panels = h('div', { class: 'stack', hidden: true });
+root.append(pastNav, gamesList, tabs, note, unavailable, panels);
+
+const TAB_LABELS = {
+  timeline: ['tabTimeline', 'Timeline'],
+  results: ['tabResults', 'Results'],
+  players: ['tabPlayers', 'Players'],
+  team: ['tabTeam', 'Team'],
+};
+// The tab state of the screen on show, in memory only: it starts on the first tab whenever the screen
+// changes ('home' or 'game:<id>') and a snapshot never touches it.
+let tabState = { key: null, names: [], selected: null };
+let panelEls = {};
+
+function showSelectedTab() {
+  for (const name of tabState.names) {
+    const on = name === tabState.selected;
+    const button = tabs.querySelector(`#tab-${name}`);
+    // The strings "true" and "false": h() would drop a boolean false.
+    button.setAttribute('aria-selected', on ? 'true' : 'false');
+    button.setAttribute('tabindex', on ? '0' : '-1');
+    panelEls[name].hidden = !on;
+  }
+}
+
+function selectTab(name, focus) {
+  tabState.selected = name;
+  showSelectedTab();
+  if (focus) tabs.querySelector(`#tab-${name}`).focus();
+}
+
+function buildTabs(key) {
+  const names = key === 'home' ? ['results', 'players', 'team'] : ['timeline', 'players', 'team'];
+  tabState = { key, names, selected: names[0] };
+  tabs.className = key === 'home' ? 'tabs tabs-home' : 'tabs tabs-game';
+  tabs.setAttribute('aria-label', key === 'home' ? tOr('tabsSeason', 'Season details') : tOr('tabsGame', 'Game details'));
+  clear(tabs).append(...names.map(name => h('button', {
+    type: 'button',
+    role: 'tab',
+    id: `tab-${name}`,
+    class: 'tab',
+    'data-testid': `tab-${name}`,
+    'aria-controls': `panel-${name}`,
+    // A press focuses the tab itself: Safari does not focus a button it was clicked on.
+    onclick: () => selectTab(name, true),
+  }, tOr(...TAB_LABELS[name]))));
+  panelEls = {};
+  clear(panels).append(...names.map(name => {
+    panelEls[name] = h('section', {
+      role: 'tabpanel', id: `panel-${name}`, class: 'panel stack', 'data-testid': `panel-${name}`, 'aria-labelledby': `tab-${name}`, hidden: true,
+    });
+    return panelEls[name];
+  }));
+  showSelectedTab();
+}
+
+// Roving tabindex: the arrow keys move the selection (wrapping), Home and End jump to the ends, and focus
+// follows the selection.
+tabs.addEventListener('keydown', event => {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const { names } = tabState;
+  const at = names.findIndex(name => `tab-${name}` === event.target.id);
+  if (at === -1) return;
+  const next = {
+    ArrowRight: (at + 1) % names.length,
+    ArrowLeft: (at + names.length - 1) % names.length,
+    Home: 0,
+    End: names.length - 1,
+  }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  selectTab(names[next], true);
+});
+
+// The tabs and panels for the screen the route names; nothing of them shows on a loading or unavailable
+// screen, and then the panels hold no stale content.
+function renderTabs(plan, route) {
+  const key = route.kind === 'home' ? 'home' : route.kind === 'game' ? `game:${route.id}` : null;
+  if (key === null) tabState = { key: null, names: [], selected: null };
+  else if (key !== tabState.key) buildTabs(key);
+  const shown = key !== null && (plan.mode === 'game' || plan.mode === 'home');
+  tabs.hidden = !shown;
+  panels.hidden = !shown;
+  if (shown) return true;
+  for (const el of Object.values(panelEls)) clear(el), signatures.delete(el);
+  return false;
+}
 
 function setScore(el, value) {
   const next = String(value);
@@ -389,7 +491,7 @@ function setData(el, name, value) {
   else el.setAttribute(name, value);
 }
 
-function render(plan) {
+function render(plan, route) {
   const { mode } = plan;
   const game = mode === 'game' ? state.game.data : null;
   note.hidden = !isOffline();
@@ -401,7 +503,7 @@ function render(plan) {
   // The scoreboard is in the page only on the game screen; the node is kept for the next game.
   if (mode === 'game') {
     scoreboard.hidden = false;
-    if (!scoreboard.isConnected) unavailable.before(scoreboard);
+    if (!scoreboard.isConnected) tabs.before(scoreboard);
   } else {
     scoreboard.remove();
   }
@@ -411,11 +513,11 @@ function render(plan) {
     if (crest.parentElement !== home) (mode === 'game' ? home.append(crest) : home.prepend(crest));
   }
   renderPastNav(plan);
+  const tabsShown = renderTabs(plan, route);
   if (game) {
-    renderGame(game);
+    renderGame(game, tabsShown);
     celebrateIfNew();
   } else {
-    clear(gameSections), signatures.delete(gameSections);
     goals?.next(null);
   }
   // A celebration belongs to the live game on screen: leaving that game ends it.
@@ -423,7 +525,7 @@ function render(plan) {
     celebration?.hide();
     celebratingId = null;
   }
-  renderSeason(plan);
+  renderSeason(plan, tabsShown);
 }
 
 function renderPastNav(plan) {
@@ -535,7 +637,7 @@ function renderQuarterScores(game, score, live) {
   ]);
 }
 
-function renderGame(game) {
+function renderGame(game, tabsShown) {
   const score = deriveScore(game.events);
   const live = game.status === 'live';
   // A finished game that was merely left on the shootout period has no shootout to show.
@@ -560,29 +662,59 @@ function renderGame(game) {
   setData(situationBadge, 'data-kind', open?.kind ?? null);
   situationBadge.className = open === null ? 'board-chip' : `board-chip board-chip--${open.kind}`;
 
-  // Rebuilding the sections would reset the timeline box to the top; carry its scroll position over.
-  const oldBox = gameSections.querySelector('.timeline-scroll');
+  if (!tabsShown) return;
+  // Each panel is rebuilt only when what it shows changed; the tab bar is not rebuilt at all.
+  const inputs = [game.lineup, game.events, game.situations === true, game.opponent, game.status, game.period];
+  // Rebuilding the timeline would reset its box to the top; carry its scroll position over.
+  const oldBox = panelEls.timeline.querySelector('.timeline-scroll');
   const scrollTop = oldBox?.scrollTop ?? 0;
   const hadFocus = oldBox?.contains(document.activeElement) ?? false;
-  renderIfChanged(gameSections, [game.lineup, game.events, game.situations === true, game.opponent, game.status, game.period], () => [
-    timelineSection(game),
-    playersSection(scoringLines(playerLines(game.lineup, game.events))),
-    goaliesSection(game),
-  ]);
-  const box = gameSections.querySelector('.timeline-scroll');
+  renderIfChanged(panelEls.timeline, inputs, () => [timelineSection(game)]);
+  const box = panelEls.timeline.querySelector('.timeline-scroll');
   if (box && scrollTop) box.scrollTop = scrollTop;
   if (box && hadFocus && box !== oldBox) box.focus({ preventScroll: true });
+  renderIfChanged(panelEls.players, inputs, () => gamePlayersPanel(game));
+  renderIfChanged(panelEls.team, [...inputs, game.date, state.teamViewStatus],
+    () => teamPanel(() => state.teamView?.gamePanel?.(game)));
+}
+
+// The Team panel: empty until teamView.js is in, a line if it never loads (or its panel throws). The panel's
+// own rendering is Task 9's, in teamView.js.
+const teamUnavailable = () => [h('p', { class: 'muted', 'data-testid': 'team-unavailable' },
+  tOr('teamUnavailable', 'Team stats aren\'t available right now.'))];
+
+function teamPanel(make) {
+  if (state.teamViewStatus === 'failed') return teamUnavailable();
+  if (state.teamViewStatus !== 'ready') return [];
+  try {
+    const built = make();
+    return Array.isArray(built) ? built : built ? [built] : [];
+  } catch (err) {
+    console.warn('Team stats failed', err);
+    return teamUnavailable();
+  }
+}
+
+function gamePlayersPanel(game) {
+  const sections = [
+    playersSection(scoringLines(playerLines(game.lineup, game.events))),
+    goaliesSection(game),
+  ].filter(section => section !== '');
+  return sections.length ? sections : [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))];
 }
 
 function capBadge(cap, out) {
   return h('span', { class: out ? 'cap cap--out' : 'cap' }, cap);
 }
 
+// A titled card, as the Players tab's blocks are.
+const panelBlock = (heading, ...content) => h('section', { class: 'panel-block' },
+  h('h2', {}, heading), h('div', { class: 'panel-card' }, ...content));
+
 function playersSection(lines) {
   if (!lines.length) return '';
-  return h('section', { class: 'section' },
-    h('h2', {}, t('playersHeading')),
-    h('table', {},
+  return panelBlock(t('playersHeading'),
+    h('table', { 'aria-label': t('playersHeading') },
       h('thead', {}, h('tr', {},
         h('th', { scope: 'col' }, t('colPlayer')),
         h('th', { scope: 'col', class: 'num' }, t('colGoals')),
@@ -591,7 +723,7 @@ function playersSection(lines) {
       h('tbody', {}, lines.map(line => h('tr', { 'data-testid': 'player-row', 'data-cap': line.cap },
         h('td', {}, h('span', { class: 'who' },
           capBadge(line.cap, line.out),
-          line.name,
+          h('span', { class: 'who-name' }, line.name),
           line.out ? h('span', { class: 'out-label', 'data-testid': 'player-out' }, t('out')) : null)),
         h('td', { class: 'num' },
           h('span', { 'data-testid': 'player-goals' }, line.goals),
@@ -606,9 +738,9 @@ function goaliesSection(game) {
   const live = game.status === 'live';
   const soSaved = stats.goalies.reduce((sum, line) => sum + line.soSaves, 0);
   const soConceded = stats.goalies.reduce((sum, line) => sum + line.soConceded, 0);
-  return h('section', { class: 'section', 'data-testid': 'game-goalies' },
+  return h('section', { class: 'panel-block', 'data-testid': 'game-goalies' },
     h('h2', {}, t('goaliesHeading')),
-    h('table', { class: 'goalies', 'aria-label': t('goaliesHeading') },
+    h('div', { class: 'panel-card' }, h('table', { class: 'goalies', 'aria-label': t('goaliesHeading') },
       h('thead', {}, h('tr', {},
         h('th', { scope: 'col' }, t('colPlayer')),
         h('th', { scope: 'col', class: 'num' }, t('colSaves')),
@@ -618,14 +750,14 @@ function goaliesSection(game) {
       h('tbody', {}, stats.goalies.map(line => h('tr', { 'data-testid': 'goalie-row', 'data-cap': line.cap },
         h('td', {}, h('span', { class: 'who' },
           capBadge(line.cap, false),
-          line.name,
+          h('span', { class: 'who-name' }, line.name),
           live && line.playerId === stats.inGoal ? h('span', { class: 'in-goal', 'data-testid': 'goalie-in-goal' },
             h('span', { class: 'in-goal-dot', 'aria-hidden': 'true' }),
             h('span', { class: 'sr-only' }, t('inGoalSr'))) : null)),
         h('td', { class: 'num', 'data-testid': 'goalie-saves' }, line.saves),
         h('td', { class: 'num', 'data-testid': 'goalie-pen-saves' }, line.penSaves),
         h('td', { class: 'num', 'data-testid': 'goalie-ga' }, line.goalsAgainst),
-        h('td', { class: 'num', 'data-testid': 'goalie-pct' }, savePctCell(line)))))),
+        h('td', { class: 'num', 'data-testid': 'goalie-pct' }, savePctCell(line))))))),
     soSaved + soConceded > 0
       ? h('p', { class: 'muted', 'data-testid': 'goalie-shootout' }, t('shootoutGoalie', { saved: soSaved, conceded: soConceded }))
       : null);
@@ -671,32 +803,47 @@ function timelineItem(event, game, manUpGoals, out) {
     entry.side === 'them' ? icon : null);
 }
 
-// Home: the season's results in the state the plan names. Anything else shows no season block.
-function renderSeason(plan) {
+// Home: the season in the state the plan names, one panel for each tab. Anything but home shows no season.
+function renderSeason(plan, tabsShown) {
   const results = plan.mode === 'home' ? plan.results : null;
   const shown = results === 'ready' || results === 'empty';
   const stats = shown && state.stats.key === plan.season ? state.stats.data : null;
   renderRecord(shown ? stats?.results : null);
-  renderIfChanged(seasonSection, [results, stats], () => {
-    if (results === 'loading') return [h('p', { class: 'muted', 'data-testid': 'results-loading' }, t('resultsLoading'))];
-    if (results === 'failed') return [h('p', { class: 'muted', 'data-testid': 'results-failed' }, t('resultsFailed'))];
-    if (!shown) return [];
-    const rows = stats?.results ?? [];
-    const players = Object.entries(stats?.players ?? {})
-      .map(([id, player]) => ({ id, ...player }))
-      .sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
-    const goalies = Object.entries(stats?.goalies ?? {})
-      .map(([id, goalie]) => ({ id, ...goalie }))
-      .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
-    return [
-      h('section', { class: 'results-block' },
-        h('h2', {}, t('resultsHeading')),
-        rows.length ? resultsList(rows)
-          : h('p', { class: 'result-card result-empty muted', 'data-testid': 'results-empty' }, t('resultsEmpty'))),
-      ...(players.length || goalies.length ? [h('section', { class: 'section' },
-        players.length ? totalsTable(players) : null,
-        goalies.length ? seasonGoaliesTable(goalies) : null)] : [])];
+  if (plan.mode !== 'home' || !tabsShown) return;
+  renderIfChanged(panelEls.results, [results, stats], () => resultsPanel(results, stats));
+  renderIfChanged(panelEls.players, [results, stats], () => seasonPlayersPanel(results, stats));
+  // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
+  renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus], () => {
+    if (results === 'failed') return teamUnavailable();
+    if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
+    return teamPanel(() => state.teamView?.seasonPanel?.(stats ?? {}));
   });
+}
+
+function resultsPanel(results, stats) {
+  if (results === 'loading') return [h('p', { class: 'muted', 'data-testid': 'results-loading' }, t('resultsLoading'))];
+  if (results === 'failed') return [h('p', { class: 'muted', 'data-testid': 'results-failed' }, t('resultsFailed'))];
+  const rows = stats?.results ?? [];
+  return [h('section', { class: 'results-block' },
+    h('h2', {}, t('resultsHeading')),
+    rows.length ? resultsList(rows)
+      : h('p', { class: 'result-card result-empty muted', 'data-testid': 'results-empty' }, t('resultsEmpty')))];
+}
+
+function seasonPlayersPanel(results, stats) {
+  if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
+  if (results === 'failed') return [h('p', { class: 'muted' }, t('resultsFailed'))];
+  const players = Object.entries(stats?.players ?? {})
+    .map(([id, player]) => ({ id, ...player }))
+    .sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
+  const goalies = Object.entries(stats?.goalies ?? {})
+    .map(([id, goalie]) => ({ id, ...goalie }))
+    .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
+  if (!players.length && !goalies.length) return [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))];
+  return [
+    players.length ? panelBlock(t('totalsHeading'), totalsTable(players)) : null,
+    goalies.length ? panelBlock(t('goaliesHeading'), seasonGoaliesTable(goalies)) : null,
+  ].filter(block => block !== null);
 }
 
 // "3 W · 1 L", with "· 1 D" when a game was level. Results without a score count for nothing; without
@@ -748,14 +895,14 @@ function resultItem(result) {
 function seasonGoaliesTable(goalies) {
   return h('table', { class: 'goalies', 'aria-label': t('goaliesHeading'), 'data-testid': 'season-goalies' },
     h('thead', {}, h('tr', {},
-      h('th', { scope: 'col' }, t('goaliesHeading')),
+      h('th', { scope: 'col' }, t('colPlayer')),
       h('th', { scope: 'col', class: 'num' }, t('colGames')),
       h('th', { scope: 'col', class: 'num' }, t('colSaves')),
       h('th', { scope: 'col', class: 'num' }, t('colPenSaves')),
       h('th', { scope: 'col', class: 'num' }, t('colGA')),
       h('th', { scope: 'col', class: 'num' }, t('colSavePct')))),
     h('tbody', {}, goalies.map(goalie => h('tr', { 'data-testid': 'season-goalie-row' },
-      h('td', {}, goalie.name),
+      h('td', {}, h('span', { class: 'who' }, h('span', { class: 'who-name' }, goalie.name))),
       h('td', { class: 'num' }, goalie.games),
       h('td', { class: 'num' }, goalie.saves),
       h('td', { class: 'num' }, goalie.penSaves),
@@ -774,7 +921,7 @@ function totalsTable(players) {
       h('th', { scope: 'col', class: 'num' }, t('colExcl')),
       h('th', { scope: 'col', class: 'num' }, t('colPen')))),
     h('tbody', {}, players.map(player => h('tr', { 'data-testid': 'season-row' },
-      h('td', {}, player.name),
+      h('td', {}, h('span', { class: 'who' }, h('span', { class: 'who-name' }, player.name))),
       h('td', { class: 'num' }, player.games),
       h('td', { class: 'num' }, player.goals),
       h('td', { class: 'num' }, player.excl),

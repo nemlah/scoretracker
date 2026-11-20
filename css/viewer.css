@@ -21,6 +21,8 @@ body.viewer {
   --v-chip-l: #D7263D;
   --v-chip-d: #5A6878;
   --v-chip-ink: #FFFFFF;
+  /* The cap chip of a player who is out: grey, with the ink on it. */
+  --v-chip-out: #D5DCE3;
   /* The selected-row marker: accent.js derives one colour per scheme that clears 3:1 on the row; blue is the fallback. */
   --v-open-bar: var(--accent-open-light, var(--accent));
 }
@@ -48,6 +50,7 @@ body.viewer {
     --v-chip-l: #FF6B7D;
     --v-chip-d: #9AA8B8;
     --v-chip-ink: #0B1320;
+    --v-chip-out: #2B3A50;
   }
 }
 
@@ -74,6 +77,30 @@ body.viewer {
   font-size: 0.9375rem;
 }
 .connection-note svg { flex: none; }
+
+/* The tab bar: three equal tabs under the scoreboard (across the page, like the board) or under the season
+   header. The selected tab is bold with a 3 px ink bar. */
+.page > .tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+.page > .tabs-game { margin-inline: -1rem; }
+.page > .tabs-home { margin-top: 0.5rem; border-radius: 0.5rem 0.5rem 0 0; }
+.tab {
+  min-height: 3.25rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--v-muted);
+  font: 600 1rem/1.2 var(--font-body);
+  cursor: pointer;
+}
+.tab[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); font-weight: 700; }
+.tab:focus-visible { outline-offset: -3px; }
 
 /* Past games: back link and the live banner sit above the scoreboard, in the flow. */
 .past-nav > * + * { margin-top: 0.5rem; }
@@ -306,6 +333,15 @@ body.viewer {
   text-transform: uppercase;
   color: var(--v-muted);
 }
+/* A titled block of a panel: the small-caps heading, then a card with a table in it. */
+.panel-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; }
+.panel-block > h2 {
+  font: 700 0.8125rem/1.3 var(--font-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v-muted);
+}
+.panel-card { border: 1px solid var(--v-line-strong); border-radius: 0.5rem; background: var(--paper); }
 table { width: 100%; border-collapse: collapse; }
 th {
   text-align: left;
@@ -321,7 +357,18 @@ td { padding: 0.5rem 0; border-top: 1px solid var(--line); vertical-align: middl
 td.num { font: 700 1.25rem/1.2 var(--font-num); font-variant-numeric: tabular-nums; }
 .who { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.75rem; overflow-wrap: anywhere; }
 .cap { width: 2.125rem; height: 2.125rem; border-radius: 0.5rem; font-weight: 800; }
+.cap--out { background: var(--v-chip-out); }
 .out-label { color: var(--v-out); font-weight: 700; }
+/* In a panel card a row is one line: the first column takes what the figures leave, and the name is cut. */
+.panel-card th, .panel-card td { padding-inline: 0.5rem; }
+.panel-card :is(th, td):first-child { padding-left: 0.75rem; }
+.panel-card :is(th, td):last-child { padding-right: 0.75rem; }
+.panel-card th { padding-top: 0.375rem; }
+.panel-card td { padding-block: 0.375rem; }
+.panel-card td:first-child { width: 100%; max-width: 0; }
+.panel-card .who { flex-wrap: nowrap; gap: 0.625rem; overflow-wrap: normal; }
+.who-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-card .out-label, .panel-card .in-goal { flex: none; }
 .pen { margin-left: 0.25rem; font: 400 0.875rem/1.2 var(--font-body); }
 /* Goalkeepers: up to five number columns, so they get less room each than the player tables */
 table.goalies th.num, table.goalies td.num { width: auto; padding-left: 0.25rem; }

@@ -255,6 +255,7 @@ test('end game needs a second tap; viewer shows Final and season stats', async (
     await expect(viewer.getByTestId('result-row')).toHaveCount(0);
     await viewer.goto('/index.html?emulator=1');
     await expect(viewer.getByTestId('result-row')).toHaveCount(1);
+    await viewer.getByTestId('tab-players').click();
     await expect(viewer.getByTestId('season-row')).toHaveCount(3);
     // Opening home after the game aborts the streams that were open; that is not an app error.
     dropNetworkNoise(problems);

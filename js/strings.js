@@ -60,6 +60,15 @@ const STRINGS = {
   connectionNote: 'Reconnecting. Showing the last score received.',
   // The scoreboard's goals-by-quarter table: read out as its caption, never shown.
   quarterGrid: 'Goals by quarter',
+  // The tab bar: one under the scoreboard on a game, one under the season header on home.
+  tabsGame: 'Game details',
+  tabsSeason: 'Season details',
+  tabTimeline: 'Timeline',
+  tabResults: 'Results',
+  tabPlayers: 'Players',
+  tabTeam: 'Team',
+  teamUnavailable: 'Team stats aren\'t available right now.',
+  playersEmpty: 'No player stats yet.',
   goalNamed: 'Goal · #{cap} {name}',
   goalUnknown: 'Goal · scorer unknown',
   exclNamed: 'Exclusion · #{cap} {name}',

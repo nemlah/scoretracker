@@ -154,11 +154,9 @@ for (const blockFonts of [false, true]) {
         await expect(page.locator('.board-opp')).toHaveText(longOpponent);
         await expect(page.getByTestId('situation-badge')).toBeVisible();
         await expect(page.getByTestId('quarter-scores')).toBeVisible();
-        await expect(page.getByTestId('goalie-row')).toHaveCount(2);
       } else {
         await expect(page.getByTestId('games-list')).toBeVisible();
         await expect(page.getByTestId('result-link').first().locator('.result-opp')).toHaveText(longOpponent);
-        await expect(page.getByTestId('season-row').first()).toBeVisible();
       }
       if (!blockFonts) {
         // Then the fonts, for that very text. check() alone is true when no face matches, so also require a
@@ -177,19 +175,27 @@ for (const blockFonts of [false, true]) {
             && document.fonts.check('400 16px "Sofia Sans"', text);
         }, greek)).toBe(true);
       }
-      const overflow = await page.evaluate(() => ({
-        scroll: document.scrollingElement.scrollWidth,
-        outside: [...document.querySelectorAll('.board, .past-nav, .season-head, .section, .board-score, table, .result-link, [data-testid="situation-badge"], [data-testid="period"]')]
-          .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
-          .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
-      }));
+      const assertFits = async label => {
+        const overflow = await page.evaluate(() => ({
+          scroll: document.scrollingElement.scrollWidth,
+          outside: [...document.querySelectorAll('.board, .past-nav, .season-head, .tabs, .section, .panel-card, .board-score, table, .result-link, [data-testid="situation-badge"], [data-testid="period"]')]
+            .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
+            .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
+        }));
+        expect(overflow.outside, `${label}: boxes past 360 px`).toEqual([]);
+        expect(overflow.scroll, `${label}: scrollWidth`).toBeLessThanOrEqual(360);
+      };
       if (onHome) {
         const links = await page.getByTestId('result-link').evaluateAll(els => els.map(el => el.getBoundingClientRect().height));
         expect(links.length, 'home: result links').toBeGreaterThan(0);
         expect(Math.min(...links), 'home: shortest result-link target').toBeGreaterThanOrEqual(44);
       }
-      expect(overflow.outside, `${hash}: boxes past 360 px`).toEqual([]);
-      expect(overflow.scroll, `${hash}: scrollWidth`).toBeLessThanOrEqual(360);
+      await assertFits(hash);
+      // The Players tab, on home and on the game: the same worst case, in the tables.
+      await page.getByTestId('tab-players').click();
+      await expect(page.getByTestId(onHome ? 'season-row' : 'player-row').first()).toBeVisible();
+      if (!onHome) await expect(page.getByTestId('goalie-row')).toHaveCount(2);
+      await assertFits(`${hash} players`);
     }
   });
 }
