@@ -371,9 +371,9 @@ The crest beside ANOG on the game scoreboard (40 px) and in the season header (4
    - the season-switch Team test can't reach the stats-key gate.
 7. Fix the WebKit tracker test races (`withTwoDevices` in tracker-access; tracker-goalies; tracker-situations) and stub `apis.google.com` in e2e.
 
-Open for the owner (reviewers marked these as spec questions):
-- Game flow (biggest lead, ties) uses `ts` order, while the timeline's running score uses quarter, then `ts`.
-- The period box shows "Shootout" where the spec says "SO".
+Owner answers (20/11/2026) to the two spec questions the reviewers raised:
+- Game flow (biggest lead, ties, longest run) follows the timeline's order, quarter then `ts`, so it agrees with the running score. Fixed in R3.
+- The period box keeps "Shootout"; this spec's "SO" in the R2 scoreboard section reads as "Shootout".
 
 ## Release 3 — tracker details
 
@@ -401,6 +401,17 @@ Each item keeps its existing test ids, or replaces them in the same commit as it
 9. Foul pips as 12 px squares (3 of them) and a plain "7" tally without the "goals" label; cap chip with 26 px digits is done, but the roster photo placeholder/badge variants (TRoster) need photo markup.
 10. Landscape split (TLandscape): score and controls in two columns need a wrapper.
 11. New game as a two-step form with "Next: who is playing" (today one page).
+
+### R3 scope calls (20/11/2026, for the owner to check)
+
+1. **Not built, because they are new behaviour rather than markup:** "Lock this phone" on home (there is no lock today), the foul-out toast with its coloured square (the tracker has no foul toast today), the "Scorekeeper" subtitle and the new unlock copy. Today's strings stay.
+2. **Photos stay off:** TRoster/TLineup photo variants are out (non-goal).
+3. **Deferred:** carry-over 4's SVG and panel-card consolidation. Moving shared builders into a module is a refactor with mixed-cache risk and no visible change. It waits for the versioned release shell. The test-helper consolidation is in.
+4. **Done already:** carry-over 7 (the WebKit races and the `apis.google.com` stub) landed with the e2e-speed branch on 20/11/2026.
+5. **Mixed caches:** R3 is safe against R2 files, as Goal 7 asks. A phone still holding R1 files (last opened before 20/11/2026) can fail for one load once the R3 shims are gone. That is two releases back, so it is accepted.
+6. **Events sheet editing:** each row's editors (scorer, man-up, goalie, in goal) sit behind one button on the row: "Change scorer" on goals, "Edit" on other rows that have an editor. The sheet shows the board's one-line rows.
+7. **Game detail:** a dark scoreboard card (badge, date, two score rows, shootout line) on top, with no quarter grid. Under it come today's events panel, game info form and actions, restyled as cards. Editing stays inline, so there is no "Edit events" toggle.
+8. **Home counts:** "N players" counts the roster's active players. The past-games count comes from one `listGames()` read on home and is hidden until that read answers.
 
 ## Testing (every release)
 
