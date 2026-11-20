@@ -33,17 +33,29 @@ const swReady = page => page.evaluate(async () => { await navigator.serviceWorke
 // controlled yet, and on the next one the font is asked for only once the text is drawn, so going offline
 // straight after that reload can leave the font out of the cache: the offline load then asks the network
 // for it (net::ERR_FAILED; a real request to fonts.gstatic.com, so it comes and goes). Every font file a
-// page asked for must be stored before the test goes offline.
+// page asked for must be stored before the test goes offline. The worker answers before its cache write
+// is done, so this polls the shell cache itself.
 const watchFonts = page => {
   const urls = new Set();
   page.on('request', request => { if (request.url().startsWith('https://fonts.gstatic.com/')) urls.add(request.url()); });
   return urls;
 };
-const fontsCached = (page, urls) => expect.poll(() => page.evaluate(async list => {
-  await document.fonts.ready;
-  const stored = await Promise.all(list.map(url => caches.match(url, { ignoreVary: true })));
-  return stored.every(Boolean);
-}, [...urls]), { message: 'every font file the page asked for is cached' }).toBe(true);
+const fontsCached = (page, urls) => expect.poll(async () => {
+  // A font asked for while the page loads fonts is recorded before this wait returns, so the list is
+  // taken after it, on every round.
+  await page.evaluate(() => document.fonts.ready);
+  const list = [...urls];
+  if (list.length === 0) return 'no font file requested';
+  return page.evaluate(async wanted => {
+    const shell = await Promise.all((await caches.keys()).filter(name => name.startsWith('wp-shell-')).map(name => caches.open(name)));
+    const missing = [];
+    for (const url of wanted) {
+      const hits = await Promise.all(shell.map(cache => cache.match(url, { ignoreVary: true })));
+      if (!hits.some(Boolean)) missing.push(url);
+    }
+    return missing.length === 0 ? 'cached' : `not cached: ${missing.join(' ')}`;
+  }, list);
+}, { message: 'every font file the page asked for is in the shell cache' }).toBe('cached');
 
 async function startGame(page) {
   await page.goto(TRACKER_URL);
