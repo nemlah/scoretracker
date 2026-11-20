@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
 import { closeAll, remove, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
@@ -30,11 +31,18 @@ const seedLive = (events = liveEvents()) => Promise.all([
 ]);
 
 let problems;
+// Set by a test that intercepts a module: the browser's own resource-load failure for that URL is expected.
+let blockedUrl;
 test.beforeEach(async ({ page }) => {
   problems = [];
+  blockedUrl = null;
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
+    if (message.type() !== 'error') return;
+    // Only the browser's resource-load failure for the intercepted URL (its location and its text); an
+    // error the app logs about the same file, or any other, still fails the test.
+    if (blockedUrl && message.location()?.url === blockedUrl && /^Failed to load resource/.test(message.text())) return;
+    problems.push(`console: ${message.text()}`);
   });
   await resetAll();
 });
@@ -44,6 +52,13 @@ test.afterEach(() => {
 test.afterAll(closeAll);
 
 const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
+
+// A timeline row's text box (its name line) and the x of the centre line in that row, in the viewport.
+const textAgainstLine = row => row.evaluate(el => {
+  const mid = el.querySelector('.tl-mid').getBoundingClientRect();
+  const box = el.querySelector('.tl-name').getBoundingClientRect();
+  return { line: mid.left + mid.width / 2, text: { left: box.left, right: box.right, centre: box.left + box.width / 2 } };
+});
 
 test('home says there are no games when there is no team or game', async ({ page }) => {
   await open(page);
@@ -65,23 +80,39 @@ test('live game', async ({ page }) => {
   await expect(page.getByTestId('timeline-item').first()).toContainText('Q2');
   await expect(page.getByTestId('timeline-item')).toHaveCount(8);
 
+  // Theirs sit right of the centre line, ours left: the text box, not the row box, against the line.
   const them = page.locator('[data-testid="timeline-item"][data-side="them"]').first();
-  await expect(them).toContainText('Opponent FC');
-  await expect(them).toContainText('🏐');
-  const listBox = await page.locator('.timeline ul').first().boundingBox();
-  const iconBox = await them.locator('.tl-icon').boundingBox();
-  expect(Math.abs((listBox.x + listBox.width) - (iconBox.x + iconBox.width))).toBeLessThanOrEqual(2);
-  const textBox = await them.locator('.tl-text').boundingBox();
-  expect(textBox.x + textBox.width).toBeLessThanOrEqual(iconBox.x);
+  await expect(them.getByTestId('tl-name')).toHaveText('Opponent FC');
+  await expect(them.locator('.tl-what')).toHaveText('Goal');
   const us = page.locator('[data-testid="timeline-item"][data-side="us"]', { hasText: '#5' }).first();
-  await expect(us).toContainText('🏐');
-  // The word "Goal" is only in the screen-reader prefix; the visible text is cap and name.
-  await expect(us.locator('.tl-text')).toHaveText('#5 Alexiou');
-  await expect(us.locator('.tl-text')).not.toContainText('Goal');
-  await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' })).toHaveCount(1);
-  await expect(page.locator('[data-testid="timeline-item"]', { hasText: '🟥' })).toContainText('#2 Papadakis · out');
-  await expect(page.locator('[data-testid="timeline-item"]', { has: page.locator('.tl-badge', { hasText: 'E' }) }).first()).toContainText('#2 Papadakis');
-  expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).fontSize)).toBe('24px');
+  for (const [row, side] of [[them, 'them'], [us, 'us']]) {
+    const g = await textAgainstLine(row);
+    if (side === 'them') {
+      expect(g.text.left, 'their text starts right of the line').toBeGreaterThan(g.line);
+      expect(g.text.centre, 'their text is centred right of the line').toBeGreaterThan(g.line + 20);
+    } else {
+      expect(g.text.right, 'our text ends left of the line').toBeLessThan(g.line);
+      expect(g.text.centre, 'our text is centred left of the line').toBeLessThan(g.line - 20);
+    }
+  }
+  // The name line is the cap and name; the word "Goal" is the line under it, and the pill is the running score.
+  await expect(us.getByTestId('tl-name')).toHaveText('#5 Alexiou');
+  await expect(us.locator('.tl-what')).toHaveText('Goal');
+  await expect(us.getByTestId('tl-score')).toHaveText('3–1');
+  await expect(them.getByTestId('tl-score')).toHaveText('3–2');
+  await expect(page.getByTestId('tl-icon').first()).toBeVisible();
+  // The third foul: the out tag, the red exclusion icon and data-out.
+  await expect(page.locator('[data-testid="timeline-item"][data-out="true"]')).toHaveCount(1);
+  await expect(page.getByTestId('tl-out')).toHaveText('· out');
+  await expect(page.locator('[data-testid="timeline-item"][data-out="true"]')).toContainText('#2 Papadakis');
+  await expect(page.locator('.tl-icon--excl')).toHaveCount(3);
+  // A quarter marker is a board chip with the quarter's goals; it is not the old 24 px sticky heading.
+  const marker = page.getByTestId('tl-quarter').first();
+  await expect(marker).toHaveText('Q2 1–1');
+  expect(await marker.locator('h3').evaluate(el => {
+    const style = getComputedStyle(el);
+    return [style.fontSize, style.position, style.backgroundColor, style.color];
+  })).toEqual(['17px', 'static', 'rgb(11, 19, 32)', 'rgb(255, 194, 61)']);
 
   // The players are under their own tab.
   await page.getByTestId('tab-players').click();
@@ -183,7 +214,8 @@ test('the game screen has the timeline, players and team tabs in that order, and
     results: [{ gameId: 'p1', date: '2026-10-25', opponent: 'North Pool', us: 11, them: 6 }],
   });
   await open(page, '#/game/g1');
-  await expect(page.locator('.timeline')).toBeVisible();
+  await expect(page.getByTestId('timeline-heading')).toBeVisible();
+  await expect(page.getByTestId('panel-timeline')).toBeVisible();
   await expect(page.getByTestId('player-row').first()).toBeHidden(); // under the Players tab, not the Timeline one
   const lefts = await page.evaluate(() => ['timeline', 'players', 'team'].map(name => document.querySelector(`[data-testid="tab-${name}"]`).getBoundingClientRect().left));
   expect(lefts[0]).toBeLessThan(lefts[1]);
@@ -195,66 +227,66 @@ test('the game screen has the timeline, players and team tabs in that order, and
   await expect(page.getByTestId('result-row')).toHaveCount(0);
 });
 
-const manyEvents = () => Array.from({ length: 30 }, (_, i) => (i % 3 === 2 ? ev('oppGoal', (i % 4) + 1)
+const manyEvents = (length = 30) => Array.from({ length }, (_, i) => (i % 3 === 2 ? ev('oppGoal', (i % 4) + 1)
   : ev('goal', (i % 4) + 1, i % 2 ? 'p5' : 'p2')));
 
-test('the timeline scrolls inside a fixed-height region', async ({ page }) => {
-  await seedLive(manyEvents());
+test('the timeline has no scroll box: a long game grows the page, and the page scrolls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedLive(manyEvents(40));
   await open(page, '#/game/g1');
-  const box = page.getByTestId('timeline-scroll');
-  await expect(box).toBeVisible();
-  await expect(box).toHaveAttribute('tabindex', '0');
-  await expect(box).toHaveAttribute('role', 'region');
-  await expect(box).toHaveAttribute('aria-label', 'Game timeline');
-  expect(await box.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
-  expect(await box.evaluate(el => getComputedStyle(el).maxHeight)).toBe('288px');
-  expect(await page.locator('.timeline h3').first().evaluate(el => getComputedStyle(el).position)).toBe('sticky');
-
-  // Partway into a group, a period header is pinned to the top edge of the box.
-  await box.evaluate(el => { el.scrollTop = 100; });
-  const boxTop = (await box.boundingBox()).y;
-  const headerTops = await page.locator('.timeline h3').evaluateAll(els => els.map(el => el.getBoundingClientRect().top));
-  expect(headerTops.some(top => Math.abs(top - boxTop) <= 1)).toBe(true);
+  await expect(page.getByTestId('timeline-item')).toHaveCount(40);
+  await expect(page.getByTestId('timeline-scroll')).toHaveCount(0);
+  await expect(page.locator('.timeline-scroll')).toHaveCount(0);
+  const m = await page.evaluate(() => {
+    const list = document.querySelector('.tl-list');
+    return {
+      list: list.getBoundingClientRect().height,
+      page: document.documentElement.scrollHeight,
+      // Nothing in the panel scrolls on its own.
+      scrollers: [...document.querySelectorAll('[data-testid="panel-timeline"], [data-testid="panel-timeline"] *')]
+        .filter(el => ['auto', 'scroll'].includes(getComputedStyle(el).overflowY)).length,
+    };
+  });
+  expect(m.list, '40 rows of at least 48 px are all in the page').toBeGreaterThan(40 * 48);
+  expect(m.page, 'the page is taller than the list').toBeGreaterThan(m.list);
+  expect(m.scrollers, 'nothing in the timeline panel is a scroll box').toBe(0);
+  await page.evaluate(() => window.scrollTo(0, 600));
+  expect(await page.evaluate(() => window.scrollY)).toBe(600);
 });
 
-test('a short timeline is not padded to the full height', async ({ page }) => {
-  await seedLive([ev('goal', 1, 'p5')]);
-  await open(page, '#/game/g1');
-  expect(await page.getByTestId('timeline-scroll').evaluate(el => el.clientHeight)).toBeLessThan(288);
-});
-
-test('the timeline keeps its scroll position when a new event arrives', async ({ page }) => {
+test('the page keeps its scroll position when a new event arrives', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const events = manyEvents();
   await seedLive(events);
   await open(page, '#/game/g1');
-  const box = page.getByTestId('timeline-scroll');
   await expect(page.getByTestId('timeline-item')).toHaveCount(30);
-  await box.evaluate(el => { el.scrollTop = 200; });
-  expect(await box.evaluate(el => el.scrollTop)).toBe(200);
+  await page.evaluate(() => window.scrollTo(0, 400));
+  expect(await page.evaluate(() => window.scrollY)).toBe(400);
   await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
   await expect(page.getByTestId('timeline-item')).toHaveCount(31, { timeout: 5000 });
-  expect(Math.abs(await page.getByTestId('timeline-scroll').evaluate(el => el.scrollTop) - 200)).toBeLessThanOrEqual(2);
+  expect(Math.abs(await page.evaluate(() => window.scrollY) - 400)).toBeLessThanOrEqual(2);
 });
 
-test('the timeline keeps its scroll position on a metadata-only update', async ({ page }) => {
+test('the page keeps its scroll position on a metadata-only update', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await seedLive(manyEvents());
   await open(page, '#/game/g1');
   await expect(page.getByTestId('timeline-item')).toHaveCount(30);
-  await page.getByTestId('timeline-scroll').evaluate(el => { el.scrollTop = 200; });
+  await page.evaluate(() => window.scrollTo(0, 400));
   await update('games/g1', { period: 3 });
   await expect(page.getByTestId('period')).toHaveText('Q3', { timeout: 5000 });
-  expect(Math.abs(await page.getByTestId('timeline-scroll').evaluate(el => el.scrollTop) - 200)).toBeLessThanOrEqual(2);
+  expect(Math.abs(await page.evaluate(() => window.scrollY) - 400)).toBeLessThanOrEqual(2);
 });
 
-test('keyboard focus stays on the timeline when a new event arrives', async ({ page }) => {
+test('keyboard focus on the Timeline tab stays there when a new event arrives', async ({ page }) => {
   const events = manyEvents();
   await seedLive(events);
   await open(page, '#/game/g1');
   await expect(page.getByTestId('timeline-item')).toHaveCount(30);
-  await page.getByTestId('timeline-scroll').focus();
+  await page.getByTestId('tab-timeline').focus();
   await update('games/g1', { events: [...events, ev('goal', 2, 'p5')] });
   await expect(page.getByTestId('timeline-item')).toHaveCount(31, { timeout: 5000 });
-  expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('timeline-scroll');
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('tab-timeline');
 });
 
 test('updates live without reload', async ({ page }) => {
@@ -480,7 +512,7 @@ test('goals scored on a man-up are tagged; situation events are not listed; pena
   await expect(page.getByTestId('tl-manup')).toHaveText('man-up');
   const tagged = page.getByTestId('timeline-item').filter({ has: page.getByTestId('tl-manup') });
   await expect(tagged).toContainText('#5 Alexiou');
-  const pen = page.getByTestId('timeline-item').filter({ has: page.locator('.tl-badge', { hasText: 'P' }) });
+  const pen = page.getByTestId('timeline-item').filter({ has: page.locator('.tl-icon--pen') });
   await expect(pen).toHaveCount(1);
   await expect(pen).toContainText('#2 Papadakis');
   await page.getByTestId('tab-players').click();
@@ -489,7 +521,7 @@ test('goals scored on a man-up are tagged; situation events are not listed; pena
   await expect(page.locator('[data-testid="player-row"][data-cap="5"]').getByTestId('player-pen')).toHaveText('0');
 });
 
-test('fouls show E and P badges; the third foul shows a red card and out', async ({ page }) => {
+test('fouls show the exclusion and penalty icons; the third foul adds the out tag', async ({ page }) => {
   await seedLive([
     ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('pen', 2, 'p2'), ev('pen', 2, 'p5'),
   ]);
@@ -500,17 +532,25 @@ test('fouls show E and P badges; the third foul shows a red card and out', async
   await expect(p2).toHaveCount(3);
   // The timeline lists newest first: the fouling-out pen, then the two exclusions.
   for (const i of [1, 2]) {
-    await expect(p2.nth(i).getByTestId('tl-icon')).toHaveText('E');
-    await expect(p2.nth(i).getByTestId('tl-icon')).toHaveClass(/tl-badge/);
+    const icon = p2.nth(i).getByTestId('tl-icon');
+    await expect(icon).toHaveClass(/tl-icon--excl/);
+    await expect(icon.locator('svg')).toBeVisible();
+    await expect(p2.nth(i).locator('.tl-what')).toHaveText('Exclusion');
+    await expect(p2.nth(i).getByTestId('tl-out')).toHaveCount(0);
   }
   const out = p2.first();
   await expect(out).toHaveAttribute('data-out', 'true');
-  await expect(out.getByTestId('tl-icon')).toHaveText('🟥');
-  await expect(out).toContainText('#2 Papadakis · out');
+  await expect(out.getByTestId('tl-icon')).toHaveClass(/tl-icon--pen/);
+  await expect(out.locator('.tl-what')).toHaveText('Penalty foul · out');
+  await expect(out.getByTestId('tl-out')).toHaveText('· out');
+  expect(await out.getByTestId('tl-out').evaluate(el => getComputedStyle(el).color)).toBe('rgb(179, 32, 47)');
   const p5 = items.filter({ hasText: '#5 Alexiou' });
-  await expect(p5.getByTestId('tl-icon')).toHaveText('P');
-  await expect(p5.getByTestId('tl-icon')).toHaveClass(/tl-badge/);
-  await expect(items.filter({ hasText: '🟧' })).toHaveCount(0);
+  await expect(p5.getByTestId('tl-icon')).toHaveClass(/tl-icon--pen/);
+  await expect(p5.getByTestId('tl-icon').locator('svg')).toBeVisible();
+  await expect(p5.getByTestId('tl-out')).toHaveCount(0);
+  // The icon fills: red for an exclusion, purple for a penalty foul.
+  const fills = await page.evaluate(() => ['excl', 'pen'].map(kind => getComputedStyle(document.querySelector(`.tl-icon--${kind}`)).backgroundColor));
+  expect(fills).toEqual(['rgb(215, 38, 61)', 'rgb(107, 63, 181)']);
 });
 
 test('an opponent-only change updates opponent-goal timeline rows', async ({ page }) => {
@@ -675,16 +715,18 @@ test('saves and penalty saves appear in the timeline; In goal does not', async (
   const items = page.getByTestId('timeline-item');
   await expect(items).toHaveCount(6);
   // "Penalty saved" also contains "save", and hasText is a case-insensitive substring match: select on the text span.
-  const saves = items.filter({ has: page.locator('.tl-text', { hasText: /^Save · / }) });
+  const saves = items.filter({ has: page.locator('.tl-what', { hasText: /^Save$/ }) });
   await expect(saves).toHaveCount(3);
   for (let i = 0; i < 3; i++) {
-    await expect(saves.nth(i)).toContainText('✋');
+    await expect(saves.nth(i).getByTestId('tl-icon')).toHaveClass(/tl-icon--save/);
+    await expect(saves.nth(i).getByTestId('tl-icon').locator('svg')).toBeVisible();
     await expect(saves.nth(i)).toHaveClass(/tl-minor/);
   }
   await expect(items.filter({ hasText: '#13 Nikolaou' })).toHaveCount(1);
   const penSave = page.locator('[data-testid="timeline-item"]', { hasText: 'Penalty saved' });
   await expect(penSave).toHaveCount(1);
-  await expect(penSave).toContainText('✋');
+  await expect(penSave.getByTestId('tl-icon')).toHaveClass(/tl-icon--save/);
+  await expect(penSave.locator('.tl-what')).toHaveText('Penalty saved');
   await expect(penSave).toContainText('#1 Georgiou');
   await expect(penSave).not.toHaveClass(/tl-minor/);
   await expect(page.locator('[data-testid="timeline-item"]', { hasText: 'In goal' })).toHaveCount(0);
@@ -790,4 +832,166 @@ test('the Goalkeepers table does not cause sideways scrolling at 360px', async (
   }
   // Opening home after the game aborts the streams that were open; that is not an app error.
   dropNetworkNoise(problems);
+});
+
+// The centre-line timeline: running scores, quarter markers, tags, icons and their fallbacks.
+const timelineSequence = page => page.locator('.tl-list > li').evaluateAll(items => items.map(item => (item.classList.contains('tl-quarter')
+  ? item.textContent.trim()
+  : item.querySelector('[data-testid="tl-score"]')?.textContent ?? '(icon)')));
+
+test('goal rows carry the running score, a goal added late to Q1 reads in Q1, and each quarter has its marker', async ({ page }) => {
+  // The last goal is stamped long after the Q2 goal but belongs to Q1: Q1 reads 1–0, 1–1, 2–1 and Q2 3–1.
+  await seedLive([
+    ev('goal', 1, 'p5'), ev('oppGoal', 1), ev('goal', 2, 'p2'),
+    { id: 'late', type: 'goal', period: 1, ts: 99999, playerId: 'p2' },
+  ]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('timeline-item')).toHaveCount(4);
+  expect(await timelineSequence(page)).toEqual(['Q2 1–0', '3–1', 'Q1 2–1', '2–1', '1–1', '1–0']);
+  const late = page.getByTestId('timeline-item').filter({ has: page.getByTestId('tl-name').filter({ hasText: '#2 Papadakis' }) });
+  await expect(late).toHaveCount(2);
+  // Ours are amber on the board, theirs ink on the card with an outline.
+  const styles = await page.evaluate(() => ['us', 'them'].map(side => {
+    const style = getComputedStyle(document.querySelector(`[data-side="${side}"] [data-testid="tl-score"]`));
+    return [style.backgroundColor, style.color, style.borderTopColor, style.borderTopWidth];
+  }));
+  expect(styles).toEqual([
+    ['rgb(11, 19, 32)', 'rgb(255, 194, 61)', 'rgb(36, 50, 74)', '1px'],
+    ['rgb(255, 255, 255)', 'rgb(11, 19, 32)', 'rgb(122, 135, 150)', '1px'],
+  ]);
+  // A goal row has the score in its centre and no icon box.
+  await expect(page.getByTestId('timeline-item').filter({ has: page.getByTestId('tl-score') }).getByTestId('tl-icon')).toHaveCount(0);
+});
+
+test('a game with a shootout has a Shootout marker and pills that start from 0', async ({ page }) => {
+  await Promise.all([
+    seed('team/main', { currentGameId: 'g1', roster }),
+    seed('games/g1', {
+      opponent: 'Opponent FC', date: '2026-11-08', season: '2026-27', status: 'final', period: 'SO', lineup,
+      events: [ev('goal', 4, 'p5'), ev('oppGoal', 4), ev('goal', 'SO', 'p5'), ev('oppGoal', 'SO'), ev('goal', 'SO', 'p2')],
+    }),
+  ]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('timeline-item')).toHaveCount(5);
+  expect(await timelineSequence(page)).toEqual(['Shootout 2–1', '2–1', '1–1', '1–0', 'Q4 1–1', '1–1', '1–0']);
+});
+
+test('the heading shows the date and the order, with or without events', async ({ page }) => {
+  await seedLive([]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.getByTestId('timeline-heading')).toHaveText('08/11/2026 · newest first');
+  await expect(page.getByTestId('timeline-item')).toHaveCount(0);
+  await expect(page.getByTestId('panel-timeline')).toContainText('No goals or exclusions yet.');
+  await update('games/g1', { events: [ev('goal', 1, 'p5')] });
+  await expect(page.getByTestId('timeline-item')).toHaveCount(1);
+  await expect(page.getByTestId('timeline-heading')).toHaveText('08/11/2026 · newest first');
+});
+
+test('the pills and the card follow the dark scheme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await seedLive([ev('goal', 1, 'p5'), ev('oppGoal', 1)]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('tl-score')).toHaveCount(2);
+  const styles = await page.evaluate(() => [
+    ...['us', 'them'].map(side => {
+      const style = getComputedStyle(document.querySelector(`[data-side="${side}"] [data-testid="tl-score"]`));
+      return [style.backgroundColor, style.color, style.borderTopColor];
+    }),
+    getComputedStyle(document.querySelector('.tl-list')).backgroundColor,
+    getComputedStyle(document.querySelector('.tl-quarter h3')).backgroundColor,
+  ]);
+  expect(styles).toEqual([
+    ['rgb(5, 9, 15)', 'rgb(255, 194, 61)', 'rgb(31, 43, 61)'],
+    ['rgb(19, 30, 46)', 'rgb(232, 238, 245)', 'rgb(93, 107, 125)'],
+    'rgb(19, 30, 46)',
+    'rgb(5, 9, 15)',
+  ]);
+});
+
+const iconLineup = [...goalieLineup, { playerId: 'p2', name: 'Papadakis', cap: 2 }];
+const iconEvents = () => [
+  ev('goal', 1, 'p5'), ev('oppGoal', 1), ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('excl', 1, 'p2'),
+  ev('pen', 1, 'p5'), ev('save', 1, 'g1'), ev('penSave', 1, 'g1'),
+];
+// Newest first. A goal's centre is its score, so its row has no icon: these are the icons of the other rows.
+const GLYPHS = ['✋', '✋', 'P', '🟥', 'E', 'E'];
+
+test.describe('the stroke icons', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('a row\'s centre is a stroke svg once icons.js is in', async ({ page }) => {
+    await seedGoalieGame(iconEvents(), { period: 1, lineup: iconLineup });
+    await open(page, '#/game/g1');
+    const icons = page.getByTestId('tl-icon');
+    await expect(icons).toHaveCount(6);
+    await expect(icons.locator('svg')).toHaveCount(6);
+    expect(await icons.locator('svg').first().evaluate(svg => [
+      svg.getAttribute('aria-hidden'), svg.getAttribute('viewBox'), svg.getAttribute('stroke-width'),
+      svg.getAttribute('stroke-linecap'), svg.getAttribute('stroke-linejoin'), svg.querySelectorAll('path').length,
+    ])).toEqual(['true', '0 0 24 24', '2', 'round', 'round', 1]);
+    // No glyph text beside the svg.
+    expect(await icons.evaluateAll(els => els.map(el => el.textContent))).toEqual(['', '', '', '', '', '']);
+    await expect(page.getByTestId('tl-score')).toHaveCount(2);
+  });
+
+  test('with icons.js missing every icon box shows its glyph and the pills still show', async ({ page, baseURL }) => {
+    blockedUrl = new URL('/js/icons.js', baseURL).href;
+    await page.route('**/js/icons.js', route => route.abort());
+    await seedGoalieGame(iconEvents(), { period: 1, lineup: iconLineup });
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(8);
+    await expect(page.getByTestId('tl-score')).toHaveText(['1–1', '1–0']);
+    await expect(page.getByTestId('tl-icon')).toHaveText(GLYPHS);
+    await expect(page.locator('[data-testid="tl-icon"] svg')).toHaveCount(0);
+    // The failure does not leave the page waiting: the other tabs work.
+    await page.getByTestId('tab-players').click();
+    await expect(page.getByTestId('player-row').first()).toBeVisible();
+  });
+
+  test('with the previous model.js there are no pills: goal rows show the goal icon and the markers only the quarter', async ({ page }) => {
+    const previous = execSync('git show 58f859d:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await seedLive([ev('goal', 1, 'p5'), ev('oppGoal', 1), ev('goal', 2, 'p2')]);
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(3);
+    await expect(page.getByTestId('tl-score')).toHaveCount(0);
+    await expect(page.getByTestId('tl-icon')).toHaveCount(3);
+    await expect(page.locator('.tl-icon--goal')).toHaveCount(3);
+    await expect(page.locator('.tl-icon--goal svg')).toHaveCount(3);
+    await expect(page.getByTestId('tl-quarter')).toHaveText(['Q2', 'Q1']);
+    await expect(page.getByTestId('timeline-item').first().getByTestId('tl-name')).toHaveText('#2 Papadakis');
+  });
+
+  test('with the previous model.js and no icons.js the goal rows show the ball glyph', async ({ page, baseURL }) => {
+    const previous = execSync('git show 58f859d:js/model.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    blockedUrl = new URL('/js/icons.js', baseURL).href;
+    await page.route('**/js/icons.js', route => route.abort());
+    await page.route('**/js/model.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await seedLive([ev('goal', 1, 'p5'), ev('oppGoal', 1)]);
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('tl-icon')).toHaveText(['🏐', '🏐']);
+    await expect(page.getByTestId('tl-score')).toHaveCount(0);
+  });
+
+  test('with the previous strings.js each label shows once and the name line is intact', async ({ page }) => {
+    const previous = execSync('git show 58f859d:js/strings.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+    await page.route('**/js/strings.js', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await seedGoalieGame([ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('excl', 1, 'p2'), ev('save', 1, 'g1')], { period: 1, lineup: iconLineup });
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(4);
+    const save = page.getByTestId('timeline-item').filter({ hasText: 'Georgiou' });
+    await expect(save).toHaveCount(1);
+    await expect(save.getByTestId('tl-name')).toHaveText('#1 Georgiou');
+    const out = page.locator('[data-testid="timeline-item"][data-out="true"]');
+    await expect(out).toHaveCount(1);
+    await expect(out.getByTestId('tl-name')).toHaveText('#2 Papadakis');
+    // The label is on the row once: not again as screen-reader text or as the old one-line text.
+    const count = (row, word) => row.evaluate((el, w) => el.textContent.split(w).length - 1, word);
+    expect(await count(save, 'Save')).toBe(1);
+    expect(await count(out, 'Exclusion')).toBe(1);
+    // The out tag falls back to its English text without the new key.
+    await expect(out.getByTestId('tl-out')).toHaveText('· out');
+    expect(await out.evaluate(el => el.textContent.includes('tlOutTag'))).toBe(false);
+  });
 });

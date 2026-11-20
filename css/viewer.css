@@ -16,6 +16,9 @@ body.viewer {
   --v-bar: var(--accent-on-board, var(--accent));
   --v-up: #0E7A4E;
   --v-down: #E8590C;
+  /* Timeline icons: the exclusion and the penalty foul, as on the Tokens board. */
+  --v-excl: #D7263D;
+  --v-pen: #6B3FB5;
   /* Result chips: a letter on a fill, 4.5:1 for the letter and 3:1 for the fill against the card, per scheme. */
   --v-chip-w: #0E7A4E;
   --v-chip-l: #D7263D;
@@ -385,69 +388,108 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--water-text) 30%, transparent);
 }
 
-/* A quarter heading is a small board band, so it stays readable while it sticks above the rows. */
-.timeline h3 {
-  /* 24 px: viewer.spec.js pins it. The board draws it at 17 px. */
-  font: 800 1.5rem/1.2 var(--font-num);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-  color: var(--v-led);
-  margin-top: 0.75rem;
-  padding: 0.25rem 0.75rem;
+/* The timeline: one card, a 2 px line down the middle, our events left and theirs right. */
+.tl-panel { display: flex; flex-direction: column; gap: 0.5rem; }
+.tl-heading { margin: 0; font: 400 0.875rem/1.4 var(--font-body); color: var(--v-muted); }
+.tl-list {
+  /* The line: 2 px, centred, in every row's middle column and behind each quarter marker. */
+  --tl-spine: linear-gradient(var(--v-line-strong), var(--v-line-strong)) center / 2px 100% no-repeat;
+  list-style: none;
+  margin: 0;
+  padding: 0.375rem 0;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
+.tl-quarter { display: flex; justify-content: center; padding: 0.5rem 0; background: var(--tl-spine); }
+.tl-quarter h3 {
+  margin: 0;
+  padding: 0.125rem 0.75rem;
   border-radius: 0.25rem;
-  position: sticky;
-  top: 0;
-  z-index: 1;
   background: var(--v-board);
+  color: var(--v-led);
+  /* The card's colour around the chip lifts it off the line. */
+  box-shadow: 0 0 0 4px var(--paper);
+  font: 800 1.0625rem/1.3 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
 }
-.timeline-scroll > div:first-child h3 { margin-top: 0; }
-.timeline-scroll {
-  max-height: 18rem;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  /* Scroll hint: the shadow strip is fixed to the box (scroll) and covered by a card-coloured strip that moves with
-     the content (local), so it shows only while more content is below. */
-  background:
-    linear-gradient(transparent, var(--paper) 70%) 0 100% / 100% 2rem no-repeat local,
-    linear-gradient(transparent, color-mix(in srgb, var(--ink) 22%, transparent)) 0 100% / 100% 0.75rem no-repeat scroll;
+.tl-quarter-score { color: var(--v-board-ink); }
+.tl-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr); min-height: 48px; }
+.tl-side { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 0.3125rem 0.5rem 0.3125rem 0.75rem; align-items: flex-end; text-align: right; }
+.tl-side--them { padding: 0.3125rem 0.75rem 0.3125rem 0.5rem; align-items: flex-start; text-align: left; }
+.tl-mid { display: flex; align-items: center; justify-content: center; background: var(--tl-spine); }
+.tl-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 0.9375rem/1.25 var(--font-body);
+  color: var(--ink);
 }
-.timeline ul { list-style: none; margin: 0.25rem 0 0; padding: 0; }
-.timeline li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.375rem 0; border-top: 1px solid var(--line); }
-.timeline li:first-child { border-top: 0; }
-.tl-them { justify-content: flex-end; text-align: right; }
-.tl-icon { flex: none; width: 1.25em; text-align: center; line-height: 1; }
-.tl-badge {
-  width: 1.25em;
-  height: 1.25em;
+/* Goals read heavier than the fouls, the opponent's quieter, and ordinary saves lighter. */
+.tl-goal .tl-name { font-weight: 600; }
+.tl-row--them .tl-name, .tl-minor .tl-name { color: var(--v-muted); }
+.tl-what {
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--ink) 12%, var(--paper));
-  color: color-mix(in srgb, var(--ink) 80%, var(--paper));
-  font-size: 0.75em;
-  font-weight: 600;
-  align-self: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: var(--v-muted);
 }
-.tl-text { overflow-wrap: anywhere; }
-/* Ordinary saves read lighter than goals and exclusions. */
-.tl-minor { color: var(--v-muted); }
-
-.muted { font-size: 0.875rem; color: var(--v-muted); }
-
-/* The man-up tag on a goal in the timeline. */
-.tl-tag {
+.tl-what-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-out { font-weight: 700; color: var(--v-out); }
+.tl-manup {
   flex: none;
-  align-self: center;
-  padding: 0 0.5rem;
+  padding: 0 0.375rem;
   border-radius: 0.25rem;
   background: var(--v-up);
   color: var(--v-board-ink);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   line-height: 1.5;
+  text-transform: uppercase;
 }
+/* A goal's running score, on the line: ours on the board in amber, theirs on the card with an outline. */
+.tl-score {
+  min-width: 48px;
+  box-sizing: border-box;
+  padding: 1px 6px;
+  border: 1px solid var(--v-line-strong);
+  border-radius: 0.375rem;
+  background: var(--paper);
+  color: var(--ink);
+  text-align: center;
+  font: 800 1.1875rem/1.25 var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.tl-row--us .tl-score { border-color: var(--v-board-line); background: var(--v-board); color: var(--v-led); }
+/* Any other event, or a goal whose score is not known: a 28 px box, the stroke icon in it (or its glyph). */
+.tl-mid > .tl-icon {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.tl-mid > .tl-icon--goal { border: 1px solid var(--v-line-strong); }
+.tl-row--us .tl-mid > .tl-icon--goal { border-color: var(--v-board-line); background: var(--v-board); color: var(--v-led); }
+.tl-mid > .tl-icon--save { border: 1px solid var(--v-line-strong); color: var(--v-muted); }
+.tl-mid > .tl-icon--excl { background: var(--v-excl); color: var(--v-board-ink); }
+.tl-mid > .tl-icon--pen { background: var(--v-pen); color: var(--v-board-ink); }
+
+.muted { font-size: 0.875rem; color: var(--v-muted); }
+
 /* Home: the season header on the board, then the results as rows. */
 .season-head {
   display: flex;
@@ -743,6 +785,66 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 }
 
 /* R1 markup, kept for mixed caches; remove in R3 */
+/* The previous timeline: a sticky-headed scroll box of flex rows, by its old class names. */
+.timeline h3 {
+  /* 24 px: viewer.spec.js pinned it. */
+  font: 800 1.5rem/1.2 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--v-led);
+  margin-top: 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--v-board);
+}
+.timeline-scroll > div:first-child h3 { margin-top: 0; }
+.timeline-scroll {
+  max-height: 18rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Scroll hint: the shadow strip is fixed to the box (scroll) and covered by a card-coloured strip that moves with
+     the content (local), so it shows only while more content is below. */
+  background:
+    linear-gradient(transparent, var(--paper) 70%) 0 100% / 100% 2rem no-repeat local,
+    linear-gradient(transparent, color-mix(in srgb, var(--ink) 22%, transparent)) 0 100% / 100% 0.75rem no-repeat scroll;
+}
+.timeline ul { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.timeline li { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.375rem 0; border-top: 1px solid var(--line); }
+.timeline li:first-child { border-top: 0; }
+.tl-them { justify-content: flex-end; text-align: right; }
+.tl-icon { flex: none; width: 1.25em; text-align: center; line-height: 1; }
+.tl-badge {
+  width: 1.25em;
+  height: 1.25em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--ink) 12%, var(--paper));
+  color: color-mix(in srgb, var(--ink) 80%, var(--paper));
+  font-size: 0.75em;
+  font-weight: 600;
+  align-self: center;
+}
+.tl-text { overflow-wrap: anywhere; }
+/* Ordinary saves read lighter than goals and exclusions. */
+.tl-minor { color: var(--v-muted); }
+/* The man-up tag on a goal. */
+.tl-tag {
+  flex: none;
+  align-self: center;
+  padding: 0 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--v-up);
+  color: var(--v-board-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+}
 /* The previous scoreboard, by its old class names: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */
 .scoreboard {
   padding: 0.75rem 1rem 1rem;

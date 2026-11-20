@@ -263,7 +263,9 @@ test.describe('mixed module cache', () => {
       await open(page);
       await expect(page.getByTestId('score-them')).toHaveText('1');
       await expect(page.getByTestId('timeline-item')).toHaveCount(1);
-      await expect(page.locator('.tl-badge')).toHaveCount(0);
+      // Not drawn as a foul either: no save label, and no exclusion or penalty icon.
+      await expect(page.getByTestId('timeline-item').filter({ hasText: 'Georgiou' })).toHaveCount(0);
+      await expect(page.locator('.tl-icon--excl, .tl-icon--pen, .tl-icon--save')).toHaveCount(0);
     });
   }
 });

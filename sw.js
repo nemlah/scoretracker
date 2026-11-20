@@ -24,6 +24,7 @@ const SHELL = [
   './js/model.js',
   './js/goalies.js',
   './js/goalWatch.js',
+  './js/icons.js',
   './js/repo.js',
   './js/situations.js',
   './js/strings.js',

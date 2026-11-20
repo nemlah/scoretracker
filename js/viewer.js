@@ -39,6 +39,8 @@ const state = {
   offline: !navigator.onLine,
   teamView: null, // js/teamView.js, once it has loaded
   teamViewStatus: 'pending', // 'pending' | 'ready' | 'failed': a string, so it survives JSON.stringify
+  icons: null, // js/icons.js, once it has loaded
+  iconsStatus: 'pending', // as teamViewStatus
 };
 
 // The celebration is optional and loaded off the critical path: if either module fails to load
@@ -71,6 +73,18 @@ import('./teamView.js').then(module => {
 }, err => {
   console.warn('Team stats unavailable', err);
   state.teamViewStatus = 'failed';
+  update();
+});
+
+// The timeline's stroke icons are optional too: until icons.js is in, or if it never loads, the rows show their
+// glyph strings instead.
+import('./icons.js').then(module => {
+  state.icons = module;
+  state.iconsStatus = 'ready';
+  update();
+}, err => {
+  console.warn('Timeline icons unavailable', err);
+  state.iconsStatus = 'failed';
   update();
 });
 
@@ -665,14 +679,7 @@ function renderGame(game, tabsShown) {
   if (!tabsShown) return;
   // Each panel is rebuilt only when what it shows changed; the tab bar is not rebuilt at all.
   const inputs = [game.lineup, game.events, game.situations === true, game.opponent, game.status, game.period];
-  // Rebuilding the timeline would reset its box to the top; carry its scroll position over.
-  const oldBox = panelEls.timeline.querySelector('.timeline-scroll');
-  const scrollTop = oldBox?.scrollTop ?? 0;
-  const hadFocus = oldBox?.contains(document.activeElement) ?? false;
-  renderIfChanged(panelEls.timeline, inputs, () => [timelineSection(game)]);
-  const box = panelEls.timeline.querySelector('.timeline-scroll');
-  if (box && scrollTop) box.scrollTop = scrollTop;
-  if (box && hadFocus && box !== oldBox) box.focus({ preventScroll: true });
+  renderIfChanged(panelEls.timeline, [...inputs, game.date, state.iconsStatus], () => timelinePanel(game));
   renderIfChanged(panelEls.players, inputs, () => gamePlayersPanel(game));
   renderIfChanged(panelEls.team, [...inputs, game.date, state.teamViewStatus],
     () => teamPanel(() => state.teamView?.gamePanel?.(game)));
@@ -768,39 +775,102 @@ function savePctCell(line) {
   return pct === null ? t('noShots') : t('savePctText', { pct });
 }
 
-function timelineSection(game) {
+// What each event type shows under its name, and which stroke icon marks it. A type this file does not know
+// (a later release's) gets the label timelineEntry gives it and its glyph.
+const EVENT_LINES = {
+  goal: 'tlGoalSr', oppGoal: 'tlGoalSr', excl: 'tlExclSr', pen: 'tlPenSr', save: 'tlSaveSr', penSave: 'tlPenSaveSr',
+};
+const EVENT_ICONS = {
+  goal: 'goal', oppGoal: 'goal', excl: 'excl', pen: 'pen', save: 'save', penSave: 'save',
+};
+
+// The timeline: the date and its order, then one card. Our events sit left of a centre line and theirs right;
+// a goal puts the running score on the line, any other event its icon, and each quarter has a marker.
+function timelinePanel(game) {
   // Saves get their own, lighter rows, but only when both loaded modules know about them: a cached
   // previous strings.js would draw one as an exclusion, a pre-goalie model.js would list it itself.
   // In goal switches never get a row, and an older cached timeline() would list them as exclusions.
   const savesShown = model.TIMELINE_SAVES === true && strings.TIMELINE_SAVES === true;
-  const groups = timeline(game.events.filter(event => event.type !== 'gkIn' && (savesShown || event.type !== 'save')));
+  const shown = game.events.filter(event => event.type !== 'gkIn' && (savesShown || event.type !== 'save'));
+  // The previous model.js has no running scores or quarter totals: the rows then show icons and the markers
+  // only the quarter.
+  const groups = model.timelineRows?.(shown) ?? timeline(shown);
   const manUpGoals = manUpGoalIds(game);
   const outIds = model.foulOutIds?.(game.events) ?? new Set();
-  return h('section', { class: 'section timeline' },
-    h('h2', {}, t('timelineHeading')),
-    groups.length ? h('div', {
-      class: 'timeline-scroll', tabindex: '0', role: 'region', 'aria-label': t('timelineHeading'), 'data-testid': 'timeline-scroll',
-    }, groups.map(group => h('div', {},
-      h('h3', {}, periodLabel(group.period)),
-      h('ul', {}, group.events.map(event => timelineItem(event, game, manUpGoals, outIds.has(event.id))))))) : h('p', { class: 'muted' }, t('timelineEmpty')));
+  const date = typeof game.date === 'string' ? formatDate(game.date) : null;
+  return [h('div', { class: 'tl-panel' },
+    h('h2', { class: 'tl-heading', 'data-testid': 'timeline-heading' },
+      date === null ? tOr('timelineNewest', 'Newest first')
+        : tOr('timelineDated', `${date} · newest first`, { date })),
+    groups.length
+      ? h('ol', { class: 'tl-list', 'aria-label': t('timelineHeading') }, groups.flatMap(group => [
+        quarterMarker(group),
+        ...group.events.map(event => timelineItem(event, game, manUpGoals, outIds.has(event.id))),
+      ]))
+      : h('p', { class: 'muted' }, t('timelineEmpty')))];
+}
+
+function quarterMarker(group) {
+  const { goals } = group;
+  const known = Number.isFinite(goals?.us) && Number.isFinite(goals?.them);
+  return h('li', { class: 'tl-quarter', 'data-testid': 'tl-quarter' },
+    h('h3', {}, periodLabel(group.period),
+      known ? [' ', h('span', { class: 'tl-quarter-score' }, `${goals.us}–${goals.them}`)] : null));
+}
+
+// The first line of a row: who. Ours by cap and name, theirs by the opponent's name.
+function timelineName(event, game) {
+  if (event.type === 'oppGoal') return game.opponent?.trim() || t('tlOpponentFallback');
+  if (event.type === 'goal' && event.playerId == null) return t('tlUnknownScorer');
+  const player = game.lineup.find(candidate => candidate.playerId === event.playerId);
+  return player ? t('celebrateScorer', { cap: player.cap, name: player.name }) : t('unknownPlayer');
+}
+
+// The icon box in a row's centre. The glyph stands in until icons.js is in, and for good if it never is.
+function timelineIcon(event, glyph) {
+  const kind = EVENT_ICONS[event.type] ?? null;
+  const box = h('span', {
+    class: kind ? `tl-icon tl-icon--${kind}` : 'tl-icon', 'data-testid': 'tl-icon', 'aria-hidden': 'true',
+  }, glyph);
+  if (kind && state.iconsStatus === 'ready') {
+    try {
+      box.replaceChildren(state.icons.icon(kind));
+    } catch (err) {
+      console.warn('Timeline icon failed', err);
+    }
+  }
+  return box;
 }
 
 function timelineItem(event, game, manUpGoals, out) {
+  // Only the side, the screen-reader label and the glyph come from timelineEntry: its text differs between
+  // releases of strings.js, and the lines below do not depend on it.
   const entry = timelineEntry(event, game.lineup, game.opponent, out);
-  const icon = h('span', {
-    class: entry.badge ? 'tl-icon tl-badge' : 'tl-icon', 'data-testid': 'tl-icon', 'aria-hidden': 'true',
-  }, entry.icon);
-  const text = h('span', { class: 'tl-text' }, entry.text);
+  const theirs = entry.side === 'them';
   const tagged = event.type === 'goal' && manUpGoals.has(event.id);
+  const { score } = event;
+  const isGoal = event.type === 'goal' || event.type === 'oppGoal';
+  const showScore = isGoal && Number.isFinite(score?.us) && Number.isFinite(score?.them);
+  const lines = [
+    h('span', { class: 'tl-name', 'data-testid': 'tl-name' }, timelineName(event, game)),
+    h('span', { class: 'tl-what' },
+      h('span', { class: 'tl-what-text' },
+        EVENT_LINES[event.type] ? t(EVENT_LINES[event.type]) : entry.sr,
+        out ? [' ', h('span', { class: 'tl-out', 'data-testid': 'tl-out' }, tOr('tlOutTag', '· out'))] : null),
+      tagged ? h('span', { class: 'tl-manup', 'data-testid': 'tl-manup' }, t('tlManUpTag')) : null),
+  ];
   return h('li', {
-    'data-testid': 'timeline-item', 'data-side': entry.side, class: `tl-item tl-${entry.side}${entry.minor ? ' tl-minor' : ''}`, 'data-out': out ? 'true' : null,
+    'data-testid': 'timeline-item',
+    'data-side': entry.side,
+    class: `tl-row tl-row--${entry.side}${isGoal ? ' tl-goal' : ''}${entry.minor ? ' tl-minor' : ''}`,
+    'data-out': out ? 'true' : null,
   },
     h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
-    entry.side === 'them' ? null : icon,
-    h('span', { class: 'sr-only' }, `${entry.sr}${tagged ? ` · ${t('tlManUpTag')}` : ''} · `),
-    text,
-    tagged ? h('span', { class: 'tl-tag', 'data-testid': 'tl-manup', 'aria-hidden': 'true' }, t('tlManUpTag')) : null,
-    entry.side === 'them' ? icon : null);
+    h('span', { class: 'tl-side tl-side--us' }, theirs ? null : lines),
+    h('span', { class: 'tl-mid' }, showScore
+      ? h('span', { class: 'tl-score', 'data-testid': 'tl-score' }, `${score.us}–${score.them}`)
+      : timelineIcon(event, entry.icon)),
+    h('span', { class: 'tl-side tl-side--them' }, theirs ? lines : null));
 }
 
 // Home: the season in the state the plan names, one panel for each tab. Anything but home shows no season.

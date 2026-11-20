@@ -133,7 +133,7 @@ test.describe('viewer dark', () => {
     await open(page, '#/game/g1');
     await expect(page.getByTestId('score-us')).toHaveText('12');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(11, 19, 32)');
-    await expect(page.locator('.section').first()).toHaveCSS('background-color', 'rgb(19, 30, 46)');
+    await expect(page.locator('.tl-list')).toHaveCSS('background-color', 'rgb(19, 30, 46)');
     await expect(page.locator('.board')).toHaveCSS('background-color', 'rgb(5, 9, 15)');
     await expect(page.getByTestId('score-us')).toHaveCSS('color', 'rgb(255, 194, 61)');
   });
@@ -178,7 +178,7 @@ for (const blockFonts of [false, true]) {
       const assertFits = async label => {
         const overflow = await page.evaluate(() => ({
           scroll: document.scrollingElement.scrollWidth,
-          outside: [...document.querySelectorAll('.board, .past-nav, .season-head, .tabs, .section, .panel-card, .board-score, table, .result-link, [data-testid="situation-badge"], [data-testid="period"]')]
+          outside: [...document.querySelectorAll('.board, .past-nav, .season-head, .tabs, .tl-list, .tl-row, .tl-side, .panel-card, .board-score, table, .result-link, [data-testid="situation-badge"], [data-testid="period"]')]
             .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > 360.5)
             .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
         }));
@@ -740,6 +740,86 @@ for (const scheme of ['light', 'dark']) {
         await expectLongLabelClipped(page, 'quarter-us');
       });
     }
+  });
+}
+
+// The timeline's worst board: a two-digit cap on a long Greek name carrying the man-up tag, the same name
+// fouling out (a penalty foul, "out"), both goalkeepers, the longest opponent, and a 12–11 score in the pills.
+function worstTimelineEvents() {
+  const events = [
+    ev('manUp', 1), ev('goal', 1, 'p11'), ev('oppGoal', 1),
+    ev('excl', 1, 'p11'), ev('excl', 2, 'p11'), ev('pen', 2, 'p11'),
+    ev('save', 2, 'p13'), ev('penSave', 2, 'p1'),
+  ];
+  for (let i = 0; i < 10; i += 1) events.push(ev('goal', 3, 'p10'), ev('oppGoal', 3));
+  events.push(ev('goal', 3, 'p10'));
+  return events;
+}
+
+for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }]) {
+  test(`${viewport.width} x ${viewport.height}: the timeline's worst board keeps its sides, cuts the names on one line and does not scroll sideways`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await Promise.all([
+      seed('team/main', { currentGameId: 'g1', roster }),
+      seed('games/g1', {
+        opponent: longOpponent, date: '2026-11-08', season: '2026-27', status: 'live', period: 3,
+        situations: true, lineup, events: worstTimelineEvents(),
+      }),
+    ]);
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('score-us')).toHaveText('12');
+    await expect(page.getByTestId('tl-manup')).toHaveCount(1);
+    await expect(page.getByTestId('tl-out')).toHaveCount(1);
+    const m = await page.evaluate(() => {
+      const rect = el => el.getBoundingClientRect();
+      const rows = [...document.querySelectorAll('[data-testid="timeline-item"]')].map(row => {
+        const side = row.querySelector(`.tl-side--${row.dataset.side}`);
+        const sideBox = rect(side);
+        const style = getComputedStyle(side);
+        const name = row.querySelector('.tl-name');
+        const nameStyle = getComputedStyle(name);
+        const lineHeight = parseFloat(nameStyle.lineHeight);
+        const what = row.querySelector('.tl-what');
+        const tag = row.querySelector('.tl-manup');
+        const pill = row.querySelector('.tl-score');
+        return {
+          text: name.textContent,
+          sideInner: sideBox.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          nameWidth: rect(name).width,
+          nameCut: name.scrollWidth > name.clientWidth,
+          nameLines: Math.round(rect(name).height / lineHeight),
+          ellipsis: [nameStyle.textOverflow, nameStyle.whiteSpace, nameStyle.fontSize],
+          nameInside: rect(name).left >= sideBox.left - 0.5 && rect(name).right <= sideBox.right + 0.5,
+          whatInside: rect(what).left >= sideBox.left - 0.5 && rect(what).right <= sideBox.right + 0.5,
+          whatCut: what.querySelector('.tl-what-text').scrollWidth > what.querySelector('.tl-what-text').clientWidth + 1,
+          whatSize: getComputedStyle(what).fontSize,
+          tagVisible: tag ? rect(tag).width > 0 && rect(tag).right <= sideBox.right + 0.5 : null,
+          pillInMid: pill ? rect(pill).width <= 64 && rect(pill).left >= rect(row.querySelector('.tl-mid')).left - 0.5 : null,
+        };
+      });
+      return { rows, scroll: [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth] };
+    });
+    expect(m.rows.length, '12 + 11 goals, 3 fouls, 2 saves').toBe(28);
+    for (const row of m.rows) {
+      const label = `${row.text}`;
+      expect(row.sideInner, `${label}: the side is at least 100 px wide`).toBeGreaterThanOrEqual(100);
+      expect(row.nameLines, `${label}: one line`).toBe(1);
+      expect(row.ellipsis, `${label}: ellipsis, no wrap, 15 px`).toEqual(['ellipsis', 'nowrap', '15px']);
+      expect(row.nameInside, `${label}: the name stays in its side`).toBe(true);
+      expect(row.whatInside, `${label}: the event line stays in its side`).toBe(true);
+      expect(row.whatCut, `${label}: the event line and its tag are not cut`).toBe(false);
+      expect(row.whatSize, `${label}: the event line is 13 px`).toBe('13px');
+      if (row.tagVisible !== null) expect(row.tagVisible, `${label}: the man-up tag fits`).toBe(true);
+      if (row.pillInMid !== null) expect(row.pillInMid, `${label}: the pill fits the 64 px middle`).toBe(true);
+    }
+    // At 360 px the long names are cut, and still show at least 100 px of text. Landscape has room for them.
+    const long = m.rows.filter(row => /Παπαδόπουλος|Πανελλήνιος/.test(row.text));
+    expect(long.length).toBeGreaterThanOrEqual(4);
+    for (const row of long) {
+      if (viewport.width === 360) expect(row.nameCut, `${row.text}: cut`).toBe(true);
+      expect(row.nameWidth, `${row.text}: text box`).toBeGreaterThanOrEqual(100);
+    }
+    expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
   });
 }
 

@@ -36,6 +36,10 @@ const STRINGS = {
   tlPenIcon: 'P',
   tlPenSr: 'Penalty foul',
   tlManUpTag: 'man-up',
+  // Release 2's timeline: the tag after a fouling-out foul, and the line under the heading.
+  tlOutTag: '· out',
+  timelineDated: '{date} · newest first',
+  timelineNewest: 'Newest first',
   colPen: 'Pen.',
   evManUpGoal: 'Man-up goal',
   evManUpGoalFor: 'Man-up goal: {label}',
