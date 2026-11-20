@@ -814,7 +814,7 @@ function quarterMarker(group) {
   const { goals } = group;
   const known = Number.isFinite(goals?.us) && Number.isFinite(goals?.them);
   return h('li', { class: 'tl-quarter', 'data-testid': 'tl-quarter' },
-    h('h3', {}, periodLabel(group.period),
+    h('h3', {}, h('span', { class: 'tl-quarter-label' }, periodLabel(group.period)),
       known ? [' ', h('span', { class: 'tl-quarter-score' }, `${goals.us}–${goals.them}`)] : null));
 }
 
@@ -852,8 +852,10 @@ function timelineItem(event, game, manUpGoals, out) {
   const isGoal = event.type === 'goal' || event.type === 'oppGoal';
   const showScore = isGoal && Number.isFinite(score?.us) && Number.isFinite(score?.them);
   const lines = [
-    h('span', { class: 'tl-name', 'data-testid': 'tl-name' }, timelineName(event, game)),
-    h('span', { class: 'tl-what' },
+    // Blocks, not inline spans: with a stylesheet that lacks the row rules (a cached previous one) the name,
+    // the event and the score still read as separate lines.
+    h('div', { class: 'tl-name', 'data-testid': 'tl-name' }, timelineName(event, game)),
+    h('div', { class: 'tl-what' },
       h('span', { class: 'tl-what-text' },
         EVENT_LINES[event.type] ? t(EVENT_LINES[event.type]) : entry.sr,
         out ? [' ', h('span', { class: 'tl-out', 'data-testid': 'tl-out' }, tOr('tlOutTag', '· out'))] : null),
@@ -866,11 +868,11 @@ function timelineItem(event, game, manUpGoals, out) {
     'data-out': out ? 'true' : null,
   },
     h('span', { class: 'sr-only' }, `${periodLabel(event.period)} · `),
-    h('span', { class: 'tl-side tl-side--us' }, theirs ? null : lines),
-    h('span', { class: 'tl-mid' }, showScore
+    h('div', { class: 'tl-side tl-side--us' }, theirs ? null : lines),
+    h('div', { class: 'tl-mid' }, showScore
       ? h('span', { class: 'tl-score', 'data-testid': 'tl-score' }, `${score.us}–${score.them}`)
       : timelineIcon(event, entry.icon)),
-    h('span', { class: 'tl-side tl-side--them' }, theirs ? lines : null));
+    h('div', { class: 'tl-side tl-side--them' }, theirs ? lines : null));
 }
 
 // Home: the season in the state the plan names, one panel for each tab. Anything but home shows no season.

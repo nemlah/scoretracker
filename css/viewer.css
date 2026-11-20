@@ -414,6 +414,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
 }
+.tl-quarter-label { color: var(--v-led); }
 .tl-quarter-score { color: var(--v-board-ink); }
 .tl-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr); min-height: 48px; }
 .tl-side { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 0.3125rem 0.5rem 0.3125rem 0.75rem; align-items: flex-end; text-align: right; }

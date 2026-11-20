@@ -784,6 +784,9 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
         const pill = row.querySelector('.tl-score');
         return {
           text: name.textContent,
+          side: row.dataset.side,
+          rowHeight: rect(row).height,
+          whatHeight: rect(what).height,
           sideInner: sideBox.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
           nameWidth: rect(name).width,
           nameCut: name.scrollWidth > name.clientWidth,
@@ -812,12 +815,20 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
       if (row.tagVisible !== null) expect(row.tagVisible, `${label}: the man-up tag fits`).toBe(true);
       if (row.pillInMid !== null) expect(row.pillInMid, `${label}: the pill fits the 64 px middle`).toBe(true);
     }
-    // At 360 px the long names are cut, and still show at least 100 px of text. Landscape has room for them.
-    const long = m.rows.filter(row => /Παπαδόπουλος|Πανελλήνιος/.test(row.text));
-    expect(long.length).toBeGreaterThanOrEqual(4);
-    for (const row of long) {
-      if (viewport.width === 360) expect(row.nameCut, `${row.text}: cut`).toBe(true);
-      expect(row.nameWidth, `${row.text}: text box`).toBeGreaterThanOrEqual(100);
+    // Each side has its own long name, and is checked on its own: one side's rows can't stand in for the other's.
+    // At 360 px a long name is cut and still shows at least 100 px of text; landscape has room for it. Either
+    // way a row is one line of name over one line of event: 48 px, not taller.
+    for (const [side, pattern, count] of [['us', /Παπαδόπουλος/, 4], ['them', /Πανελλήνιος/, 11]]) {
+      const long = m.rows.filter(row => row.side === side && pattern.test(row.text));
+      expect(long.length, `${side}: rows with the long name`).toBe(count);
+      for (const row of long) {
+        const label = `${side} ${row.text}`;
+        if (viewport.width === 360) expect(row.nameCut, `${label}: cut`).toBe(true);
+        expect(row.nameWidth, `${label}: text box`).toBeGreaterThanOrEqual(100);
+        expect(row.nameLines, `${label}: name on one line`).toBe(1);
+        expect(row.whatHeight, `${label}: event on one line`).toBeLessThan(20);
+        expect(row.rowHeight, `${label}: one line each, 48 px`).toBeLessThanOrEqual(50);
+      }
     }
     expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
   });
@@ -835,6 +846,37 @@ test('with the previous release stylesheet the new scoreboard still shows both s
   await expect(page.getByTestId('score-them')).toHaveText('11');
   await expect(page.locator('.board-opp')).toBeVisible();
   await expect(page.getByTestId('timeline-item').first()).toBeVisible();
+});
+
+test.describe('the previous stylesheet beside the new timeline markup', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('a goal row and a foul row show their name, label and score as separate lines', async ({ page }) => {
+    // The previous viewer.css has none of the row rules (grid, flex, spacing): only the markup keeps them apart.
+    const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
+    await page.route('**/css/viewer.css*', route => route.fulfill({ contentType: 'text/css', body: previous }));
+    await Promise.all([
+      seed('team/main', { currentGameId: 'g1', roster }),
+      seed('games/g1', {
+        opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup,
+        events: [ev('goal', 1, 'p10'), ev('oppGoal', 1), ev('excl', 1, 'p11')],
+      }),
+    ]);
+    await open(page, '#/game/g1');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(3);
+    const lines = row => row.evaluate(el => el.innerText.split('\n').map(line => line.trim()).filter(Boolean));
+    const items = page.getByTestId('timeline-item');
+    // Newest first: the exclusion, the opponent goal, our goal.
+    const foul = await lines(items.nth(0));
+    expect(foul).toContain('#11 Παπαδόπουλος-Αθανασίου');
+    expect(foul).toContain('Exclusion');
+    const theirs = await lines(items.nth(1));
+    expect(theirs).toEqual(expect.arrayContaining(['Rivals', 'Goal', '1–1']));
+    const goal = await lines(items.nth(2));
+    expect(goal).toEqual(expect.arrayContaining(['#10 Αλεξίου', 'Goal', '1–0']));
+    // No two of them run together.
+    for (const text of [...foul, ...theirs, ...goal]) expect(text).not.toMatch(/Αλεξίου.*Goal|Goal.*\d–\d|Rivals.*Goal|Αθανασίου.*Exclusion/);
+  });
 });
 
 test('the previous viewer.js (old markup) with this release stylesheet is still a readable board', async ({ page }) => {

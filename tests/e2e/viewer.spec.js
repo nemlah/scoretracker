@@ -111,8 +111,13 @@ test('live game', async ({ page }) => {
   await expect(marker).toHaveText('Q2 1–1');
   expect(await marker.locator('h3').evaluate(el => {
     const style = getComputedStyle(el);
-    return [style.fontSize, style.position, style.backgroundColor, style.color];
-  })).toEqual(['17px', 'static', 'rgb(11, 19, 32)', 'rgb(255, 194, 61)']);
+    return [style.fontSize, style.position, style.backgroundColor];
+  })).toEqual(['17px', 'static', 'rgb(11, 19, 32)']);
+  // As the VGame board draws it: the quarter in amber, the digits white. Each span is sampled itself.
+  await expect(marker.locator('.tl-quarter-label')).toHaveText('Q2');
+  await expect(marker.locator('.tl-quarter-label')).toHaveCSS('color', 'rgb(255, 194, 61)');
+  await expect(marker.locator('.tl-quarter-score')).toHaveText('1–1');
+  await expect(marker.locator('.tl-quarter-score')).toHaveCSS('color', 'rgb(255, 255, 255)');
 
   // The players are under their own tab.
   await page.getByTestId('tab-players').click();
