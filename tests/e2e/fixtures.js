@@ -7,6 +7,8 @@ const firebaseDir = new URL('../../node_modules/firebase/', import.meta.url);
 const fontsDir = new URL('../fixtures/fonts/', import.meta.url);
 const clearDot = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
 const preparedContexts = new WeakSet();
+const gapiCallbackErrorPrefix = 'E2E gapi stub: missing or non-function onload callback ';
+const contextCloseTimeoutMs = 5_000;
 
 // Playwright runs one test at a time in each worker process.
 let activeNetworkTest;
@@ -14,6 +16,11 @@ let activeNetworkTest;
 export async function prepareContext(context, owner, offline = false) {
   if (preparedContexts.has(context)) return;
   preparedContexts.add(context);
+
+  context.on('console', message => {
+    const text = message.text();
+    if (message.type() === 'error' && text.startsWith(gapiCallbackErrorPrefix)) owner.problems.push(text);
+  });
 
   // Offline emulation leaves request-stage interception active in Playwright 1.64.1.
   // node_modules/playwright-core/lib/coreBundle.js:37432–37474 (Chromium), :48802–48812 (WebKit).
@@ -88,7 +95,8 @@ async function handleRoute(route, problems, offline) {
 
   if (url.origin === 'https://apis.google.com' && url.pathname === '/js/api.js') {
     const callbacks = url.searchParams.getAll('onload');
-    if (callbacks.length !== 1 || !/^__iframefcb\d{1,6}$/.test(callbacks[0])) {
+    const [callbackName] = callbacks;
+    if (callbacks.length !== 1 || !/^__iframefcb\d{1,6}$/.test(callbackName)) {
       return reject(`Invalid gapi onload callback: ${url.href}`);
     }
     // On mobile, Safari and iOS, getAuth() eagerly initializes the popup resolver.
@@ -98,8 +106,9 @@ async function handleRoute(route, problems, offline) {
       status: 200,
       contentType: 'text/javascript',
       body: `globalThis.gapi = {}; {
-        const callback = globalThis[${JSON.stringify(callbacks[0])}];
+        const callback = globalThis[${JSON.stringify(callbackName)}];
         if (typeof callback === 'function') callback();
+        else console.error(${JSON.stringify(gapiCallbackErrorPrefix + callbackName)});
       }`,
     });
   }
@@ -114,10 +123,13 @@ export const test = base.extend({
     browser.newContext = async function (...args) {
       const owner = activeNetworkTest;
       if (!owner) throw new Error('browser.newContext() requires an active e2e test to own its network diagnostics');
+      const [options] = args;
+      // Playwright applies the test's offline option when the caller omits it.
+      const offline = Object.hasOwn(options ?? {}, 'offline') ? options.offline : owner.defaultOffline;
       const creating = newContext.apply(this, args).then(async context => {
         const closed = new Promise(resolve => context.once('close', resolve));
         owner.contexts.push({ context, closed });
-        await prepareContext(context, owner, args[0]?.offline);
+        await prepareContext(context, owner, offline);
         return context;
       });
       owner.contextCreations.push(creating);
@@ -130,19 +142,26 @@ export const test = base.extend({
     }
   }, { scope: 'worker', auto: true }],
 
-  networkProblems: [async ({}, use) => {
-    const owner = { problems: [], contextCreations: [], contexts: [], routeHandlers: new Set() };
+  networkProblems: [async ({ offline }, use) => {
+    const owner = { problems: [], contextCreations: [], contexts: [], routeHandlers: new Set(), defaultOffline: offline };
     activeNetworkTest = owner;
     try {
       await use();
     } finally {
       activeNetworkTest = undefined;
       await Promise.allSettled(owner.contextCreations);
-      // Playwright closes the default context first. Close any remaining manual contexts
-      // and wait for the close event even if a close call is already in progress.
+      // Playwright closes the default context first. A prior failed close can leave
+      // close() returning immediately without a close event, so bound the wait.
       const closed = await Promise.allSettled(owner.contexts.map(async ({ context, closed }) => {
-        await context.close();
-        await closed;
+        let timer;
+        const deadline = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Browser context did not close within ${contextCloseTimeoutMs} ms`)), contextCloseTimeoutMs);
+        });
+        try {
+          await Promise.race([Promise.all([context.close(), closed]), deadline]);
+        } finally {
+          clearTimeout(timer);
+        }
       }));
       // No new context routes start after close. In-flight asset reads can still report problems.
       await Promise.allSettled(owner.routeHandlers);
