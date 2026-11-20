@@ -12,6 +12,7 @@ export function mount(root, ctx) {
   // The selection when a cap field got focus. Typing "12" passes through "1"; every keystroke
   // is applied to this base, so the stray "1" never leaves a swap behind.
   let base = null;
+  let choosingLineup = false;
   let starting = false;
   let startedId = null;
   let unmounted = false;
@@ -42,20 +43,50 @@ export function mount(root, ctx) {
   const empty = h('div', { class: 'stack', hidden: true },
     h('p', {}, t('newNoRoster')),
     h('button', { type: 'button', class: 'btn btn--wide', onclick: () => ctx.navigate('/roster') }, t('newGoRoster')));
+  const next = h('button', {
+    type: 'submit', class: 'btn btn--primary btn--wide btn--center newgame-next', 'data-testid': 'newgame-next',
+  }, t('newGameNext'));
+  const back = h('button', {
+    type: 'button', class: 'btn btn--ghost btn--fit', 'data-testid': 'newgame-back', onclick: showDetails,
+  }, t('newGameBack'));
   const start = h('button', {
     type: 'button', class: 'btn btn--primary btn--wide btn--center', 'data-testid': 'start-game', onclick: startGame,
   }, t('startGame'));
-  const form = h('form', { class: 'new-form', novalidate: true, onsubmit: event => { event.preventDefault(); startGame(); } },
-    h('div', { class: 'field' }, h('label', { for: 'opponent' }, t('opponentLabel')), opponent),
-    h('div', { class: 'field' }, h('label', { for: 'game-date' }, t('dateLabel')), date),
-    h('div', { class: 'field' }, h('label', { for: 'game-season' }, t('seasonLabel')), season, seasonError),
-    h('h3', { class: 'sel-heading' }, t('lineupHeading')),
-    empty, list, lineupError, start);
+  const detailsHeading = h('h2', {}, t('newHeading'));
+  const lineupHeading = h('h2', { class: 'sel-heading', tabindex: '-1' }, t('newGameWhoHeading'));
+  const detailsStep = h('section', { hidden: true },
+    h('form', { class: 'new-form new-form--details', novalidate: true, onsubmit: showLineup },
+      h('div', { class: 'field' }, h('label', { for: 'opponent' }, t('opponentLabel')), opponent),
+      h('div', { class: 'field' }, h('label', { for: 'game-date' }, t('dateLabel')), date),
+      h('div', { class: 'field' }, h('label', { for: 'game-season' }, t('seasonLabel')), season, seasonError),
+      next));
+  const lineupStep = h('section', { class: 'new-form', hidden: true },
+    lineupHeading, back, empty, list, lineupError, start);
   const blocked = h('div', { class: 'stack', hidden: true },
     h('a', { class: 'btn btn--primary btn--wide', href: '#/live', 'data-testid': 'resume-live' }, t('endLiveGameFirst')));
   const loading = h('p', { class: 'status-line' }, t('trackerLoading'));
-  root.append(h('section', { class: 'new-game' }, h('h2', {}, t('newHeading')), loading, blocked, form));
-  form.hidden = true;
+  root.append(h('section', { class: 'new-game' }, detailsHeading, loading, blocked, detailsStep, lineupStep));
+
+  function renderStep(state) {
+    const formAvailable = state.gameLoaded && state.game?.status !== 'live';
+    detailsStep.hidden = !formAvailable || choosingLineup;
+    lineupStep.hidden = !formAvailable || !choosingLineup;
+    detailsHeading.hidden = !lineupStep.hidden;
+  }
+
+  function showLineup(event) {
+    event.preventDefault();
+    if (detailsStep.hidden || !isValidSeason(season.value.trim())) return;
+    choosingLineup = true;
+    renderStep(ctx.getState());
+    lineupHeading.focus();
+  }
+
+  function showDetails() {
+    choosingLineup = false;
+    renderStep(ctx.getState());
+    next.focus();
+  }
 
   function capValue(text) {
     return text === '' ? null : Number(text);
@@ -116,6 +147,7 @@ export function mount(root, ctx) {
     lineupError.textContent = noPlayers ? t('selNoPlayers') : '';
     const seasonOk = isValidSeason(season.value.trim());
     seasonError.hidden = seasonOk;
+    next.disabled = !seasonOk;
     start.disabled = starting || errors.length > 0 || !seasonOk || !writable;
   }
 
@@ -134,7 +166,7 @@ export function mount(root, ctx) {
 
   function startGame() {
     const state = ctx.getState();
-    if (starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim())) return;
+    if (lineupStep.hidden || starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim())) return;
     starting = true;
     renderRows();
     try {
@@ -163,7 +195,7 @@ export function mount(root, ctx) {
     const isLive = state.game?.status === 'live';
     loading.hidden = ready;
     blocked.hidden = !(ready && isLive);
-    form.hidden = !(ready && !isLive);
+    renderStep(state);
     if (ready && !isLive && selection === null) init(state);
     if (selection !== null) renderRows();
     // Go to the live screen once the new game is the team's current game.

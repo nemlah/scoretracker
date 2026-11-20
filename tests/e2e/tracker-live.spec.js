@@ -38,12 +38,13 @@ async function openNewGame(page) {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
-  await expect(page.getByTestId('start-game')).toBeVisible();
+  await expect(page.getByTestId('newgame-next')).toBeVisible();
 }
 
 async function startGame(page, opponent = 'Opponent FC') {
   await openNewGame(page);
   await page.getByTestId('opponent-input').fill(opponent);
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
 }
@@ -51,6 +52,8 @@ async function startGame(page, opponent = 'Opponent FC') {
 test('new game: all ticked, cap swap, duplicate blocked, start', async ({ page }) => {
   await openNewGame(page);
   await expect(page.getByTestId('date-input')).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+  await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('newgame-next').click();
   await expect(page.getByTestId('sel-row')).toHaveCount(3);
   await expect(page.getByTestId('sel-check')).toHaveCount(3);
   for (const check of await page.getByTestId('sel-check').all()) await expect(check).toBeChecked();
@@ -72,7 +75,6 @@ test('new game: all ticked, cap swap, duplicate blocked, start', async ({ page }
   await row(page, 'p7').getByTestId('sel-cap').fill('5');
   await expect(row(page, 'p7').getByTestId('sel-error')).toBeHidden();
   await expect(page.getByTestId('start-game')).toBeEnabled();
-  await page.getByTestId('opponent-input').fill('Opponent FC');
   await page.getByTestId('start-game').click();
 
   await expect(page.getByTestId('score-us')).toHaveText('0');
@@ -85,6 +87,7 @@ test('new game: all ticked, cap swap, duplicate blocked, start', async ({ page }
 
 test('typing a two digit cap does not scramble other players', async ({ page }) => {
   await openNewGame(page);
+  await page.getByTestId('newgame-next').click();
   await row(page, 'p5').getByTestId('sel-cap').fill('');
   await row(page, 'p5').getByTestId('sel-cap').pressSequentially('12');
   await expect(row(page, 'p5').getByTestId('sel-cap')).toHaveValue('12');
@@ -95,6 +98,8 @@ test('typing a two digit cap does not scramble other players', async ({ page }) 
 
 test('start works with a blank opponent and no players ticked is refused', async ({ page }) => {
   await openNewGame(page);
+  await expect(page.getByTestId('opponent-input')).toHaveValue('');
+  await page.getByTestId('newgame-next').click();
   for (const check of await page.getByTestId('sel-check').all()) await check.uncheck();
   await expect(page.getByTestId('start-game')).toBeDisabled();
   await expect(page.getByTestId('lineup-error')).toBeVisible();
@@ -102,6 +107,8 @@ test('start works with a blank opponent and no players ticked is refused', async
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect(page.getByTestId('tile')).toHaveCount(1);
+  const game = await get(`games/${await currentGameId()}`);
+  expect(game.opponent).toBe('Opponent');
 });
 
 test('goal, exclusion, opponent goal, undo label', async ({ page }) => {
@@ -354,6 +361,7 @@ test('viewer updates live from tracker taps', async ({ page, browser }) => {
 
 test('next new game defaults to previous lineup and last caps', async ({ page }) => {
   await openNewGame(page);
+  await page.getByTestId('newgame-next').click();
   await row(page, 'p5').getByTestId('sel-cap').fill('2');
   await row(page, 'p7').getByTestId('sel-check').uncheck();
   await page.getByTestId('start-game').click();
@@ -363,6 +371,7 @@ test('next new game defaults to previous lineup and last caps', async ({ page })
   await page.getByTestId('nav-home').click();
   await expect(page.getByTestId('home-resume')).toBeHidden();
   await page.getByTestId('home-new').click();
+  await page.getByTestId('newgame-next').click();
 
   await expect(page.getByTestId('sel-row')).toHaveCount(3);
   await expect(row(page, 'p2').getByTestId('sel-check')).toBeChecked();
@@ -452,6 +461,7 @@ test('a live game blocks the new game form and shows Resume on home', async ({ p
   await page.getByTestId('home-new').click();
   await expect(page.getByTestId('resume-live')).toBeVisible();
   await expect(page.getByTestId('opponent-input')).toBeHidden();
+  await expect(page.getByTestId('newgame-next')).toBeHidden();
   await expect(page.getByTestId('start-game')).toBeHidden();
   await page.getByTestId('resume-live').click();
   await expect(page.getByTestId('score-us')).toHaveText('1');
@@ -617,26 +627,71 @@ test('the screen is kept awake while tracking and released when leaving', async 
   await expect.poll(() => page.evaluate(() => window.__wake)).toContain('release');
 });
 
-test('new game: the season follows the date until edited, must be YYYY-YY, and is saved with the game', async ({ page }) => {
+test('new game: details validate, survive Back, and are saved with the lineup', async ({ page }) => {
   await openNewGame(page);
+  const opponent = page.getByTestId('opponent-input');
+  const date = page.getByTestId('date-input');
   const season = page.getByTestId('season-input');
+  const next = page.getByTestId('newgame-next');
+  const back = page.getByTestId('newgame-back');
+  const list = page.getByTestId('sel-list');
+  const start = page.getByTestId('start-game');
+  await expect(page.getByRole('heading', { name: 'New game' })).toBeVisible();
+  await expect(opponent).toBeVisible();
+  await expect(date).toBeVisible();
+  await expect(date).toHaveAttribute('type', 'date');
+  await expect(season).toBeVisible();
+  await expect(next).toHaveText('Next: who is playing');
+  await expect(next).not.toHaveAttribute('data-write', /.*/);
+  await expect(list).toBeHidden();
+  await expect(start).toBeHidden();
+
   await expect(season).toHaveValue(seasonFor(todayIso()));
-  await page.getByTestId('date-input').fill('2027-01-10');
+  await date.fill('2027-01-10');
   await expect(season).toHaveValue('2026-27');
-  await page.getByTestId('date-input').fill('2027-09-01');
+  await date.fill('2027-09-01');
   await expect(season).toHaveValue('2027-28');
 
   await season.fill('27-28');
   await expect(page.getByTestId('season-error')).toBeVisible();
-  await expect(page.getByTestId('start-game')).toBeDisabled();
+  await expect(next).toBeDisabled();
+  await opponent.press('Enter');
+  await expect(list).toBeHidden();
   await season.fill('2025-26');
   await expect(page.getByTestId('season-error')).toBeHidden();
+  await expect(next).toBeEnabled();
   // Once edited by hand it no longer follows the date.
-  await page.getByTestId('date-input').fill('2027-10-01');
+  await date.fill('2027-10-01');
   await expect(season).toHaveValue('2025-26');
-  await page.getByTestId('opponent-input').fill('Season FC');
-  await page.getByTestId('start-game').click();
+  await opponent.fill('Season FC');
+  await opponent.press('Enter');
+  const whoHeading = page.getByRole('heading', { name: 'Who is playing' });
+  await expect(whoHeading).toBeFocused();
+  await expect(whoHeading).toHaveAttribute('tabindex', '-1');
+  await expect(list).toBeVisible();
+  await expect(start).toBeVisible();
+  await expect(opponent).toBeHidden();
+  await expect(back).toHaveText('‹ Game details');
+  await expect(back).not.toHaveAttribute('data-write', /.*/);
+  await row(page, 'p7').getByTestId('sel-check').uncheck();
+
+  await back.click();
+  await expect(opponent).toBeVisible();
+  await expect(opponent).toHaveValue('Season FC');
+  await expect(date).toHaveValue('2027-10-01');
+  await expect(season).toHaveValue('2025-26');
+  await expect(list).toBeHidden();
+  await next.click();
+  await expect(whoHeading).toBeFocused();
+  await expect(row(page, 'p7').getByTestId('sel-check')).not.toBeChecked();
+  await start.click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   const game = await get(`games/${await currentGameId()}`);
-  expect(game).toMatchObject({ season: '2025-26', date: '2027-10-01', opponent: 'Season FC' });
+  expect(game).toMatchObject({
+    season: '2025-26', date: '2027-10-01', opponent: 'Season FC',
+    lineup: [
+      { playerId: 'p2', name: 'Papadakis', cap: 2 },
+      { playerId: 'p5', name: 'Alexiou', cap: 5 },
+    ],
+  });
 });

@@ -36,6 +36,7 @@ async function startGame(page) {
   await waitForTrackerControl();
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   // The game and team pointer commit together, behind any control claim made en route.

@@ -125,6 +125,7 @@ async function startGame(page) {
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect(page.getByTestId('live-situations')).toHaveText('MU 0/0 · MD 0/0');

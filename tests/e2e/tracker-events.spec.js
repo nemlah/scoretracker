@@ -39,8 +39,8 @@ async function startGame(page, { skip = [] } = {}) {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
-  await expect(page.getByTestId('start-game')).toBeVisible();
   await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('newgame-next').click();
   for (const id of skip) await page.locator(`[data-testid="sel-row"][data-player-id="${id}"]`).getByTestId('sel-check').uncheck();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');

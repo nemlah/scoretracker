@@ -198,6 +198,9 @@ const STRINGS = {
 
   // New game
   newHeading: 'New game',
+  newGameNext: 'Next: who is playing',
+  newGameBack: '‹ Game details',
+  newGameWhoHeading: 'Who is playing',
   opponentLabel: 'Opponent',
   opponentDefault: 'Opponent',
   dateLabel: 'Date',

@@ -71,6 +71,7 @@ async function startGame(page) {
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
 }
@@ -208,7 +209,7 @@ test('the first touch on a roster row button is not lost to the render it causes
   });
 });
 
-test('the new game screen of a device not in control keeps Start enabled; the first touch starts the game', async ({ page, context, browser }) => {
+test('a device not in control can advance and start a new game', async ({ page, context, browser }) => {
   await seed('team/main', { roster });
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
@@ -218,6 +219,7 @@ test('the new game screen of a device not in control keeps Start enabled; the fi
     await page.evaluate(() => { location.hash = '#/new'; });
     await page.getByTestId('opponent-input').fill('Opponent FC');
     await expect(page.getByTestId('takeover-banner')).toBeHidden();
+    await page.getByTestId('newgame-next').click();
     await expect(page.getByTestId('start-game')).toBeEnabled();
     await page.getByTestId('start-game').click();
     await expect(page.getByTestId('score-us')).toHaveText('0');

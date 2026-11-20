@@ -57,7 +57,7 @@ test('a new game copies goalies into the lineup', async ({ page }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
-  await expect(page.getByTestId('start-game')).toBeVisible();
+  await page.getByTestId('newgame-next').click();
   await expect(selRow(page, 'g1')).toContainText('GK');
   await expect(selRow(page, 'p5')).not.toContainText('GK');
   await page.getByTestId('start-game').click();
@@ -81,6 +81,7 @@ test('the lineup sheet can mark a goalie and writes it back to the roster', asyn
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
+  await page.getByTestId('newgame-next').click();
   await selRow(page, 'p7').getByTestId('sel-check').uncheck();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
@@ -145,6 +146,7 @@ async function startGoalieGame(page, roster = goalieRoster) {
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await waitForCreatedGame(roster);
   await expect(page.getByTestId('score-us')).toHaveText('0');
@@ -620,6 +622,7 @@ test('a game without goalies looks as before', async ({ page }) => {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await waitForCreatedGame(roster);
   await expect(page.getByTestId('score-us')).toHaveText('0');

@@ -91,6 +91,7 @@ async function startGame(page, date) {
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
   if (date) await page.getByTestId('date-input').fill(date);
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect.poll(async () => (await get('team/main'))?.currentGameId).toBeTruthy();
@@ -511,6 +512,7 @@ test('taps on a game whose offline creation was refused can only be discarded', 
   await context.setOffline(true);
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Ghost FC');
+  await page.getByTestId('newgame-next').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await goal(page).click();
