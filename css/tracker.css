@@ -688,6 +688,11 @@ body.sheet-open { overflow: hidden; }
   font-weight: 600;
 }
 
+/* WebKit's scroll anchoring adjusts the scroll offset when the tiles reorder or their text is
+   rewritten by a snapshot, and that cancels the smooth scroll back to the goalie. The live screen
+   repositions its own content, so it opts out. */
+body.live-r3 { overflow-anchor: none; }
+
 /* Order the board and banners visually within the app. The short landscape layout is separate. */
 @media (orientation: portrait), (min-height: 501px) {
   body.live-r3 #app { display: flex; flex-direction: column; }

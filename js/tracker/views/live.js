@@ -226,7 +226,7 @@ export function mount(root, ctx) {
   let situationTimer = null;
   let situationTick = null;
   let openSituation = null;
-  let pendingGoalieChange = null;
+  let goalieLocked = false;
   let goalieTimer = null;
   let scrollFrame = null;
   let inGoalId = null;
@@ -302,22 +302,18 @@ export function mount(root, ctx) {
   // goal) moves the goalie tiles. The goalie buttons are then refused for a second and the screen
   // scrolls to the top, where the goalie in goal now is. Undo reorders too, but never pauses or scrolls.
   function goalieTap(type, playerId) {
-    if (goalieTimer !== null) return;
+    if (goalieLocked) return;
     const changes = inGoalId !== null && playerId !== inGoalId;
-    const event = ctx.tapper.tap(type, playerId);
-    if (!event || !changes) return;
-    // Refuse another tap immediately. Show the disabled buttons with the snapshot that swaps tiles.
-    pendingGoalieChange = event;
+    if (!ctx.tapper.tap(type, playerId) || !changes) return;
+    goalieLocked = true;
+    update(ctx.getState());
     goalieTimer = setTimeout(() => {
-      pendingGoalieChange = null;
+      goalieLocked = false;
       goalieTimer = null;
       update(ctx.getState());
     }, GOALIE_LOCK_MS);
-  }
-
-  function scrollToGoalie() {
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
-    // Wait for a frame after the tile swap so the reorder cannot interrupt the scroll.
+    // One frame later: WebKit drops a smooth scroll started in the same task as the re-render.
     // Cancelled on unmount, so it can never scroll the view navigated to.
     cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
@@ -434,13 +430,7 @@ export function mount(root, ctx) {
       foulsByPlayer.get(playerId).push(type);
     }
     const stats = goalieStats({ ...current, lineup: current.lineup ?? [], events });
-    const nextInGoalId = stats?.inGoal ?? null;
-    const goalieChanged = nextInGoalId !== inGoalId && pendingGoalieChange !== null
-      && nextInGoalId === pendingGoalieChange.playerId
-      && events.some(event => event.id === pendingGoalieChange.id);
-    inGoalId = nextInGoalId;
-    if (goalieChanged) pendingGoalieChange = null;
-    const goalieLocked = goalieTimer !== null && pendingGoalieChange === null;
+    inGoalId = stats?.inGoal ?? null;
     const lines = [
       ...all.filter(line => line.goalie === true && line.playerId === inGoalId),
       ...all.filter(line => line.goalie !== true),
@@ -463,7 +453,6 @@ export function mount(root, ctx) {
       // Only move a tile that is out of place, so unchanged tiles keep their DOM identity.
       if (tileList.children[index] !== tile.el) tileList.insertBefore(tile.el, tileList.children[index] ?? null);
     });
-    if (goalieChanged) scrollToGoalie();
 
     const last = lastEvent(events);
     undo.textContent = last === null ? t('undoNothing') : t('undo', {
