@@ -165,6 +165,16 @@ test('a goal in period 5 hides the grid, live or final', async ({ page }) => {
   await expect(grid(page)).toBeHidden();
 });
 
+test('a goal whose period is the text "2" is no quarter goal: the grid hides, as for period 5', async ({ page }) => {
+  // The model and the Team figures take only a number from 1 to 4; the grid must not read "2" - 1 as Q2.
+  await seedGame([...quarter(1, 1, 1), { ...ev('goal', 2), period: '2' }]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('final-badge')).toBeVisible();
+  await expect(page.getByTestId('score-us')).toHaveText('2');
+  await expect(page.getByTestId('score-them')).toHaveText('1');
+  await expect(grid(page)).toBeHidden();
+});
+
 for (const scheme of ['light', 'dark']) {
   test.describe(`360 px, ${scheme}`, () => {
     test.use({ colorScheme: scheme });

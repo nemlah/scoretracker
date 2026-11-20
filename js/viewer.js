@@ -610,8 +610,9 @@ function celebrateGoal(goal) {
 function quarterGoals(events) {
   const quarters = [1, 2, 3, 4].map(() => [0, 0]);
   for (const event of events) {
+    // A number from 1 to 4, as in model.js: a stored "2" is no quarter here either.
+    if (!Number.isInteger(event.period) || event.period < 1 || event.period > quarters.length) continue;
     const slot = quarters[event.period - 1];
-    if (!slot) continue;
     if (event.type === 'goal') slot[0] += 1;
     else if (event.type === 'oppGoal') slot[1] += 1;
   }
