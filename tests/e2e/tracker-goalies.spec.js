@@ -267,6 +267,20 @@ test('a goalie change scrolls back to the top', async ({ page }) => {
   expect(scrolledY).toBeGreaterThan(0);
   await tile(page, 13).getByTestId('tile-in-goal').click();
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+  // The scroll-anchoring opt-out lasts only as long as the scroll.
+  await expect.poll(() => page.evaluate(() => document.body.classList.contains('goalie-scrolling'))).toBe(false);
+});
+
+test('scroll anchoring stays on while no goalie scroll is running', async ({ page }) => {
+  await startGoalieGame(page);
+  await page.setViewportSize({ width: 360, height: 480 });
+  await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }));
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => getComputedStyle(document.body).overflowAnchor)).toBe('auto');
+  // And it is back to auto once a goalie scroll has finished.
+  await tile(page, 13).getByTestId('tile-in-goal').click();
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).overflowAnchor)).toBe('auto');
 });
 
 test('a goalie change from Undo reorders without the pause or a scroll', async ({ page }) => {

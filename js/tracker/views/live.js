@@ -15,6 +15,7 @@ const UNDO_LOCK_MS = 1000;
 const PERIOD_LOCK_MS = 1000;
 const SITUATION_LOCK_MS = 1000;
 const GOALIE_LOCK_MS = 1000;
+const GOALIE_SCROLL_MAX_MS = 1000;
 const SITUATION_TICK_MS = 1000;
 const SITUATION_BUTTON = { none: 'manUpButton', manUp: 'manUpEndButton', manDown: 'manDownEndButton' };
 const SITUATION_TAP = { none: 'manUp', manUp: 'manUpEnd', manDown: 'manDownEnd' };
@@ -229,6 +230,7 @@ export function mount(root, ctx) {
   let goalieLocked = false;
   let goalieTimer = null;
   let scrollFrame = null;
+  let scrollTimer = null;
   let inGoalId = null;
 
   const scoreUs = h('span', { class: 'score-us', 'data-testid': 'score-us' }, '0');
@@ -318,8 +320,25 @@ export function mount(root, ctx) {
     cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = null;
-      if (!unmounted) window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+      if (unmounted) return;
+      // Scroll anchoring would cancel the smooth scroll when the snapshot rewrites the tiles, so it
+      // is off only while this scroll runs. Anywhere else a banner appearing above the viewport must
+      // not shift the tiles under a finger.
+      stopGoalieScroll();
+      if (reduce || window.scrollY === 0) { window.scrollTo({ top: 0, behavior: 'auto' }); return; }
+      document.body.classList.add('goalie-scrolling');
+      window.addEventListener('scrollend', stopGoalieScroll);
+      // scrollend is missing in older WebKit: never leave the opt-out on.
+      scrollTimer = setTimeout(stopGoalieScroll, GOALIE_SCROLL_MAX_MS);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
+  }
+
+  function stopGoalieScroll() {
+    window.removeEventListener('scrollend', stopGoalieScroll);
+    clearTimeout(scrollTimer);
+    scrollTimer = null;
+    document.body.classList.remove('goalie-scrolling');
   }
 
   // Same guard as Undo: a double tap would skip a quarter, so after a change the button is
@@ -524,6 +543,7 @@ export function mount(root, ctx) {
       clearTimeout(situationTimer);
       clearTimeout(goalieTimer);
       cancelAnimationFrame(scrollFrame);
+      stopGoalieScroll();
       clearSituation();
       sheet.destroy();
       for (const tile of tiles.values()) tile.destroy();
