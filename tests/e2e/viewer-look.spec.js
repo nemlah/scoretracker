@@ -851,7 +851,7 @@ test('with the previous release stylesheet the new scoreboard still shows both s
 test.describe('the previous stylesheet beside the new timeline markup', () => {
   test.use({ serviceWorkers: 'block' });
 
-  test('a goal row and a foul row show their name, label and score as separate lines', async ({ page }) => {
+  test('a goal row and a foul row show their name, label and score as separate lines, and a tag has a separator', async ({ page }) => {
     // The previous viewer.css has none of the row rules (grid, flex, spacing): only the markup keeps them apart.
     const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
     await page.route('**/css/viewer.css*', route => route.fulfill({ contentType: 'text/css', body: previous }));
@@ -859,23 +859,29 @@ test.describe('the previous stylesheet beside the new timeline markup', () => {
       seed('team/main', { currentGameId: 'g1', roster }),
       seed('games/g1', {
         opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup,
-        events: [ev('goal', 1, 'p10'), ev('oppGoal', 1), ev('excl', 1, 'p11')],
+        situations: true,
+        events: [ev('manUp', 1), ev('goal', 1, 'p10'), ev('oppGoal', 1), ev('excl', 1, 'p11'), ev('excl', 1, 'p11'), ev('excl', 1, 'p11')],
       }),
     ]);
     await open(page, '#/game/g1');
-    await expect(page.getByTestId('timeline-item')).toHaveCount(3);
+    await expect(page.getByTestId('timeline-item')).toHaveCount(5);
+    await expect(page.getByTestId('tl-manup')).toHaveCount(1);
     const lines = row => row.evaluate(el => el.innerText.split('\n').map(line => line.trim()).filter(Boolean));
     const items = page.getByTestId('timeline-item');
-    // Newest first: the exclusion, the opponent goal, our goal.
-    const foul = await lines(items.nth(0));
+    // Newest first: the third exclusion (out), two more, the opponent goal, our man-up goal.
+    const foul = await lines(items.nth(1));
     expect(foul).toContain('#11 Παπαδόπουλος-Αθανασίου');
     expect(foul).toContain('Exclusion');
-    const theirs = await lines(items.nth(1));
+    // The event line and its tags: a separator between the label and each tag, not "Goalman-up" or "Exclusion· out".
+    const eventLine = row => row.locator('.tl-what').evaluate(el => el.innerText);
+    expect(await eventLine(items.nth(0))).toMatch(/^Exclusion\s+· out$/);
+    expect(await eventLine(items.nth(4))).toMatch(/^Goal\s+man-up$/);
+    const theirs = await lines(items.nth(3));
     expect(theirs).toEqual(expect.arrayContaining(['Rivals', 'Goal', '1–1']));
-    const goal = await lines(items.nth(2));
-    expect(goal).toEqual(expect.arrayContaining(['#10 Αλεξίου', 'Goal', '1–0']));
+    const goal = await lines(items.nth(4));
+    expect(goal).toEqual(expect.arrayContaining(['#10 Αλεξίου', 'Goal man-up', '1–0']));
     // No two of them run together.
-    for (const text of [...foul, ...theirs, ...goal]) expect(text).not.toMatch(/Αλεξίου.*Goal|Goal.*\d–\d|Rivals.*Goal|Αθανασίου.*Exclusion/);
+    for (const text of [...foul, ...theirs, ...goal]) expect(text).not.toMatch(/Αλεξίου.*Goal|Goal.*\d–\d|Rivals.*Goal|Αθανασίου.*Exclusion|Goalman|Exclusion·/);
   });
 });
 

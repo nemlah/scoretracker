@@ -859,7 +859,8 @@ function timelineItem(event, game, manUpGoals, out) {
       h('span', { class: 'tl-what-text' },
         EVENT_LINES[event.type] ? t(EVENT_LINES[event.type]) : entry.sr,
         out ? [' ', h('span', { class: 'tl-out', 'data-testid': 'tl-out' }, tOr('tlOutTag', '· out'))] : null),
-      tagged ? h('span', { class: 'tl-manup', 'data-testid': 'tl-manup' }, t('tlManUpTag')) : null),
+      // The space is a text node: between flex items it takes no room, without the row rules it separates the tag.
+      tagged ? [' ', h('span', { class: 'tl-manup', 'data-testid': 'tl-manup' }, t('tlManUpTag'))] : null),
   ];
   return h('li', {
     'data-testid': 'timeline-item',
