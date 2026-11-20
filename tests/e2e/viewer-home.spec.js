@@ -683,6 +683,40 @@ test('a level final decided on a shootout shows the shootout and the chip it dec
   await expect(page.getByTestId('season-record')).toHaveText('1 W · 1 L · 1 D');
 });
 
+test('each result link is named by its outcome, score, shootout, opponent and date', async ({ page }) => {
+  await seedResults([
+    ['Won on pens', 10, 10, { soUs: 4, soThem: 3 }],
+    ['Lost', 5, 8],
+    ['Level', 7, 7],
+    ['Broken', null, 4],
+  ]);
+  await open(page);
+  await expect(rows(page)).toHaveCount(4);
+  const link = i => rows(page).nth(i).getByTestId('result-link');
+  await expect(link(0)).toHaveAccessibleName('Win 10 – 10 (pen. 4–3) against Won on pens, 20/11/2026');
+  await expect(link(1)).toHaveAccessibleName('Loss 5 – 8 against Lost, 19/11/2026');
+  await expect(link(2)).toHaveAccessibleName('Draw 7 – 7 against Level, 18/11/2026');
+  // No score, no outcome to name: the link still says which game it opens.
+  await expect(link(3)).toHaveAccessibleName('Open the game against Broken on 17/11/2026');
+});
+
+test('a result with no game id is a row without a link or a chevron; the others keep both', async ({ page }) => {
+  await seed(`stats/${CALENDAR}`, {
+    players: { p5: { name: 'Alexiou', games: 2, goals: 1, excl: 0 } },
+    results: [
+      { gameId: 'r0', date: '2026-11-20', opponent: 'Rivals', us: 2, them: 1 },
+      { date: '2026-11-19', opponent: 'Legacy', us: 3, them: 3 },
+    ],
+  });
+  await open(page);
+  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page).nth(0).getByTestId('result-link')).toHaveCount(1);
+  await expect(rows(page).nth(0).locator('svg')).toHaveCount(1);
+  await expect(rows(page).nth(1).locator('.result-opp')).toHaveText('Legacy');
+  await expect(rows(page).nth(1).getByTestId('result-link')).toHaveCount(0);
+  await expect(rows(page).nth(1).locator('svg')).toHaveCount(0);
+});
+
 test('a season with no results shows the empty message and no record', async ({ page }) => {
   await open(page);
   await expect(page.getByTestId('results-empty')).toBeVisible();

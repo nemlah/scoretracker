@@ -301,6 +301,11 @@ const STRINGS = {
   resultW: 'W',
   resultL: 'L',
   resultD: 'D',
+  // A result link's accessible name: the outcome in words, the score (with its shootout), the opponent.
+  resultNameW: 'Win',
+  resultNameL: 'Loss',
+  resultNameD: 'Draw',
+  resultLabel: '{outcome} {score} against {opponent}',
   resultPen: 'pen. {us}–{them}',
   resultNoScore: '–',
 };

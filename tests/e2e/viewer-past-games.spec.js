@@ -87,7 +87,8 @@ test('the whole result row is a real link with a descriptive label', async ({ pa
   await expect(link).toContainText('01/11/2026');
   await expect(link).toContainText('2 – 1');
   await expect(page.getByTestId('result-row').filter({ has: link })).toHaveCount(1);
-  await expect(link).toHaveAttribute('aria-label', 'Open the game against Rivals on 01/11/2026');
+  // What a screen reader hears is the outcome, the score, the opponent and the date: not only "Open the game".
+  await expect(link).toHaveAccessibleName('Win 2 – 1 against Rivals, 01/11/2026');
   expect(await link.evaluate(el => el.tagName)).toBe('A');
 });
 

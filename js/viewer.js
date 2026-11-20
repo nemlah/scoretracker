@@ -968,11 +968,21 @@ function resultItem(result) {
         h('span', { class: 'result-date' }, date), pen ? [' · ', h('span', { class: 'result-pen' }, pen)] : null)),
     h('span', { class: 'result-tally' }, scored ? scoreText(result, false).main : tOr('resultNoScore', '–')),
   ];
-  const link = result.gameId == null ? h('div', { class: 'result-open' }, body, chevron()) : h('a', {
+  // The link's name has what the row shows: the outcome as a word (the chip's "W" alone is not one), the score
+  // with its shootout, the opponent and the date. Without a score there is no outcome to name.
+  const score = pen ? `${scoreText(result, false).main} (${pen})` : scoreText(result, false).main;
+  // remove in R3: the English fallbacks are for a phone holding the previous strings.js
+  const word = outcome ? tOr(`resultName${outcome}`, { W: 'Win', L: 'Loss', D: 'Draw' }[outcome]) : null;
+  const label = outcome
+    ? [tOr('resultLabel', `${word} ${score} against ${result.opponent}`, { outcome: word, score, opponent: result.opponent }), date]
+      .filter(Boolean).join(', ')
+    : t('openGameFor', { opponent: result.opponent, date });
+  // A row with no game to open (data from before results kept the id) is not a link, so it has no chevron.
+  const link = result.gameId == null ? h('div', { class: 'result-open' }, body) : h('a', {
     class: 'result-open',
     href: `#/game/${encodeURIComponent(result.gameId)}`,
     'data-testid': 'result-link',
-    'aria-label': t('openGameFor', { opponent: result.opponent, date }),
+    'aria-label': label,
   }, body, chevron());
   return h('li', { class: 'result-item', 'data-testid': 'result-row' }, link);
 }

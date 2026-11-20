@@ -191,4 +191,7 @@ test('the season header and result row strings', () => {
   assert.equal(t('seasonRecordDraws', { w: 3, l: 1, d: 2 }), '3 W · 1 L · 2 D');
   assert.equal(t('resultPen', { us: 4, them: 3 }), 'pen. 4–3');
   assert.deepEqual(['resultW', 'resultL', 'resultD'].map(key => t(key)), ['W', 'L', 'D']);
+  assert.deepEqual(['resultNameW', 'resultNameL', 'resultNameD'].map(key => t(key)), ['Win', 'Loss', 'Draw']);
+  assert.equal(t('resultLabel', { outcome: 'Win', score: '10 – 10 (pen. 4–3)', opponent: 'Rivals' }),
+    'Win 10 – 10 (pen. 4–3) against Rivals');
 });
