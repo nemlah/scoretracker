@@ -84,7 +84,7 @@ body.viewer {
   text-underline-offset: 0.2em;
 }
 /* Home: the LIVE banner. Amber with ink text, at least 56 px tall. A LIVE pill, the team, the score, the
-   opponent, Watch. The score and the quarter keep their room; only the opponent is cut, on one line. */
+   opponent, Watch. The score and the quarter keep their room; the opponent is cut first, on one line. */
 .home-live {
   display: flex;
   align-items: center;
@@ -126,12 +126,15 @@ body.viewer {
 }
 .home-live-text-slots { gap: 0; } /* the old template carries its own spaces */
 .home-live-score, .home-live-gap { flex: none; }
-/* The pill, the score and Watch never give way. The opponent is cut first (a far larger shrink weight); the team
-   name is cut only once the opponent is gone, as in the shootout on a narrow screen. */
+/* The pill, the score and Watch never give way. The opponent's basis is 0: it takes only the room left once
+   everything else has its full width (up to its own text), so while it has any room the team name keeps its
+   whole text. Only when the team, the score and the gaps overflow with the opponent at 0 (the shootout on a
+   narrow screen) is there anything to shrink, and then only the team name gives way. Shrink weights can't
+   promise this: shrink is shared by basis x factor, so the team would still lose a fraction of a pixel. */
 .home-live-team { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .home-live-gap { white-space: pre; }
 .home-live-score { font: 800 1.5rem/1 var(--font-num); }
-.home-live-opp { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.home-live-opp { flex: 1 1 0; min-width: 0; max-width: max-content; overflow: hidden; text-overflow: ellipsis; }
 .home-live-watch { flex: none; display: inline-flex; align-items: center; gap: 0.125rem; }
 
 /* Scoreboard: a dark board with amber digits. ANOG carries a bar in the club colour; the opponent is quieter. */

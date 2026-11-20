@@ -308,6 +308,23 @@ const expectWhole = async (locator, what) => {
   const { scroll, client } = await locator.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
   expect(scroll, `${what}: nothing cut`).toBeLessThanOrEqual(client + 1);
 };
+// The element shows its whole text at its natural width, with no pixel of slack: nothing overflows its box,
+// and the box is exactly as wide as the same element laid out with no flex constraint (measured in place,
+// in the same synchronous script, then put back).
+const expectNaturalWidth = async (locator, what) => {
+  const m = await locator.evaluate(el => {
+    const shown = { box: el.getBoundingClientRect().width, scroll: el.scrollWidth, client: el.clientWidth };
+    const inline = el.getAttribute('style');
+    Object.assign(el.style, { flex: 'none', width: 'max-content', maxWidth: 'none' });
+    const natural = el.getBoundingClientRect().width;
+    if (inline === null) el.removeAttribute('style');
+    else el.setAttribute('style', inline);
+    return { ...shown, natural };
+  });
+  expect(m.natural, `${what}: has text`).toBeGreaterThan(0);
+  expect(m.scroll, `${what}: scrollWidth equals clientWidth`).toBe(m.client);
+  expect(m.box, `${what}: the box is the text's natural width`).toBe(m.natural);
+};
 const expectInside = async (inner, outer, what) => {
   const [a, b] = await Promise.all([inner.boundingBox(), outer.boundingBox()]);
   expect(a, `${what}: inner is on the page`).not.toBeNull();
@@ -340,8 +357,8 @@ for (const scheme of ['light', 'dark']) {
         const text = page.getByTestId('live-banner-text');
         await expectInside(banner.locator('.home-live-team'), text, 'team in banner text');
         await expectInside(banner.locator('.home-live-score'), text, 'score in banner text');
-        // The opponent gives way first: the team name stays whole while the long opponent is cut.
-        await expectWhole(banner.locator('.home-live-team'), 'team name');
+        // Only the opponent gives way: the team name keeps its full natural width while the long opponent is cut.
+        await expectNaturalWidth(banner.locator('.home-live-team'), 'team name');
         await expectCutOnOneLine(banner.locator('.home-live-opp'), 'banner opponent', width === 360);
         await expectCutOnOneLine(page.getByTestId('result-row').first().locator('.result-opp'), 'row opponent', width === 360);
         // The shootout row: its score, date and "pen. 14–13" are whole while the opponent is cut.
@@ -497,5 +514,19 @@ test.describe('banner with the previous strings.js', () => {
     expect((await banner.boundingBox()).height).toBeGreaterThanOrEqual(56);
     const scroll = await page.evaluate(() => [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]);
     expect(scroll[0], 'scrollWidth').toBeLessThanOrEqual(scroll[1]);
+  });
+
+  // The opponent takes the room left over, but never more than its own text: a short name with room to spare
+  // keeps the score right beside it instead of pushing it to the far end.
+  test('844 px, short opponent: the opponent is as wide as its name and the score follows it', async ({ page }) => {
+    const previous = execFileSync('git', ['show', '58f859d:js/strings.js'], { encoding: 'utf8' });
+    await page.route('**/js/strings.js*', route => route.fulfill({ contentType: 'text/javascript', body: previous }));
+    await page.setViewportSize({ width: 844, height: 390 });
+    await seedHome();
+    await update('games/g1', { opponent: 'Rivals' });
+    await open(page);
+    const banner = page.getByTestId('live-banner');
+    await expect(page.getByTestId('live-banner-text')).toHaveText('Live: Rivals 12–11 · Q3');
+    await expectNaturalWidth(banner.locator('.home-live-opp'), 'opponent');
   });
 });

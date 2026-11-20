@@ -428,7 +428,7 @@ function renderPastNav(plan) {
     () => liveBannerContent({ team: teamConfig.name, opponent: live.opponent, us, them, period }));
 }
 
-// The score and the quarter keep their room; only the opponent's name is cut with an ellipsis. With this
+// The score and the quarter keep their room; the opponent's name is cut first, with an ellipsis. With this
 // release's strings the banner is a LIVE · Qn pill, the team, an emphasised score and the opponent. A
 // previous strings.js has only the old one-line template ("Live: {opponent} {us}–{them} · {period}"): it is
 // laid out slot by slot, so the same rule holds.
