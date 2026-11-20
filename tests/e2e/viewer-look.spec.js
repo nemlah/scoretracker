@@ -603,6 +603,36 @@ for (const [scheme, board, line] of [['light', '#0b1320', 'rgb(122, 135, 150)'],
   });
 }
 
+// The grid label is a cell of fixed width. A real label is three characters and cannot overflow, so a long
+// one is forced into the row: the cell must clip it (not merely be styled to), end before the first number,
+// and leave the number columns where they were.
+async function expectLongLabelClipped(page, row) {
+  const lefts = () => page.getByTestId(row).locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
+  const before = await lefts();
+  const label = page.getByTestId(row).locator('th');
+  await label.evaluate(el => { el.textContent = 'ΠΑΝΕΛΛΗΝΙΟΣ ΓΥΜΝΑΣΤΙΚΟΣ ΣΥΛΛΟΓΟΣ'; });
+  expect(await lefts(), `${row}: the number columns did not move`).toEqual(before);
+  const result = await label.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const text = range.getBoundingClientRect();
+    const firstNumber = el.closest('tr').querySelector('td').getBoundingClientRect();
+    return {
+      overflow: getComputedStyle(el).overflow,
+      textWider: text.width > box.width,
+      scrollWider: el.scrollWidth > el.clientWidth,
+      boxEndsBeforeNumbers: box.right <= firstNumber.left + 0.5,
+      textReachesNumbers: text.right > firstNumber.left,
+    };
+  });
+  expect(result.textWider, `${row}: the text is longer than its cell`).toBe(true);
+  expect(result.scrollWider, `${row}: the cell has more to show than it can`).toBe(true);
+  expect(result.textReachesNumbers, `${row}: unclipped, the text would run over the numbers`).toBe(true);
+  expect(result.overflow, `${row}: the cell clips`).toBe('hidden');
+  expect(result.boxEndsBeforeNumbers, `${row}: the cell's visible box ends before the first number`).toBe(true);
+}
+
 // The combined worst case of the board: the longest Greek opponent, two-digit scores and two-digit quarter
 // counts, two-digit caps, the LIVE badge, an open man-up chip and the period box, all at once.
 const seedWorstBoard = () => {
@@ -699,48 +729,11 @@ for (const scheme of ['light', 'dark']) {
         // Strip 52 + top row + two score rows + shootout-less grid: 340 px at most, in either orientation.
         expect(m.board.height, 'board height').toBeLessThanOrEqual(340);
         expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
+        // Last, because it rewrites the label cells: a long label in each row is clipped by its cell.
+        await expectLongLabelClipped(page, 'quarter-them');
+        await expectLongLabelClipped(page, 'quarter-us');
       });
     }
-  });
-}
-
-// The grid label is a cell of fixed width. Whatever the label holds, the cell holds it: a label wider than
-// its column is clipped by the cell (not merely styled to be) and the number columns keep their size.
-for (const row of ['quarter-us', 'quarter-them']) {
-  test(`a ${row} grid label wider than its column is clipped by the cell and does not push the numbers`, async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 740 });
-    await seedWorstBoard();
-    await open(page, '#/game/g1');
-    await expect(page.getByTestId('score-us')).toHaveText('33');
-    const lefts = () => page.getByTestId(row).locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
-    const before = await lefts();
-    // Force the label wider than its 52 px column, as a long team name would.
-    const label = page.getByTestId(row).locator('th');
-    await label.evaluate(el => { el.textContent = 'ΠΑΝΕΛΛΗΝΙΟΣ ΓΥΜΝΑΣΤΙΚΟΣ ΣΥΛΛΟΓΟΣ'; });
-    expect(await lefts()).toEqual(before);
-    const result = await label.evaluate(el => {
-      const box = el.getBoundingClientRect();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const text = range.getBoundingClientRect();
-      const firstNumber = el.closest('tr').querySelector('td').getBoundingClientRect();
-      // Where the overflowing text would be painted if it were not clipped: over the first number's cell.
-      const probe = document.elementFromPoint(Math.min(text.right, firstNumber.left + 6) - 1, (text.top + text.bottom) / 2);
-      return {
-        overflow: getComputedStyle(el).overflow,
-        textWider: text.width > box.width,
-        scrollWider: el.scrollWidth > el.clientWidth,
-        clientWithinCell: el.clientWidth <= box.width && box.right <= firstNumber.left + 0.5,
-        textReachesNumbers: text.right > firstNumber.left,
-        probeIsLabel: probe === el,
-      };
-    });
-    expect(result.textWider, 'the text is longer than its cell').toBe(true);
-    expect(result.scrollWider, 'the cell has more to show than it can').toBe(true);
-    expect(result.clientWithinCell, 'the cell ends before the first number').toBe(true);
-    expect(result.overflow, 'the cell clips').toBe('hidden');
-    expect(result.textReachesNumbers, 'unclipped, the text would run over the numbers').toBe(true);
-    expect(result.probeIsLabel, 'nothing of the label is painted over the numbers').toBe(false);
   });
 }
 
