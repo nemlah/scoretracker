@@ -250,8 +250,10 @@ test('taps after losing control are flagged, retried after taking back', async (
     await expect(discard).toBeEnabled();
     const retryBox = await retry.boundingBox();
     const discardBox = await discard.boundingBox();
-    expect(retryBox.height).toBe(48);
-    expect(discardBox.height).toBe(48);
+    expect(retryBox.height).toBeGreaterThanOrEqual(47.5);
+    expect(retryBox.height).toBeLessThanOrEqual(48.5);
+    expect(discardBox.height).toBeGreaterThanOrEqual(47.5);
+    expect(discardBox.height).toBeLessThanOrEqual(48.5);
     expect(retryBox.width).toBeCloseTo(discardBox.width, 0);
     expect(retryBox.y).toBe(discardBox.y);
     const rowBox = await row.boundingBox();

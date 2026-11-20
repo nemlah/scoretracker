@@ -327,9 +327,10 @@ function failedRow(gameId) {
 
     let description = '';
     if (game) {
+      const datePrefix = typeof game.date === 'string' && game.date ? `${formatDate(game.date)} · ` : '';
       const labels = group.events.map(event => eventLabel(event, game.lineup ?? []));
       const more = group.more > 0 ? ` ${t('failedMore', { n: group.more })}` : '';
-      description = `${formatDate(game.date)} · ${game.opponent}: ${labels.join(', ')}${more}`;
+      description = `${datePrefix}${game.opponent}: ${labels.join(', ')}${more}`;
     }
     if (desc.textContent !== description) desc.textContent = description;
     const hideDescription = !game;
