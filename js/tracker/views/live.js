@@ -197,9 +197,9 @@ function buildTile(player, ctx, onGoalieTap, host) {
         : savesText;
       el.classList.toggle('is-in-goal', inGoal);
       if (inGoal) el.dataset.inGoal = 'true'; else delete el.dataset.inGoal;
-      // The cap and the slot keep the row at the same height when the badge replaces the button.
-      goalie.inGoalBadge.hidden = !inGoal;
-      goalie.inGoalButton.hidden = inGoal;
+      // The badge and button share a slot. Keep both boxes in the grid when switching visibility.
+      goalie.inGoalBadge.style.visibility = inGoal ? 'visible' : 'hidden';
+      goalie.inGoalButton.style.visibility = inGoal ? 'hidden' : 'visible';
       // Right after a goalie change the goalie buttons are refused for a moment, so a second
       // finger on the old layout cannot hit a tile that has just moved.
       goalie.saveButton.disabled = !writable || line.out || goalieLocked;
@@ -226,7 +226,7 @@ export function mount(root, ctx) {
   let situationTimer = null;
   let situationTick = null;
   let openSituation = null;
-  let goalieLocked = false;
+  let pendingGoalieChange = null;
   let goalieTimer = null;
   let scrollFrame = null;
   let inGoalId = null;
@@ -302,18 +302,22 @@ export function mount(root, ctx) {
   // goal) moves the goalie tiles. The goalie buttons are then refused for a second and the screen
   // scrolls to the top, where the goalie in goal now is. Undo reorders too, but never pauses or scrolls.
   function goalieTap(type, playerId) {
-    if (goalieLocked) return;
+    if (goalieTimer !== null) return;
     const changes = inGoalId !== null && playerId !== inGoalId;
-    if (!ctx.tapper.tap(type, playerId) || !changes) return;
-    goalieLocked = true;
-    update(ctx.getState());
+    const event = ctx.tapper.tap(type, playerId);
+    if (!event || !changes) return;
+    // Refuse another tap immediately. Show the disabled buttons with the snapshot that swaps tiles.
+    pendingGoalieChange = event;
     goalieTimer = setTimeout(() => {
-      goalieLocked = false;
+      pendingGoalieChange = null;
       goalieTimer = null;
       update(ctx.getState());
     }, GOALIE_LOCK_MS);
+  }
+
+  function scrollToGoalie() {
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
-    // One frame later: WebKit drops a smooth scroll started in the same task as the re-render.
+    // Wait for a frame after the tile swap so the reorder cannot interrupt the scroll.
     // Cancelled on unmount, so it can never scroll the view navigated to.
     cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
@@ -430,7 +434,13 @@ export function mount(root, ctx) {
       foulsByPlayer.get(playerId).push(type);
     }
     const stats = goalieStats({ ...current, lineup: current.lineup ?? [], events });
-    inGoalId = stats?.inGoal ?? null;
+    const nextInGoalId = stats?.inGoal ?? null;
+    const goalieChanged = nextInGoalId !== inGoalId && pendingGoalieChange !== null
+      && nextInGoalId === pendingGoalieChange.playerId
+      && events.some(event => event.id === pendingGoalieChange.id);
+    inGoalId = nextInGoalId;
+    if (goalieChanged) pendingGoalieChange = null;
+    const goalieLocked = goalieTimer !== null && pendingGoalieChange === null;
     const lines = [
       ...all.filter(line => line.goalie === true && line.playerId === inGoalId),
       ...all.filter(line => line.goalie !== true),
@@ -453,6 +463,7 @@ export function mount(root, ctx) {
       // Only move a tile that is out of place, so unchanged tiles keep their DOM identity.
       if (tileList.children[index] !== tile.el) tileList.insertBefore(tile.el, tileList.children[index] ?? null);
     });
+    if (goalieChanged) scrollToGoalie();
 
     const last = lastEvent(events);
     undo.textContent = last === null ? t('undoNothing') : t('undo', {
