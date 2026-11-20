@@ -8,7 +8,7 @@ const fontsDir = new URL('../fixtures/fonts/', import.meta.url);
 const clearDot = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
 const preparedContexts = new WeakSet();
 const gapiCallbackErrorPrefix = 'E2E gapi stub: missing or non-function onload callback ';
-const contextCloseTimeoutMs = 5_000;
+const teardownTimeoutMs = 5_000;
 
 // Playwright runs one test at a time in each worker process.
 let activeNetworkTest;
@@ -126,14 +126,15 @@ export const test = base.extend({
       const [options] = args;
       // Playwright applies the test's offline option when the caller omits it.
       const offline = Object.hasOwn(options ?? {}, 'offline') ? options.offline : owner.defaultOffline;
-      const creating = newContext.apply(this, args).then(async context => {
-        const closed = new Promise(resolve => context.once('close', resolve));
-        owner.contexts.push({ context, closed });
+      const entry = {};
+      entry.creating = newContext.apply(this, args).then(async context => {
+        entry.context = context;
+        entry.closed = new Promise(resolve => context.once('close', resolve));
         await prepareContext(context, owner, offline);
         return context;
       });
-      owner.contextCreations.push(creating);
-      return creating;
+      owner.contexts.push(entry);
+      return entry.creating;
     };
     try {
       await use();
@@ -143,30 +144,47 @@ export const test = base.extend({
   }, { scope: 'worker', auto: true }],
 
   networkProblems: [async ({ offline }, use) => {
-    const owner = { problems: [], contextCreations: [], contexts: [], routeHandlers: new Set(), defaultOffline: offline };
+    const owner = { problems: [], contexts: [], routeHandlers: new Set(), defaultOffline: offline };
     activeNetworkTest = owner;
     try {
       await use();
     } finally {
       activeNetworkTest = undefined;
-      await Promise.allSettled(owner.contextCreations);
-      // Playwright closes the default context first. A prior failed close can leave
-      // close() returning immediately without a close event, so bound the wait.
-      const closed = await Promise.allSettled(owner.contexts.map(async ({ context, closed }) => {
-        let timer;
-        const deadline = new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`Browser context did not close within ${contextCloseTimeoutMs} ms`)), contextCloseTimeoutMs);
-        });
+      const pending = { 'context setups': owner.contexts.length, 'context.close() calls': 0, 'context close events': 0 };
+      let timer;
+      const deadline = new Promise(resolve => {
+        timer = setTimeout(() => {
+          const outstanding = Object.entries({ ...pending, 'route handlers': owner.routeHandlers.size })
+            .filter(([, count]) => count > 0)
+            .map(([operation, count]) => `${operation} (${count})`);
+          owner.problems.push(`Network teardown exceeded ${teardownTimeoutMs} ms waiting for ${outstanding.join(', ')}`);
+          resolve();
+        }, teardownTimeoutMs);
+      });
+      const contextsClosed = Promise.all(owner.contexts.map(async entry => {
+        await entry.creating.catch(() => {});
+        pending['context setups']--;
+        if (!entry.context) return;
+
+        // A prior failed close can leave close() returning without a close event.
+        pending['context close events']++;
+        const closeEvent = entry.closed.then(() => { pending['context close events']--; });
+        pending['context.close() calls']++;
         try {
-          await Promise.race([Promise.all([context.close(), closed]), deadline]);
+          await entry.context.close();
+        } catch (error) {
+          owner.problems.push(`Could not close browser context: ${error}`);
         } finally {
-          clearTimeout(timer);
+          pending['context.close() calls']--;
         }
+        await closeEvent;
       }));
       // No new context routes start after close. In-flight asset reads can still report problems.
-      await Promise.allSettled(owner.routeHandlers);
-      for (const result of closed) {
-        if (result.status === 'rejected') owner.problems.push(`Could not close browser context: ${result.reason}`);
+      const drained = contextsClosed.then(() => Promise.allSettled(owner.routeHandlers));
+      try {
+        await Promise.race([drained, deadline]);
+      } finally {
+        clearTimeout(timer);
       }
       if (owner.problems.length) throw new Error(`E2E network requests failed:\n${owner.problems.join('\n')}`);
     }
