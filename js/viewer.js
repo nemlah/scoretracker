@@ -6,6 +6,7 @@ import {
 } from './model.js';
 // Added after the previous release. A phone can briefly hold that release's cached model.js beside
 // this file, so these are read off the namespace and fall back instead of failing the module link.
+// remove in R3: every `model.x?.` and `strings.x?.` read below, with its fallback, becomes a named import.
 import * as model from './model.js';
 import * as strings from './strings.js';
 import { goalieStats, savePct } from './goalies.js';
@@ -115,7 +116,7 @@ const subs = {
   stats: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
 };
 // The error callback is a new, optional argument: a cached previous repo.js ignores it, and the deadline
-// in startWatch covers that case.
+// in startWatch covers that case. (remove in R3: the deadline's cached-repo case)
 const openers = {
   team: (key, next, fail) => repo.watchTeam(next, fail),
   game: (key, next, fail) => repo.watchGame(key, next, fail),
@@ -182,6 +183,7 @@ function applyWatches(want) {
   return changed;
 }
 
+// remove in R3: the whole of fallbackState, with the `model.viewerState?.` read below.
 // The previous release's model.js has no viewerState. This keeps the same plan shape with fewer rules:
 // it never guesses a season (the calendar one only when the team document is server-confirmed to have no
 // current game), so results stay 'loading' rather than show the wrong season, and has no hold rule.
@@ -246,6 +248,7 @@ function planFor(route) {
     lastShown,
   };
   // The inline rules of an R1 model.js have no per-watch staleness: any stale watch means offline there.
+  // remove in R3: fallbackState and the optional read.
   return model.viewerState?.(input) ?? fallbackState({ ...input, offline: state.offline || isStale() });
 }
 
@@ -331,6 +334,7 @@ window.addEventListener('pageshow', event => {
 });
 
 // A string added in this release: a phone holding the previous strings.js gets the fallback, not a key name.
+// remove in R3: tOr and its English fallbacks; every `tOr(` call below becomes `t(key, params)`.
 const tOr = (key, fallback, params) => (strings.hasString?.(key) ? t(key, params) : fallback);
 const SVG_NS = 'http://www.w3.org/2000/svg';
 // A stroke icon on the 24 grid, 2 px, round caps; built with createElementNS, never innerHTML.
@@ -427,7 +431,7 @@ function buildTabs(key) {
   const names = key === 'home' ? ['results', 'players', 'team'] : ['timeline', 'players', 'team'];
   tabState = { key, names, selected: names[0] };
   tabs.className = key === 'home' ? 'tabs tabs-home' : 'tabs tabs-game';
-  tabs.setAttribute('aria-label', key === 'home' ? tOr('tabsSeason', 'Season details') : tOr('tabsGame', 'Game details'));
+  tabs.setAttribute('aria-label', key === 'home' ? tOr('tabsSeason', 'Season details') : tOr('tabsGame', 'Game details')); // remove in R3: tOr
   clear(tabs).append(...names.map(name => h('button', {
     type: 'button',
     role: 'tab',
@@ -437,7 +441,7 @@ function buildTabs(key) {
     'aria-controls': `panel-${name}`,
     // A press focuses the tab itself: Safari does not focus a button it was clicked on.
     onclick: () => selectTab(name, true),
-  }, tOr(...TAB_LABELS[name]))));
+  }, tOr(...TAB_LABELS[name])))); // remove in R3: tOr
   panelEls = {};
   clear(panels).append(...names.map(name => {
     panelEls[name] = h('section', {
@@ -559,6 +563,8 @@ function renderPastNav(plan) {
     () => liveBannerContent({ team: teamConfig.name, opponent: live.opponent, us, them, period }));
 }
 
+// remove in R3: BANNER_SLOTS and the slot-by-slot branch of liveBannerContent (the previous strings.js's
+// one-line liveBanner template); the `hasString?.('liveBadge')` reads go with them.
 // The score and the quarter keep their room; the opponent's name is cut first, with an ellipsis. With this
 // release's strings the banner is a LIVE · Qn pill, the team, an emphasised score and the opponent. A
 // previous strings.js has only the old one-line template ("Live: {opponent} {us}–{them} · {period}"): it is
@@ -644,7 +650,7 @@ function renderQuarterScores(game, score, live) {
     return h('td', { class: future ? 'is-future' : index + 1 === current ? 'is-current' : null }, future ? '–' : goals[side]);
   });
   renderIfChanged(quarterScores, [quarters, current, teamConfig.name, game.opponent], () => [
-    h('caption', { class: 'sr-only' }, tOr('quarterGrid', 'Goals by quarter')),
+    h('caption', { class: 'sr-only' }, tOr('quarterGrid', 'Goals by quarter')), // remove in R3: tOr
     h('thead', {}, h('tr', {}, h('td', { 'aria-hidden': 'true' }), heads)),
     h('tbody', {},
       h('tr', { 'data-testid': 'quarter-us' }, h('th', { scope: 'row' }, teamConfig.name), cells(0)),
@@ -689,7 +695,7 @@ function renderGame(game, tabsShown) {
 // The Team panel: empty until teamView.js is in, a line if it never loads (or its panel throws). The panel's
 // own rendering is Task 9's, in teamView.js.
 const teamUnavailable = () => [h('p', { class: 'muted', 'data-testid': 'team-unavailable' },
-  tOr('teamUnavailable', 'Team stats aren\'t available right now.'))];
+  tOr('teamUnavailable', 'Team stats aren\'t available right now.'))]; // remove in R3: tOr
 
 function teamPanel(make) {
   if (state.teamViewStatus === 'failed') return teamUnavailable();
@@ -708,7 +714,7 @@ function gamePlayersPanel(game) {
     playersSection(scoringLines(playerLines(game.lineup, game.events))),
     goaliesSection(game),
   ].filter(section => section !== '');
-  return sections.length ? sections : [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))];
+  return sections.length ? sections : [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))]; // remove in R3: tOr
 }
 
 function capBadge(cap, out) {
@@ -794,15 +800,15 @@ function timelinePanel(game) {
   const savesShown = model.TIMELINE_SAVES === true && strings.TIMELINE_SAVES === true;
   const shown = game.events.filter(event => event.type !== 'gkIn' && (savesShown || event.type !== 'save'));
   // The previous model.js has no running scores or quarter totals: the rows then show icons and the markers
-  // only the quarter.
+  // only the quarter. (remove in R3: the `?.` reads and their fallbacks on the next lines)
   const groups = model.timelineRows?.(shown) ?? timeline(shown);
   const manUpGoals = manUpGoalIds(game);
   const outIds = model.foulOutIds?.(game.events) ?? new Set();
   const date = typeof game.date === 'string' ? formatDate(game.date) : null;
   return [h('div', { class: 'tl-panel' },
     h('h2', { class: 'tl-heading', 'data-testid': 'timeline-heading' },
-      date === null ? tOr('timelineNewest', 'Newest first')
-        : tOr('timelineDated', `${date} · newest first`, { date })),
+      date === null ? tOr('timelineNewest', 'Newest first') // remove in R3: tOr
+        : tOr('timelineDated', `${date} · newest first`, { date })), // remove in R3: tOr
     groups.length
       ? h('ol', { class: 'tl-list', 'aria-label': t('timelineHeading') }, groups.flatMap(group => [
         quarterMarker(group),
@@ -859,7 +865,7 @@ function timelineItem(event, game, manUpGoals, out) {
     h('div', { class: 'tl-what' },
       h('span', { class: 'tl-what-text' },
         EVENT_LINES[event.type] ? t(EVENT_LINES[event.type]) : entry.sr,
-        out ? [' ', h('span', { class: 'tl-out', 'data-testid': 'tl-out' }, tOr('tlOutTag', '· out'))] : null),
+        out ? [' ', h('span', { class: 'tl-out', 'data-testid': 'tl-out' }, tOr('tlOutTag', '· out'))] : null), // remove in R3: tOr
       // The space is a text node: between flex items it takes no room, without the row rules it separates the tag.
       tagged ? [' ', h('span', { class: 'tl-manup', 'data-testid': 'tl-manup' }, t('tlManUpTag'))] : null),
   ];
@@ -925,7 +931,7 @@ function seasonPlayersPanel(results, stats, caps) {
   const goalies = Object.entries(stats?.goalies ?? {})
     .map(([id, goalie]) => ({ id, ...goalie }))
     .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
-  if (!players.length && !goalies.length) return [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))];
+  if (!players.length && !goalies.length) return [h('p', { class: 'muted' }, tOr('playersEmpty', 'No player stats yet.'))]; // remove in R3: tOr
   return [
     players.length ? panelBlock(t('totalsHeading'), totalsTable(players, caps)) : null,
     goalies.length ? panelBlock(t('goaliesHeading'), seasonGoaliesTable(goalies, caps)) : null,
@@ -933,7 +939,7 @@ function seasonPlayersPanel(results, stats, caps) {
 }
 
 // "3 W · 1 L", with "· 1 D" when a game was level. Results without a score count for nothing; without
-// model.resultOutcome (the previous model.js) there is no record.
+// model.resultOutcome (the previous model.js) there is no record. (remove in R3: the optional read)
 function renderRecord(results) {
   const tally = { W: 0, L: 0, D: 0 };
   for (const result of Array.isArray(results) ? results : []) {
@@ -943,8 +949,8 @@ function renderRecord(results) {
   const played = tally.W + tally.L + tally.D;
   seasonRecord.hidden = played === 0;
   seasonRecord.textContent = played === 0 ? '' : tally.D > 0
-    ? tOr('seasonRecordDraws', `${tally.W} W · ${tally.L} L · ${tally.D} D`, { w: tally.W, l: tally.L, d: tally.D })
-    : tOr('seasonRecord', `${tally.W} W · ${tally.L} L`, { w: tally.W, l: tally.L });
+    ? tOr('seasonRecordDraws', `${tally.W} W · ${tally.L} L · ${tally.D} D`, { w: tally.W, l: tally.L, d: tally.D }) // remove in R3: tOr
+    : tOr('seasonRecord', `${tally.W} W · ${tally.L} L`, { w: tally.W, l: tally.L }); // remove in R3: tOr
 }
 
 function resultsList(results) {
@@ -956,26 +962,26 @@ function resultItem(result) {
   // A 0 – 0 shootout means none was played (older games recorded it that way).
   const shootedOut = Number.isFinite(result.soUs) && Number.isFinite(result.soThem)
     && !(result.soUs === 0 && result.soThem === 0);
-  const outcome = scored ? model.resultOutcome?.(result) ?? null : null;
+  const outcome = scored ? model.resultOutcome?.(result) ?? null : null; // remove in R3: the optional read
   const date = typeof result.date === 'string' ? formatDate(result.date) : '';
   const pen = shootedOut
-    ? tOr('resultPen', scoreText(result, true).shootout, { us: result.soUs, them: result.soThem }) : null;
+    ? tOr('resultPen', scoreText(result, true).shootout, { us: result.soUs, them: result.soThem }) : null; // remove in R3: tOr
   const body = [
     outcome ? h('span', { class: `result-chip result-chip-${outcome}`, 'data-testid': 'result-chip' },
-      tOr(`result${outcome}`, outcome)) : null,
+      tOr(`result${outcome}`, outcome)) : null, // remove in R3: tOr
     h('span', { class: 'result-main' },
       h('span', { class: 'result-opp' }, result.opponent),
       h('span', { class: 'result-meta' },
         h('span', { class: 'result-date' }, date), pen ? [' · ', h('span', { class: 'result-pen' }, pen)] : null)),
-    h('span', { class: 'result-tally' }, scored ? scoreText(result, false).main : tOr('resultNoScore', '–')),
+    h('span', { class: 'result-tally' }, scored ? scoreText(result, false).main : tOr('resultNoScore', '–')), // remove in R3: tOr
   ];
   // The link's name has what the row shows: the outcome as a word (the chip's "W" alone is not one), the score
   // with its shootout, the opponent and the date. Without a score there is no outcome to name.
   const score = pen ? `${scoreText(result, false).main}, ${pen}` : scoreText(result, false).main;
   // remove in R3: the English fallbacks are for a phone holding the previous strings.js
-  const word = outcome ? tOr(`resultName${outcome}`, { W: 'Win', L: 'Loss', D: 'Draw' }[outcome]) : null;
+  const word = outcome ? tOr(`resultName${outcome}`, { W: 'Win', L: 'Loss', D: 'Draw' }[outcome]) : null; // remove in R3: tOr
   const label = outcome
-    ? [tOr('resultLabel', `${word} ${score} against ${result.opponent}`, { outcome: word, score, opponent: result.opponent }), date]
+    ? [tOr('resultLabel', `${word} ${score} against ${result.opponent}`, { outcome: word, score, opponent: result.opponent }), date] // remove in R3: tOr
       .filter(Boolean).join(', ')
     : t('openGameFor', { opponent: result.opponent, date });
   // A row with no game to open (data from before results kept the id) is not a link, so it has no chevron.
