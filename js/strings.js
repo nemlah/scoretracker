@@ -157,10 +157,15 @@ const STRINGS = {
 
   // Home
   homeHeading: 'Tracker',
-  homeResume: 'Resume game',
-  homeNew: 'Start a new game',
+  homeResume: 'Continue tracking',
+  homeNew: 'New game',
   homeRoster: 'Roster',
   homeGames: 'Past games',
+  homeNav: 'Scorekeeper',
+  homeLive: 'Live game',
+  homeLiveScore: '{us} : {them}',
+  homeRosterCountOne: '{count} player',
+  homeRosterCount: '{count} players',
 
   // Roster
   rosterHeading: 'Roster',
@@ -277,8 +282,11 @@ const STRINGS = {
   gamesLoading: 'Loading games…',
   gamesLoadFailed: 'Could not load the games. Check your connection and try again.',
   gamesEmpty: 'No games yet.',
-  gamesBack: 'All games',
+  gamesBack: '‹ Past games',
   gameLiveBadge: 'Live',
+  gameScoreboard: 'Scoreboard',
+  gameOutcomeW: 'Won',
+  gameOutcomeL: 'Lost',
   gameOpenFor: 'Open game against {opponent}',
   gameNotFound: 'This game no longer exists.',
   reopenGame: 'Reopen game',

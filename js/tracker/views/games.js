@@ -1,5 +1,6 @@
+import { team } from '../../config.js';
 import {
-  deriveScore, formatDate, hasShootout, isValidSeason, seasonFor,
+  deriveScore, formatDate, gameResult, hasShootout, isValidSeason, resultOutcome, seasonFor,
 } from '../../model.js';
 import { scoreText, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
@@ -17,10 +18,26 @@ function parseRoute(route) {
   }
 }
 
-function resultText(game) {
-  const score = deriveScore(game.events ?? []);
-  const text = scoreText(score, hasShootout(game.period, game.events ?? []));
-  return text.shootout ? `${text.main} ${text.shootout}` : text.main;
+function gameRow(game) {
+  const events = game.events ?? [];
+  const result = game.status === 'final' ? gameResult({ ...game, events }) : null;
+  const outcome = resultOutcome(result);
+  const score = result ?? deriveScore(events);
+  const penalty = hasShootout(game.period, events) ? ` · ${t('resultPen', { us: score.soUs, them: score.soThem })}` : '';
+  const chip = game.status === 'live'
+    ? h('span', { class: 'game-chip game-live', 'data-testid': 'game-chip' }, t('gameLiveBadge').toUpperCase())
+    : outcome && h('span', {
+      class: 'game-chip', 'data-outcome': outcome, 'data-testid': 'game-chip',
+      'aria-label': t(outcome === 'D' ? 'resultNameD' : `gameOutcome${outcome}`),
+    }, t(`result${outcome}`));
+  return h('li', {}, h('a', {
+    class: 'game-row game-row--board', href: `#/games/${encodeURIComponent(game.id)}`, 'data-testid': 'game-row',
+    'aria-label': t('gameOpenFor', { opponent: game.opponent }),
+  }, chip, h('span', { class: 'game-row-label' },
+    h('span', { class: 'game-opponent' }, game.opponent),
+    h('span', { class: 'game-date' }, formatDate(game.date) + penalty)),
+  h('span', { class: 'game-score' }, scoreText(score, false).main),
+  h('span', { class: 'tracker-chevron', 'aria-hidden': 'true' })));
 }
 
 export function mount(root, ctx) {
@@ -50,15 +67,7 @@ export function mount(root, ctx) {
       if (unmounted || token !== listToken) return;
       listStatus.hidden = true;
       listEmpty.hidden = games.length > 0;
-      listRows.replaceChildren(...games.map(game => h('li', {},
-        h('a', {
-          class: 'game-row', href: `#/games/${encodeURIComponent(game.id)}`, 'data-testid': 'game-row',
-          'aria-label': t('gameOpenFor', { opponent: game.opponent }),
-        },
-        h('span', { class: 'game-date' }, formatDate(game.date)),
-        h('span', { class: 'game-opponent' }, game.opponent),
-        game.status === 'live' ? h('span', { class: 'game-live' }, t('gameLiveBadge')) : null,
-        h('span', { class: 'game-score' }, resultText(game))))));
+      listRows.replaceChildren(...games.map(gameRow));
     }, () => {
       if (unmounted || token !== listToken) return;
       listStatus.textContent = t('gamesLoadFailed');
@@ -70,9 +79,23 @@ export function mount(root, ctx) {
     type: 'button', class: 'btn btn--ghost btn--small', 'data-testid': 'games-back', onclick: () => ctx.navigate('/games'),
   }, t('gamesBack'));
   const detailStatus = h('p', { class: 'status-line', role: 'status' }, t('trackerLoading'));
-  const title = h('h2', {});
+  const title = h('h2', { class: 'detail-team game-opponent' });
   const meta = h('p', { class: 'help', 'data-testid': 'game-meta' });
-  const score = h('p', { class: 'detail-score', 'data-testid': 'game-score' });
+  const badge = h('span', { class: 'tracker-badge' });
+  const date = h('span', { class: 'tracker-board-date' });
+  const ours = h('span', { class: 'detail-figure' });
+  const theirs = h('span', { class: 'detail-figure' });
+  const penalty = h('p', { class: 'detail-penalty', hidden: true });
+  const crest = team.crest ? h('img', { class: 'detail-crest', src: team.crest, width: 40, height: 40, alt: '' }) : null;
+  const score = h('section', {
+    class: 'tracker-scoreboard detail-board', 'aria-label': t('gameScoreboard'), 'data-testid': 'game-score',
+  },
+  h('div', { class: 'tracker-board-head' }, badge, date),
+  h('div', { class: 'detail-score detail-score-rows' },
+    h('div', { class: 'detail-score-row', 'data-testid': 'game-score-row' },
+      h('span', { class: 'detail-club' }, h('span', { class: 'detail-team game-opponent' }, team.name), crest), ours),
+    h('div', { class: 'detail-score-row', 'data-testid': 'game-score-row' }, title, theirs)),
+  penalty);
   const liveNote = h('div', { class: 'stack', 'data-testid': 'game-live-note' },
     h('p', { class: 'notice' }, t('gameLiveNote')),
     h('a', { class: 'btn btn--primary btn--small btn--fit', href: '#/live', 'data-testid': 'game-live-open' }, t('gameLiveOpen')));
@@ -99,16 +122,18 @@ export function mount(root, ctx) {
   const infoError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'info-error', hidden: true });
   const infoSave = h('button', { type: 'submit', class: 'btn', 'data-testid': 'info-save' }, t('infoSave'));
   const infoForm = h('form', { class: 'info-form stack', novalidate: true, onsubmit: onSaveInfo },
-    h('h3', {}, t('infoHeading')),
+    h('h3', {}, t('infoHeading')), meta,
     h('div', { class: 'field' }, h('label', { for: 'info-opponent' }, t('opponentLabel')), infoOpponent),
     h('div', { class: 'field' }, h('label', { for: 'info-date' }, t('dateLabel')), infoDate),
     h('div', { class: 'field' }, h('label', { for: 'info-season' }, t('seasonLabel')), infoSeason),
     infoError, infoSave);
   const panel = createEventsPanel(ctx, root, { onEnded: () => ctx.navigate('/') });
-  const detailBody = h('div', { class: 'stack', hidden: true },
-    title, meta, score, liveNote,
-    h('div', { class: 'detail-actions' }, reopen, del.el), reopenNote, infoForm, panel.el);
-  const detailView = h('section', { class: 'game-detail' }, back, detailStatus, detailBody);
+  const detailBody = h('div', { class: 'stack detail-body', hidden: true },
+    score, h('div', { class: 'detail-card' }, panel.el),
+    infoForm,
+    h('div', { class: 'stack detail-card' }, liveNote,
+      h('div', { class: 'detail-actions' }, reopen, del.el), reopenNote));
+  const detailView = h('section', { class: 'game-detail game-detail--board' }, back, detailStatus, detailBody);
 
   root.append(listView, detailView);
 
@@ -144,7 +169,9 @@ export function mount(root, ctx) {
     if (game === null || game === undefined) return;
 
     title.textContent = game.opponent;
-    meta.textContent = `${formatDate(game.date)} · ${game.season}`;
+    const dateText = formatDate(game.date);
+    date.textContent = dateText;
+    meta.textContent = `${dateText} · ${game.season}`;
     // Filled once per game; later snapshots must not overwrite what is being typed.
     if (infoFor !== game.id) {
       infoFor = game.id;
@@ -157,8 +184,16 @@ export function mount(root, ctx) {
     // state.writable is newer than state.active: a cached app.js from the previous release lacks it.
     const writable = state.writable ?? state.active;
     for (const field of [infoOpponent, infoDate, infoSeason, infoSave]) field.disabled = !writable;
-    score.textContent = resultText(game);
+    const events = game.events ?? [];
+    const figures = deriveScore(events);
+    ours.textContent = figures.us;
+    theirs.textContent = figures.them;
+    const shootout = scoreText(figures, hasShootout(game.period, events)).shootout;
+    penalty.textContent = shootout ?? '';
+    penalty.hidden = shootout === null;
     const live = game.status === 'live';
+    badge.textContent = t(live ? 'gameLiveBadge' : 'final').toUpperCase();
+    badge.classList.toggle('tracker-badge--live', live);
     liveNote.hidden = !live;
     const other = state.gameLoaded && state.game?.status === 'live' && state.game.id !== game.id;
     const blocked = !state.gameLoaded || other;

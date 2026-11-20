@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso } from '../../js/model.js';
 import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
@@ -372,6 +373,76 @@ test('next new game defaults to previous lineup and last caps', async ({ page })
   await expect(row(page, 'p7').getByTestId('sel-cap')).toHaveValue('7');
 });
 
+test('home shows the live score and period above its navigation', async ({ page }) => {
+  const opponent = 'Παναγιώτης Παπαδόπουλος';
+  const players = Array.from({ length: 17 }, (_, i) => ({
+    id: `p${i + 1}`, name: `Player ${i + 1}`, cap: i + 1, archived: i === 16,
+  }));
+  const events = Array.from({ length: 16 }, (_, i) => ({
+    id: `e${i}`, period: 3, ts: i + 1, type: i < 9 ? 'goal' : 'oppGoal', playerId: i < 9 ? 'p2' : null,
+  }));
+  await seed('team/main', { roster: players, currentGameId: 'g1' });
+  await seed('games/g1', {
+    opponent, date: '2026-11-16', season: '2026-27', status: 'live', period: 3, events,
+    lineup: [{ playerId: 'p2', name: 'Player 2', cap: 2 }],
+  });
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  const live = page.getByTestId('home-live');
+  await expect(live).toContainText('LIVE · Q3');
+  await expect(live).toContainText('16/11/2026');
+  await expect(live).toContainText('ANOG');
+  await expect(live).toContainText(opponent);
+  await expect(live.getByTestId('home-live-score')).toHaveText('9 : 7');
+  await expect(live.getByTestId('home-resume')).toHaveText('Continue tracking');
+  const nav = page.getByRole('navigation', { name: 'Scorekeeper' });
+  await expect(nav.getByTestId('home-new')).toHaveText('New game');
+  await expect(nav.getByTestId('home-roster-count')).toHaveText('16 players');
+  await expect(nav.getByTestId('home-games-count')).toHaveText('1');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(360);
+
+  await update('games/g1', { period: 'SO' });
+  await expect(live).toContainText('LIVE · Shootout');
+  await update('games/g1', { status: 'final' });
+  await expect(live).toHaveCount(0);
+  await expect(nav.getByRole('button').first()).toHaveText('New game');
+});
+
+test.describe('home list count lifecycle', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('counts games once per mount and ignores pending, failed and stale reads', async ({ page }) => {
+    const real = readFileSync('js/repo.js', 'utf8');
+    await page.addInitScript(() => { window.homeGamesRequests = []; });
+    await page.route('**/js/repo.js', route => route.fulfill({
+      contentType: 'text/javascript',
+      body: real.replace('async listGames() {', `async listGames() {
+        if (window.homeGamesRequests) {
+          return new Promise((resolve, reject) => window.homeGamesRequests.push({ resolve, reject }));
+        }`),
+    }));
+    await page.goto(HOME_URL);
+    await unlockTracker(page);
+    const count = page.getByTestId('home-games-count');
+    await page.waitForFunction(() => window.homeGamesRequests.length === 1);
+    await expect(count).toBeHidden();
+    await update('team/main', { roster: roster.slice(0, 2) });
+    await expect(page.getByTestId('home-roster-count')).toHaveText('2 players');
+    expect(await page.evaluate(() => window.homeGamesRequests.length)).toBe(1);
+    const oldCount = await count.elementHandle();
+    await page.getByTestId('home-roster').click();
+    await expect(page.getByTestId('nav-home')).toBeVisible();
+    await page.evaluate(() => window.homeGamesRequests[0].resolve([{}]));
+    expect(await oldCount.evaluate(el => ({ hidden: el.hidden, text: el.textContent })))
+      .toEqual({ hidden: true, text: '' });
+    await page.getByTestId('nav-home').click();
+    await page.waitForFunction(() => window.homeGamesRequests.length === 2);
+    await page.evaluate(() => window.homeGamesRequests[1].reject(new Error('list unavailable')));
+    await expect(count).toBeHidden();
+  });
+});
+
 test('a live game blocks the new game form and shows Resume on home', async ({ page }) => {
   await startGame(page);
   await tile(page, 5).getByTestId('tile-goal').click();
@@ -415,6 +486,13 @@ test('read-only device cannot tap', async ({ page }) => {
   await startGame(page);
   await currentGameId();
   await otherDeviceTakesControl();
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await page.getByTestId('nav-home').click();
+  const resume = page.getByTestId('home-live').getByTestId('home-resume');
+  await expect(resume).toBeEnabled();
+  expect(await resume.getAttribute('data-write')).toBeNull();
+  await resume.click();
+  await expect(page).toHaveURL(/#\/live$/);
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await expect(tile(page, 5).getByTestId('tile-goal')).toBeDisabled();
   await expect(tile(page, 5).getByTestId('tile-excl')).toBeDisabled();

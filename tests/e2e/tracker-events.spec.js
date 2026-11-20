@@ -263,6 +263,61 @@ test('end game needs a second tap; viewer shows Final and season stats', async (
   }, `#/game/${encodeURIComponent(endedId)}`);
 });
 
+test('past games show regulation and shootout outcomes, and detail shows both score rows', async ({ page }) => {
+  const opponent = 'Παναγιώτης Παπαδόπουλος';
+  const lineup = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
+  const event = (type, period, ts) => ({ id: `e${ts}`, type, period, ts, playerId: type === 'goal' ? 'p5' : null });
+  const shootout = Array.from({ length: 7 }, (_, i) => event(i < 4 ? 'goal' : 'oppGoal', 'SO', i + 3));
+  const games = [
+    { id: 'win', opponent, date: '2026-11-16', period: 'SO', events: [event('goal', 4, 1), event('oppGoal', 4, 2), ...shootout] },
+    { id: 'loss', opponent: 'Loss FC', date: '2026-11-15', events: [event('oppGoal', 4, 1)] },
+    { id: 'draw', opponent: 'Draw FC', date: '2026-11-14', events: [] },
+    { id: 'live', opponent: 'Live FC', date: '2026-11-17', status: 'live', period: 3, events: [] },
+  ];
+  for (const { id, ...game } of games) {
+    await seed(`games/${id}`, { season: '2026-27', status: 'final', period: 4, lineup, ...game });
+  }
+  await update('team/main', { currentGameId: 'live' });
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-games').click();
+  const rows = page.getByTestId('game-row');
+  await expect(rows).toHaveCount(4);
+  const chip = name => rows.filter({ hasText: name }).getByTestId('game-chip');
+  for (const [name, letter, label] of [[opponent, 'W', 'Won'], ['Loss FC', 'L', 'Lost'], ['Draw FC', 'D', 'Draw']]) {
+    await expect(chip(name)).toHaveText(letter);
+    await expect(chip(name)).toHaveAttribute('aria-label', label);
+  }
+  await expect(chip('Live FC')).toHaveText('LIVE');
+  const win = page.getByRole('link', { name: `Open game against ${opponent}` });
+  await expect(win).toContainText('16/11/2026 · pen. 4–3');
+  await expect(win).toContainText('1 – 1');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(360);
+  await win.click();
+  const back = page.getByTestId('games-back');
+  const score = page.getByTestId('game-score');
+  await expect(back).toHaveText('‹ Past games');
+  await expect(score).toContainText('FINAL');
+  await expect(score).toContainText('16/11/2026');
+  await expect(score.getByTestId('game-score-row')).toHaveText(['ANOG1', `${opponent}1`]);
+  await expect(score).toContainText('(4 – 3 pen.)');
+  await expect(page.getByTestId('ev-scorer').first()).toBeVisible();
+  await expect(page.getByTestId('ev-edit')).toHaveCount(0);
+  await expect(page.getByTestId('info-save')).toBeVisible();
+  await expect(page.getByTestId('reopen-game')).toBeVisible();
+  await expect(page.getByTestId('delete-game')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(360);
+
+  await back.click();
+  await page.getByRole('link', { name: 'Open game against Live FC' }).click();
+  await expect(score).toContainText('LIVE');
+  await expect(score).toContainText('17/11/2026');
+  await expect(score.getByTestId('game-score-row')).toHaveText(['ANOG0', 'Live FC0']);
+  await expect(page.getByTestId('game-live-open')).toBeVisible();
+  await expect(page.getByTestId('reopen-game')).toBeHidden();
+});
+
 test('past games: reopen then delete', async ({ page, browser }) => {
   await startGame(page);
   await goals(page, [5]);
