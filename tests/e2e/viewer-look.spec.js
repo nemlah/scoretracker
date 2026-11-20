@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
-import { closeAll, resetAll, seed, update } from './helpers.js';
+import { closeAll, consoleProblems, cssColour, cssVariableColour, hexOf, open, resetAll, seed, update } from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
@@ -66,20 +66,13 @@ const seedPast = () => Promise.all([
 
 let problems;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
+  problems = consoleProblems(page, { consoleTypes: [] });
   await resetAll();
 });
 test.afterEach(() => {
   expect(problems).toEqual([]);
 });
 test.afterAll(closeAll);
-
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
-const rootProperty = (page, name) => page.evaluate(
-  property => getComputedStyle(document.documentElement).getPropertyValue(property).trim(),
-  name,
-);
 
 test('the page is set in Sofia Sans', async ({ page }) => {
   await seedLive();
@@ -105,9 +98,9 @@ test('the club colour pair is set on the page', async ({ page }) => {
   await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('12');
   // accent.js is imported dynamically: both properties arrive a moment after first paint.
-  await expect.poll(() => rootProperty(page, '--on-accent')).toBe('#ffffff');
-  await expect.poll(() => rootProperty(page, '--accent-on-board')).toMatch(/^#[0-9a-f]{6}$/);
-  await expect.poll(() => rootProperty(page, '--accent-on-board')).not.toBe('#0057b8');
+  await expect.poll(() => cssColour(page.locator('html'), '--on-accent')).toBe('#ffffff');
+  await expect.poll(() => cssColour(page.locator('html'), '--accent-on-board')).toMatch(/^#[0-9a-f]{6}$/);
+  await expect.poll(() => cssColour(page.locator('html'), '--accent-on-board')).not.toBe('#0057b8');
   // The 6 px bar beside the first row paints it, 52 px tall.
   const bar = await page.locator('.board-bar').evaluate(el => {
     const style = getComputedStyle(el);
@@ -115,14 +108,7 @@ test('the club colour pair is set on the page', async ({ page }) => {
   });
   expect(bar.width).toBe('6px');
   expect(bar.height).toBe('52px');
-  expect(bar.background).toBe(await page.evaluate(() => {
-    const probe = document.createElement('i');
-    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent-on-board');
-    document.body.append(probe);
-    const colour = getComputedStyle(probe).color;
-    probe.remove();
-    return colour;
-  }));
+  expect(bar.background).toBe(await cssVariableColour(page, '--accent-on-board'));
 });
 
 test.describe('viewer dark', () => {
@@ -223,15 +209,6 @@ for (const [scheme, board] of [['light', 'rgb(11, 19, 32)'], ['dark', 'rgb(5, 9,
     });
   });
 }
-
-// "rgb(...)", "color(srgb ...)" or any other computed colour as #rrggbb, read back through a canvas.
-const hexOf = (page, colour) => page.evaluate(value => {
-  const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-  context.fillStyle = '#000000';
-  context.fillStyle = value;
-  context.fillRect(0, 0, 1, 1);
-  return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
-}, colour);
 
 for (const scheme of ['light', 'dark']) {
   test.describe(`past game beside the live one, ${scheme}`, () => {
@@ -410,7 +387,7 @@ for (const scheme of ['light', 'dark']) {
         await open(page);
         // A win on a shootout, a win, a loss and a level final: all three chips.
         await expect(page.getByTestId('result-chip')).toHaveText(['W', 'W', 'L', 'D']);
-        const bannerBg = await page.getByTestId('live-banner').evaluate(el => getComputedStyle(el).backgroundColor);
+        const bannerBg = await cssColour(page.getByTestId('live-banner'), 'backgroundColor');
         const banner = page.getByTestId('live-banner');
         const card = await page.locator('.result-card').evaluate(el => ({
           bg: getComputedStyle(el).backgroundColor, border: getComputedStyle(el).borderTopColor,
@@ -446,8 +423,8 @@ for (const scheme of ['light', 'dark']) {
           ['row divider on the card', card.divider, cardBg],
         ];
         for (const letter of ['W', 'L', 'D']) {
-          const fill = await page.getByTestId('result-chip').filter({ hasText: letter }).first()
-            .evaluate(el => getComputedStyle(el).backgroundColor);
+          const chip = page.getByTestId('result-chip').filter({ hasText: letter }).first();
+          const fill = await cssColour(chip, 'backgroundColor');
           shapes.push([`chip ${letter} fill on the card`, fill, cardBg]);
         }
         for (const [name, fg, bg] of shapes) {
@@ -561,7 +538,7 @@ for (const [scheme, board, line] of [['light', '#0b1320', 'rgb(122, 135, 150)'],
       expect(contrastRatio(await hexOf(page, chip.bg), board), 'chip fill on the board').toBeGreaterThanOrEqual(3);
       const period = await read(page.getByTestId('period'));
       expect(contrastRatio(await hexOf(page, period.fg), board), 'period on the board').toBeGreaterThanOrEqual(4.5);
-      const head = await page.getByTestId('quarter-scores').locator('thead th').first().evaluate(el => getComputedStyle(el).color);
+      const head = await cssColour(page.getByTestId('quarter-scores').locator('thead th').first(), 'color');
       expect(contrastRatio(await hexOf(page, head), board), 'grid head on the board').toBeGreaterThanOrEqual(4.5);
     });
   });

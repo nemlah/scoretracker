@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, resetAll, seed, update } from './helpers.js';
+import { closeAll, cssColour, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, collectProblems, formatConsoleProblem, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
@@ -37,7 +37,6 @@ test.afterAll(closeAll);
 
 const tile = (page, cap) => page.locator(`[data-testid="tile"][data-cap="${cap}"]`);
 const situation = page => page.getByTestId('situation');
-const css = (locator, property) => locator.evaluate((el, name) => getComputedStyle(el)[name], property);
 
 async function openGame(page, game) {
   await seed('games/g1', {
@@ -65,12 +64,12 @@ function richEvents(open) {
 test('GOAL is the board with amber text', async ({ page }) => {
   await openGame(page, { events: [] });
   const goal = tile(page, 5).getByTestId('tile-goal');
-  expect(await css(goal, 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(goal, 'color')).toBe('rgb(255, 194, 61)');
+  expect(await cssColour(goal, 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(goal, 'color')).toBe('rgb(255, 194, 61)');
   // The header and the score row are the board too, with amber digits.
-  expect(await css(page.locator('.live-head'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.locator('.live-top'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.getByTestId('score-us'), 'color')).toBe('rgb(255, 194, 61)');
+  expect(await cssColour(page.locator('.live-head'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.locator('.live-top'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.getByTestId('score-us'), 'color')).toBe('rgb(255, 194, 61)');
 });
 
 test('the live screen has no lane rope', async ({ page }) => {
@@ -82,26 +81,26 @@ test('the live screen has no lane rope', async ({ page }) => {
 test('PEN is a purple fill, EXCL a red outline', async ({ page }) => {
   await openGame(page, { events: [] });
   const pen = tile(page, 5).getByTestId('tile-pen');
-  expect(await css(pen, 'backgroundColor')).toBe('rgb(107, 63, 181)');
-  expect(await css(pen, 'color')).toBe('rgb(255, 255, 255)');
+  expect(await cssColour(pen, 'backgroundColor')).toBe('rgb(107, 63, 181)');
+  expect(await cssColour(pen, 'color')).toBe('rgb(255, 255, 255)');
   const excl = tile(page, 5).getByTestId('tile-excl');
-  expect(await css(excl, 'backgroundColor')).not.toBe('rgb(215, 38, 61)');
-  expect(await css(excl, 'borderTopColor')).toBe('rgb(215, 38, 61)');
-  expect(await css(excl, 'color')).toBe('rgb(215, 38, 61)');
+  expect(await cssColour(excl, 'backgroundColor')).not.toBe('rgb(215, 38, 61)');
+  expect(await cssColour(excl, 'borderTopColor')).toBe('rgb(215, 38, 61)');
+  expect(await cssColour(excl, 'color')).toBe('rgb(215, 38, 61)');
 });
 
 test('SAVE is a teal fill, Pen save a teal outline, ⋯ an ink outline', async ({ page }) => {
   await openGame(page, { events: [ev('gkIn', 1, 'g1')] });
   const goalie = tile(page, 1);
   const save = goalie.getByTestId('tile-save');
-  expect(await css(save, 'backgroundColor')).toBe('rgb(11, 110, 127)');
-  expect(await css(save, 'color')).toBe('rgb(255, 255, 255)');
+  expect(await cssColour(save, 'backgroundColor')).toBe('rgb(11, 110, 127)');
+  expect(await cssColour(save, 'color')).toBe('rgb(255, 255, 255)');
   const penSave = goalie.getByTestId('tile-pen-save');
-  expect(await css(penSave, 'borderTopColor')).toBe('rgb(11, 110, 127)');
-  expect(await css(penSave, 'backgroundColor')).toBe('rgb(255, 255, 255)');
+  expect(await cssColour(penSave, 'borderTopColor')).toBe('rgb(11, 110, 127)');
+  expect(await cssColour(penSave, 'backgroundColor')).toBe('rgb(255, 255, 255)');
   const more = goalie.getByTestId('tile-more');
-  expect(await css(more, 'borderTopColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(more, 'backgroundColor')).toBe('rgb(255, 255, 255)');
+  expect(await cssColour(more, 'borderTopColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(more, 'backgroundColor')).toBe('rgb(255, 255, 255)');
 });
 
 test('foul pips: red for a foul, purple for a penalty foul, grey outline when empty', async ({ page }) => {
@@ -111,11 +110,11 @@ test('foul pips: red for a foul, purple for a penalty foul, grey outline when em
   // A penalty foul counts toward the limit, so its pip is both on and penalty.
   await expect(tile(page, 5).locator('.pip.is-on')).toHaveCount(2);
   await expect(tile(page, 5).locator('.pip.is-pen')).toHaveCount(1);
-  expect(await css(tile(page, 5).locator('.pip.is-on:not(.is-pen)'), 'backgroundColor')).toBe('rgb(215, 38, 61)');
-  expect(await css(tile(page, 5).locator('.pip.is-pen'), 'backgroundColor')).toBe('rgb(107, 63, 181)');
+  expect(await cssColour(tile(page, 5).locator('.pip.is-on:not(.is-pen)'), 'backgroundColor')).toBe('rgb(215, 38, 61)');
+  expect(await cssColour(tile(page, 5).locator('.pip.is-pen'), 'backgroundColor')).toBe('rgb(107, 63, 181)');
   const empty = tile(page, 5).locator('.pip:not(.is-on):not(.is-pen)').first();
-  expect(await css(empty, 'backgroundColor')).toBe('rgba(0, 0, 0, 0)');
-  expect(await css(empty, 'borderTopColor')).toBe('rgb(122, 135, 150)');
+  expect(await cssColour(empty, 'backgroundColor')).toBe('rgba(0, 0, 0, 0)');
+  expect(await cssColour(empty, 'borderTopColor')).toBe('rgb(122, 135, 150)');
 });
 
 // A new game with situations tracked, started through the UI, so the open states are reached by real taps.
@@ -134,22 +133,22 @@ async function startGame(page) {
 test('a man-up is a solid green band with white text on a green page', async ({ page }) => {
   await startGame(page);
   // Nothing open yet: the page is the plain deck.
-  expect(await css(page.locator('body'), 'backgroundColor')).toBe('rgb(244, 246, 248)');
+  expect(await cssColour(page.locator('body'), 'backgroundColor')).toBe('rgb(244, 246, 248)');
   await situation(page).click();
   await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
-  expect(await css(situation(page), 'backgroundColor')).toBe('rgb(14, 122, 78)');
-  expect(await css(situation(page), 'color')).toBe('rgb(255, 255, 255)');
-  expect(await css(situation(page), 'backgroundImage')).toBe('none');
-  expect(await css(page.locator('body'), 'backgroundColor')).toBe('rgb(198, 240, 217)');
+  expect(await cssColour(situation(page), 'backgroundColor')).toBe('rgb(14, 122, 78)');
+  expect(await cssColour(situation(page), 'color')).toBe('rgb(255, 255, 255)');
+  expect(await cssColour(situation(page), 'backgroundImage')).toBe('none');
+  expect(await cssColour(page.locator('body'), 'backgroundColor')).toBe('rgb(198, 240, 217)');
 });
 
 test('a man-down is a hatched orange band with ink text on an orange page', async ({ page }) => {
   await startGame(page);
   await tile(page, 5).getByTestId('tile-excl').click();
   await expect(situation(page)).toHaveAttribute('data-state', 'manDown');
-  expect(await css(situation(page), 'backgroundImage')).toContain('repeating-linear-gradient');
-  expect(await css(situation(page), 'color')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.locator('body'), 'backgroundColor')).toBe('rgb(240, 138, 75)');
+  expect(await cssColour(situation(page), 'backgroundImage')).toContain('repeating-linear-gradient');
+  expect(await cssColour(situation(page), 'color')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.locator('body'), 'backgroundColor')).toBe('rgb(240, 138, 75)');
   // The band over the board is hatched too, and never moves a box.
   const band = await page.locator('.live-top').evaluate(el => getComputedStyle(el, '::after').backgroundImage);
   expect(band).toContain('repeating-linear-gradient');
@@ -169,9 +168,9 @@ test('the moved banner is pale amber and the live screen under it is dimmed', as
   await otherDeviceTakesControl();
   const banner = page.getByTestId('takeover-banner');
   await expect(banner).toBeVisible();
-  expect(await css(banner, 'backgroundColor')).toBe('rgb(255, 244, 214)');
-  expect(await css(page.getByTestId('take-over'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.getByTestId('take-over'), 'color')).toBe('rgb(255, 194, 61)');
+  expect(await cssColour(banner, 'backgroundColor')).toBe('rgb(255, 244, 214)');
+  expect(await cssColour(page.getByTestId('take-over'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.getByTestId('take-over'), 'color')).toBe('rgb(255, 194, 61)');
   // The banner and its button stay at full strength; the score row (not a write control) and a tile are at 0.4.
   expect(await effectiveOpacity(banner)).toBe(1);
   expect(await effectiveOpacity(page.getByTestId('take-over'))).toBe(1);
@@ -208,10 +207,10 @@ test('the unsaved banner is pale red with Retry and Discard', async ({ page }) =
   });
   const banner = page.getByTestId('failed-banner');
   await expect(banner).toBeVisible();
-  expect(await css(banner, 'backgroundColor')).toBe('rgb(253, 236, 238)');
-  expect(await css(banner, 'borderBottomColor')).toBe('rgb(215, 38, 61)');
-  expect(await css(page.getByTestId('retry-failed'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.getByTestId('discard-failed'), 'color')).toBe('rgb(179, 32, 47)');
+  expect(await cssColour(banner, 'backgroundColor')).toBe('rgb(253, 236, 238)');
+  expect(await cssColour(banner, 'borderBottomColor')).toBe('rgb(215, 38, 61)');
+  expect(await cssColour(page.getByTestId('retry-failed'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.getByTestId('discard-failed'), 'color')).toBe('rgb(179, 32, 47)');
 });
 
 test('the toast is the board', async ({ page }) => {
@@ -221,8 +220,8 @@ test('the toast is the board', async ({ page }) => {
     toast.textContent = 'Retrying';
     toast.hidden = false;
   });
-  expect(await css(page.getByTestId('toast'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.getByTestId('toast'), 'color')).toBe('rgb(255, 255, 255)');
+  expect(await cssColour(page.getByTestId('toast'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.getByTestId('toast'), 'color')).toBe('rgb(255, 255, 255)');
 });
 
 const viewports = [[360, 740, 'portrait'], [740, 360, 'landscape']];
@@ -347,8 +346,8 @@ test('the unlock screen is the board with an amber code field', async ({ page })
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto(HOME_URL);
   await expect(page.getByTestId('code-input')).toBeVisible();
-  expect(await css(page.locator('body'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await css(page.getByTestId('code-input'), 'color')).toBe('rgb(255, 194, 61)');
-  expect(await css(page.getByTestId('code-input'), 'borderTopColor')).toBe('rgb(255, 194, 61)');
+  expect(await cssColour(page.locator('body'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
+  expect(await cssColour(page.getByTestId('code-input'), 'color')).toBe('rgb(255, 194, 61)');
+  expect(await cssColour(page.getByTestId('code-input'), 'borderTopColor')).toBe('rgb(255, 194, 61)');
   expect(await page.evaluate(() => document.scrollingElement.scrollWidth)).toBeLessThanOrEqual(360);
 });

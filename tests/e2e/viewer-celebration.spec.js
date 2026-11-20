@@ -1,6 +1,5 @@
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, resetAll, seed, update } from './helpers.js';
+import { closeAll, consoleProblems, open, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
 
 const roster = [
@@ -27,12 +26,7 @@ const seedGame = (events = [], extra = {}) => Promise.all([
 
 let problems;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (isPlaywrightServiceWorkerBlock(message.text())) return;
-    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
-  });
+  problems = consoleProblems(page);
   await resetAll();
 });
 test.afterEach(() => {
@@ -40,13 +34,11 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-// The live game is opened by its address: home no longer shows a game.
-const open = page => page.goto('/index.html?emulator=1#/game/g1');
 const celebration = page => page.getByTestId('celebration');
 
 test('a new goal of ours celebrates with the scorer, then hides', async ({ page }) => {
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect(celebration(page)).toBeHidden();
   await update('games/g1', { events: [ev('goal', 1, 'p5')] });
@@ -58,7 +50,7 @@ test('a new goal of ours celebrates with the scorer, then hides', async ({ page 
 
 test('a man-up goal says so; an unknown scorer shows GOAL! alone', async ({ page }) => {
   await seedGame([], { situations: true });
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   const events = [ev('manUp'), ev('goal', 1, 'p5')];
   await update('games/g1', { events });
@@ -73,7 +65,7 @@ test('no celebration on load, on Undo, on a scorer change, for opponent goals, o
   const first = ev('goal', 1, 'p5');
   const second = ev('goal', 1, 'p2');
   await seedGame([first, second]);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('2');
   await page.waitForTimeout(1500);
   await expect(celebration(page)).toBeHidden();
@@ -102,14 +94,14 @@ test('no celebration on load, on Undo, on a scorer change, for opponent goals, o
 
 test('reopening the viewer after goals were scored does not celebrate', async ({ page }) => {
   await seedGame([ev('goal', 1, 'p5')]);
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('1');
   const context = page.context();
   await page.close();
   await update('games/g1', { events: [ev('goal', 1, 'p5'), ev('goal', 1, 'p2')] });
   const again = await context.newPage();
-  again.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  await open(again);
+  consoleProblems(again, { problems, consoleTypes: [] });
+  await open(again, '#/game/g1');
   await expect(again.getByTestId('score-us')).toHaveText('2');
   await again.waitForTimeout(1500);
   await expect(celebration(again)).toBeHidden();
@@ -119,7 +111,7 @@ test('reopening the viewer after goals were scored does not celebrate', async ({
 test('a second goal restarts the celebration with the new scorer', async ({ page }) => {
   const first = ev('goal', 1, 'p5');
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await update('games/g1', { events: [first] });
   await expect(page.getByTestId('celebration-scorer')).toHaveText('#5 Alexiou');
@@ -134,7 +126,7 @@ test('a second goal restarts the celebration with the new scorer', async ({ page
 test('the celebration survives a following update', async ({ page }) => {
   const first = ev('goal', 1, 'p5');
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await update('games/g1', { events: [first] });
   await expect(celebration(page)).toBeVisible();
@@ -147,7 +139,7 @@ test('the celebration survives a following update', async ({ page }) => {
 
 test('the overlay does not block the page', async ({ page }) => {
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await update('games/g1', { events: [ev('goal', 1, 'p5')] });
   await expect(celebration(page)).toBeVisible();
@@ -165,7 +157,7 @@ test('the overlay does not block the page', async ({ page }) => {
 test('reduced motion shows only the banner', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await update('games/g1', { events: [ev('goal', 1, 'p5')] });
   await expect(page.getByTestId('celebration-banner')).toBeVisible();
@@ -176,7 +168,7 @@ test('reduced motion shows only the banner', async ({ page }) => {
 test('no sideways scroll at 360 px during a celebration', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await update('games/g1', { events: [ev('goal', 1, 'p5')] });
   await expect(celebration(page)).toBeVisible();
@@ -190,7 +182,7 @@ test('no sideways scroll at 360 px during a celebration', async ({ page }) => {
 test('on a short landscape screen the banner never covers the score and the net stays on screen', async ({ page }) => {
   await page.setViewportSize({ width: 740, height: 360 });
   await seedGame();
-  await open(page);
+  await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await update('games/g1', { events: [ev('goal', 1, 'p5')] });
   await expect(celebration(page)).toBeVisible();

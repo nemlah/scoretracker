@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, remove, resetAll, seed, update } from './helpers.js';
+import { closeAll, consoleProblems, cssColour, open, remove, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
 
 const roster = [
@@ -32,19 +31,10 @@ const seedLive = (events = liveEvents()) => Promise.all([
 ]);
 
 let problems;
-// Set by a test that intercepts a module: the browser's own resource-load failure for that URL is expected.
-let blockedUrl;
+let blocked;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  blockedUrl = null;
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (message.type() !== 'error' || isPlaywrightServiceWorkerBlock(message.text())) return;
-    // Only the browser's resource-load failure for the intercepted URL (its location and its text); an
-    // error the app logs about the same file, or any other, still fails the test.
-    if (blockedUrl && message.location()?.url === blockedUrl && /^Failed to load resource/.test(message.text())) return;
-    problems.push(`console: ${message.text()}`);
-  });
+  blocked = { url: null, errors: [] };
+  problems = consoleProblems(page, { blocked });
   await resetAll();
 });
 test.afterEach(() => {
@@ -52,7 +42,6 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 
 // A timeline row's text box (its name line) and the x of the centre line in that row, in the viewport.
 const textAgainstLine = row => row.evaluate(el => {
@@ -563,7 +552,7 @@ test('fouls show the exclusion and penalty icons; the third foul adds the out ta
   await expect(out.getByTestId('tl-icon')).toHaveClass(/tl-icon--pen/);
   await expect(out.locator('.tl-what')).toHaveText('Penalty foul · out');
   await expect(out.getByTestId('tl-out')).toHaveText('· out');
-  expect(await out.getByTestId('tl-out').evaluate(el => getComputedStyle(el).color)).toBe('rgb(179, 32, 47)');
+  expect(await cssColour(out.getByTestId('tl-out'), 'color')).toBe('rgb(179, 32, 47)');
   const p5 = items.filter({ hasText: '#5 Alexiou' });
   await expect(p5.getByTestId('tl-icon')).toHaveClass(/tl-icon--pen/);
   await expect(p5.getByTestId('tl-icon').locator('svg')).toBeVisible();
@@ -982,7 +971,7 @@ test.describe('the stroke icons', () => {
   });
 
   test('with icons.js missing every icon box shows its glyph and the pills still show', async ({ page, baseURL }) => {
-    blockedUrl = new URL('/js/icons.js', baseURL).href;
+    blocked.url = new URL('/js/icons.js', baseURL).href;
     await page.route('**/js/icons.js', route => route.abort());
     await seedGoalieGame(iconEvents(), { period: 1, lineup: iconLineup });
     await open(page, '#/game/g1');

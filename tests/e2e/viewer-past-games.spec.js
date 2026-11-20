@@ -1,6 +1,5 @@
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, resetAll, seed, update } from './helpers.js';
+import { closeAll, consoleProblems, open, resetAll, seed, update } from './helpers.js';
 
 const roster = [
   { id: 'p5', name: 'Alexiou', cap: 5, archived: false },
@@ -38,12 +37,7 @@ const seedBoth = ({ liveOpponent = 'Waves', currentStatus = 'live' } = {}) => Pr
 
 let problems;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (isPlaywrightServiceWorkerBlock(message.text())) return;
-    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
-  });
+  problems = consoleProblems(page);
   await resetAll();
 });
 test.afterEach(() => {
@@ -51,7 +45,6 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 const hashOf = page => page.evaluate(() => location.hash);
 const opponentName = page => page.locator('.board-opp');
 const resultLink = (page, id) => page.locator(`[data-testid="result-link"][href="#/game/${id}"]`);

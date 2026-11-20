@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
-import { get, update } from './helpers.js';
-import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from './network-noise.js';
+import { consoleProblems, get, update } from './helpers.js';
+import { isFirestoreChannelLoss } from './network-noise.js';
 
 export const TRACKER_URL = '/track.html?emulator=1';
 // An explicit #/ is a deliberate visit to Home; a bare address resumes a live game.
@@ -14,13 +14,8 @@ export function formatConsoleProblem(text, url) {
 
 // Collects page errors and console errors so specs can assert on a pristine run.
 export function collectProblems(page, problems) {
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (message.type() !== 'error') return;
-    const error = message.text();
-    if (isPlaywrightServiceWorkerBlock(error)) return;
-    const { url } = message.location();
-    if (!isFirestoreChannelLoss(error, url)) problems.push(formatConsoleProblem(error, url));
+  consoleProblems(page, {
+    problems, ignore: isFirestoreChannelLoss, format: formatConsoleProblem,
   });
 }
 

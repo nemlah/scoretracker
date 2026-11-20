@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, get, resetAll, seed, update } from './helpers.js';
+import {
+  closeAll, consoleProblems, cssColour, cssVariableColour, get, hexOf, open, resetAll, seed, tab, update,
+} from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
 
 const roster = [
@@ -46,25 +47,10 @@ const screens = [
 ];
 
 let problems;
-// Set by a test that intercepts a module: the one console error the browser logs for that URL is expected.
-let blockedUrl;
-let blockedErrors;
+let blocked;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  blockedUrl = null;
-  blockedErrors = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (message.type() !== 'error' || isPlaywrightServiceWorkerBlock(message.text())) return;
-    // Only an error whose own location (or text) names the intercepted URL; anything else still fails the test.
-    // Only the browser's own resource-load failure for the intercepted request: that URL as its location, and
-    // its text. An error the app logs about the same file is not it.
-    if (blockedUrl && message.location()?.url === blockedUrl && /^Failed to load resource/.test(message.text())) {
-      blockedErrors.push(message.text());
-      return;
-    }
-    problems.push(`console: ${message.text()}`);
-  });
+  blocked = { url: null, errors: [] };
+  problems = consoleProblems(page, { blocked });
   await resetAll();
 });
 test.afterEach(() => {
@@ -72,8 +58,6 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
-const tab = (page, name) => page.getByTestId(`tab-${name}`);
 const selectedTabs = page => page.evaluate(() => [...document.querySelectorAll('[role="tab"]')]
   .filter(el => el.getAttribute('aria-selected') === 'true').map(el => el.dataset.testid));
 // A panel that is on show. Not toBeVisible: the Team panel is empty until Task 9 and an empty box is "hidden" to it.
@@ -255,7 +239,7 @@ test.describe('the Team module fails to load', () => {
 
   for (const screen of screens) {
     test(`on ${screen.name} the Team tab says so and the other tabs still work`, async ({ page, baseURL }) => {
-      blockedUrl = new URL('/js/teamView.js', baseURL).href;
+      blocked.url = new URL('/js/teamView.js', baseURL).href;
       await page.route('**/js/teamView.js', route => route.abort());
       await seedAll();
       await open(page, screen.hash);
@@ -289,20 +273,14 @@ test.describe('the Players tab', () => {
     // The out player's chip is grey; the others carry the club colour. Its "Out" is in the out colour.
     const colours = await page.evaluate(() => {
       const bg = selector => getComputedStyle(document.querySelector(selector)).backgroundColor;
-      const probe = document.createElement('i');
-      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--out-text');
-      document.body.append(probe);
-      const outText = getComputedStyle(probe).color;
-      probe.remove();
       return {
         playing: bg('[data-cap="12"] .cap'),
         out: bg('[data-cap="2"] .cap'),
-        outText,
         label: getComputedStyle(document.querySelector('[data-testid="player-out"]')).color,
       };
     });
     expect(colours.out).not.toBe(colours.playing);
-    expect(colours.label).toBe(colours.outText);
+    expect(colours.label).toBe(await cssVariableColour(page, '--out-text'));
   });
 
   test('home lists the season players under the tab', async ({ page }) => {
@@ -463,7 +441,7 @@ for (const scheme of ['light', 'dark']) {
         await expect(page.getByTestId('score-us')).toHaveText('2');
         await tab(page, 'players').click();
         // The page's own accent.js import sets its pair a moment after first paint: wait for it, then override.
-        await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim())).not.toBe('');
+        await expect.poll(() => cssColour(page.locator('html'), '--on-accent')).not.toBe('');
         const paint = colour => page.evaluate(async value => {
           document.documentElement.style.setProperty('--accent', value);
           const { applyAccentPair } = await import('/js/accent.js');
@@ -501,12 +479,3 @@ for (const scheme of ['light', 'dark']) {
     });
   });
 }
-
-const hexOf = (page, colour) => page.evaluate(value => {
-  const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-  context.fillStyle = '#000000';
-  context.fillStyle = value;
-  context.fillRect(0, 0, 1, 1);
-  return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
-}, colour);
-

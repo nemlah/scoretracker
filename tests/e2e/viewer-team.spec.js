@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import {
-  closeAll, delivered, instrumentRepo, resetAll, seed, update,
+  closeAll, consoleProblems, cssVariableColour, delivered, instrumentRepo, open, resetAll, seed, tab, update,
 } from './helpers.js';
 import { teamGame, teamGameExpected } from '../fixtures/team-game.js';
 import {
@@ -16,33 +16,16 @@ const roster = [
 ];
 
 let problems;
-// Set by a test that intercepts a module: the browser's own resource-load failure for that URL is expected.
-let blockedUrl;
-let blockedErrors;
+let blocked;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  blockedUrl = null;
-  blockedErrors = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (message.type() !== 'error' || isPlaywrightServiceWorkerBlock(message.text())) return;
-    // Only the browser's resource-load failure for the intercepted URL (its location and its text); an error the
-    // app logs about the same file, or any other, still fails the test.
-    if (blockedUrl && message.location()?.url === blockedUrl && /^Failed to load resource/.test(message.text())) {
-      blockedErrors.push(message.text());
-      return;
-    }
-    problems.push(`console: ${message.text()}`);
-  });
+  blocked = { url: null, errors: [] };
+  problems = consoleProblems(page, { blocked });
   await resetAll();
 });
 test.afterEach(() => {
   expect(problems).toEqual([]);
 });
 test.afterAll(closeAll);
-
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
-const tab = (page, name) => page.getByTestId(`tab-${name}`);
 
 // The fixture game is the current game, so home shows its season (2026-27) on any run date.
 const seedGame = (game = teamGame) => Promise.all([
@@ -360,14 +343,7 @@ test.describe('the season Team tab', () => {
     await expect(diff.getByTestId('team-total')).toHaveText(signedText(q.totalDiff));
     // A loss is in the out colour (and so is nothing else in the row).
     const colours = await diff.getByTestId('team-q').evaluateAll(els => els.map(el => getComputedStyle(el).color));
-    const outColour = await page.evaluate(() => {
-      const probe = document.createElement('i');
-      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--out-text');
-      document.body.append(probe);
-      const colour = getComputedStyle(probe).color;
-      probe.remove();
-      return colour;
-    });
+    const outColour = await cssVariableColour(page, '--out-text');
     q.diff.forEach((value, index) => {
       if (value < 0) expect(colours[index], `quarter ${index + 1} is a loss`).toBe(outColour);
       else expect(colours[index], `quarter ${index + 1} is not a loss`).not.toBe(outColour);
@@ -492,7 +468,7 @@ test.describe('the stats module fails to load', () => {
     { name: 'home', hash: '', ready: 'result-row', other: 'season-row', first: 'results' },
   ]) {
     test(`on ${screen.name} the Team tab says so and the other tabs work`, async ({ page, baseURL, browserName }) => {
-      blockedUrl = new URL('/js/teamStats.js', baseURL).href;
+      blocked.url = new URL('/js/teamStats.js', baseURL).href;
       await page.route('**/js/teamStats.js', route => route.abort());
       await seedHome(seasonStatsFull);
       await open(page, screen.hash);
@@ -507,7 +483,7 @@ test.describe('the stats module fails to load', () => {
       await expect(page.getByTestId(screen.name === 'home' ? 'result-row' : 'timeline-item').first()).toBeVisible();
       // The failure was the one the test injected: Chromium reports it as a console error (filtered above), WebKit
       // does not log it at all.
-      if (browserName === 'chromium') expect(blockedErrors.length).toBeGreaterThan(0);
+      if (browserName === 'chromium') expect(blocked.errors.length).toBeGreaterThan(0);
     });
   }
 });
@@ -809,26 +785,36 @@ test.describe('a season change', () => {
   test.use({ serviceWorkers: 'block' });
   const OLD = '2019-20';
   const NEW = '2020-21';
-  const seasonOf = (season, opponent) => ({
+  const seasonOf = (opponent, exclusions) => ({
     ...seasonStatsFull,
-    results: seasonStatsFull.results.map(result => ({ ...result, opponent: `${opponent} ${result.gameId}` })),
+    results: seasonStatsFull.results.map(result => ({
+      ...result, opponent: `${opponent} ${result.gameId}`, excl: exclusions,
+    })),
   });
+  const oldStats = seasonOf('Rivals', 1);
+  const newStats = seasonOf('Waves', 2);
 
   test('while the new season loads the Team panel says so, never the previous numbers', async ({ page }) => {
     await Promise.all([
       seed('team/main', { currentGameId: 'old-g', roster }),
       seed('games/old-g', { ...teamGame, id: 'old-g', season: OLD }),
       seed('games/new-g', { ...teamGame, id: 'new-g', season: NEW }),
-      seed(`stats/${OLD}`, seasonOf(OLD, 'Rivals')),
-      seed(`stats/${NEW}`, seasonOf(NEW, 'Waves')),
+      seed(`stats/${OLD}`, oldStats),
+      seed(`stats/${NEW}`, newStats),
     ]);
-    // The new season's first answer is a cache miss; the server's follows 3 s later.
-    await instrumentRepo(page, { [`stats/${NEW}`]: { miss: true, holdMs: 3000 } });
+    // Show the old stats from a simulated cache hit while its server callback is held.
+    // For the new season, show a cache miss until the test releases its server callback.
+    const oldPath = `stats/${OLD}`;
+    const newPath = `stats/${NEW}`;
+    await instrumentRepo(page, { [oldPath]: { hold: true }, [newPath]: { miss: true, hold: true } });
     await open(page);
     await expect(page.getByTestId('result-row')).toHaveCount(4);
     await tab(page, 'team').click();
     await expect(page.getByTestId('season-team-game-row')).toHaveCount(4);
     await expect(page.getByTestId('season-team-game-row').first()).toContainText('Rivals team-g1');
+    const exclusions = page.getByTestId('season-team-total').getByTestId('season-team-excl-total');
+    await expect(exclusions).toHaveText('4');
+    await expect.poll(() => page.evaluate(path => window.__queued?.[path], oldPath)).toBe(1);
     // Record the panel from here on.
     await page.evaluate(() => {
       const panel = document.querySelector('[data-testid="panel-team"]');
@@ -839,10 +825,54 @@ test.describe('a season change', () => {
     await delivered(page, 'team/main', 'pointer', 'new-g');
     await expect(page.getByTestId('panel-team')).toContainText('Loading results…');
     await expect(page.getByTestId('season-team-game-row')).toHaveCount(0);
-    await expect(page.getByTestId('season-team-game-row').first()).toContainText('Waves team-g1', { timeout: 8000 });
+    await expect.poll(() => page.evaluate(path => window.__queued?.[path], newPath)).toBe(1);
+    await page.evaluate(path => window.__releaseHeld(path), newPath);
+    await expect(page.getByTestId('season-team-game-row').first()).toContainText('Waves team-g1');
+    await expect(exclusions).toHaveText('8');
+    const oldDeliveries = () => page.evaluate(path => window.__snaps
+      .filter(snap => snap.path === path && !snap.fromCache).length, oldPath);
+    expect(await oldDeliveries()).toBe(0);
+    await page.evaluate(path => window.__releaseHeld(path), oldPath);
+    expect(await oldDeliveries()).toBe(1);
+    await expect(page.getByTestId('season-team-game-row').first()).toContainText('Waves team-g1');
+    await expect(exclusions).toHaveText('8');
     const seen = await page.evaluate(() => window.__team);
     expect(seen.some(text => text.includes('Loading results…')), 'the loading line was shown').toBe(true);
     expect(seen.filter(text => text.includes('Rivals')), 'the old season after the switch').toEqual([]);
     expect(seen.at(-1)).toContain('Waves team-g1');
+  });
+
+  test('the Team panel ignores a stats snapshot whose key differs from the shown season', async ({ page }) => {
+    const viewer = readFileSync('js/viewer.js', 'utf8');
+    // Keep the ready home plan and call its real renderer with a mismatched snapshot.
+    // A late repo callback alone would stop at the subscription token check.
+    await page.route('**/js/viewer.js', route => route.fulfill({
+      contentType: 'text/javascript',
+      body: `${viewer}
+        window.__renderWithStats = (key, data) => {
+          const plan = planFor(parseRoute(location.hash));
+          const stats = state.stats;
+          try {
+            state.stats = { ...stats, key, data };
+            renderSeason(plan, true);
+          } finally {
+            state.stats = stats;
+          }
+          return { season: plan.season, results: plan.results };
+        };
+      `,
+    }));
+    await Promise.all([
+      seed('team/main', { currentGameId: 'new-g', roster }),
+      seed('games/new-g', { ...teamGame, id: 'new-g', season: NEW }),
+      seed(`stats/${NEW}`, newStats),
+    ]);
+    await open(page);
+    await tab(page, 'team').click();
+    await expect(page.getByTestId('season-team-game-row').first()).toContainText('Waves team-g1');
+    const plan = await page.evaluate(({ key, data }) => window.__renderWithStats(key, data), { key: OLD, data: oldStats });
+    expect(plan).toEqual({ season: NEW, results: 'ready' });
+    await expect(page.getByTestId('season-team-empty')).toBeVisible();
+    await expect(page.getByTestId('season-team-game-row')).toHaveCount(0);
   });
 });

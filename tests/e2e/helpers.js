@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import { EMULATOR } from '../../js/config.js';
+import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 
 export function e2eProjectId() {
   return `demo-scoretracker-${process.env.TEST_PARALLEL_INDEX ?? 0}`;
@@ -48,9 +49,59 @@ export async function closeAll() {
   await (await pending).cleanup();
 }
 
+export const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
+export const tab = (page, name) => page.getByTestId(`tab-${name}`);
+export const cssColour = (locator, property) => locator.evaluate((el, name) => {
+  const style = getComputedStyle(el);
+  return name.startsWith('--') ? style.getPropertyValue(name).trim() : style[name];
+}, property);
+
+export const cssVariableColour = (page, property) => page.evaluate(name => {
+  const probe = document.createElement('i');
+  probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(name);
+  document.body.append(probe);
+  const colour = getComputedStyle(probe).color;
+  probe.remove();
+  return colour;
+}, property);
+
+// Normalise browser-serialised colours for contrast measurements.
+export const hexOf = (page, colour) => page.evaluate(value => {
+  const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#000000';
+  context.fillStyle = value;
+  context.fillRect(0, 0, 1, 1);
+  return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
+}, colour);
+
+export function consoleProblems(page, {
+  problems = [],
+  consoleTypes = ['error'],
+  blocked,
+  ignore,
+  format = text => `console: ${text}`,
+} = {}) {
+  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
+  if (consoleTypes.length > 0) page.on('console', message => {
+    const type = message.type();
+    if (!consoleTypes.includes(type)) return;
+    const text = message.text();
+    if (isPlaywrightServiceWorkerBlock(text)) return;
+    const url = message.location()?.url;
+    // Only the browser's resource-load failure for the intercepted URL is expected.
+    // An error the app logs about the same file still fails the test.
+    if (type === 'error' && blocked?.url && url === blocked.url && /^Failed to load resource/.test(text)) {
+      blocked.errors.push(text);
+      return;
+    }
+    if (!ignore?.(text, url)) problems.push(format(text, url));
+  });
+  return problems;
+}
+
 // The live game is reached from the home banner, as a visitor would. For games the tracker created.
 export async function openLiveGame(page) {
-  await page.goto('/index.html?emulator=1');
+  await open(page);
   await page.getByTestId('live-banner').click();
   await expect(page.getByTestId('score-us')).toBeVisible();
 }
@@ -104,7 +155,9 @@ export const recordedHome = async page => ({
 // (`window.__snaps`), so a test can wait for the viewer to handle one write before making the next.
 // `slow` shapes a document's answers: { holdMs, miss } first delivers a cached snapshot (a cache miss when
 // `miss`), then the real one after holdMs, and any later snapshot of that path waits behind the held one and
-// arrives right after it, in order; { cached: true } delivers every snapshot as if from the cache,
+// arrives right after it, in order. { hold: true, miss } does the same for the first server snapshot
+// until the test calls window.__releaseHeld(path). window.__queued counts each snapshot put on hold.
+// { cached: true } delivers every snapshot as if from the cache,
 // so the server never seems to confirm it (the record still says what the server really sent).
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
@@ -120,22 +173,31 @@ export async function instrumentRepo(page, slow = {}) {
       const held = (window.__held ??= {});
       const meta = { fromCache: rule?.cached ? true : fromCache, hasPendingWrites };
       const deliver = () => { cb(data, meta); record(); };
+      const enqueue = () => {
+        (held[ref.path] ??= []).push(deliver);
+        const queued = (window.__queued ??= {});
+        queued[ref.path] = (queued[ref.path] ?? 0) + 1;
+      };
       if (held[ref.path]) {
         // A hold is pending on this path: a later snapshot waits behind it and arrives after it, in order.
-        held[ref.path].push(deliver);
-      } else if (rule?.holdMs && !seen.has(ref.path)) {
+        enqueue();
+      } else if ((rule?.holdMs || (rule?.hold && !fromCache)) && !seen.has(ref.path)) {
         seen.add(ref.path);
+        enqueue();
         cb(rule.miss ? null : data, { fromCache: true, hasPendingWrites });
-        const queue = held[ref.path] = [deliver];
-        setTimeout(() => {
-          delete held[ref.path];
-          for (const next of queue) next();
-        }, rule.holdMs);
+        if (rule.holdMs) setTimeout(() => window.__releaseHeld(ref.path), rule.holdMs);
       } else {
         deliver();
       }
     }`);
-  await page.addInitScript(rules => { window.__slow = rules; }, slow);
+  await page.addInitScript(rules => {
+    window.__slow = rules;
+    window.__releaseHeld = path => {
+      const queue = window.__held[path];
+      delete window.__held[path];
+      for (const next of queue) next();
+    };
+  }, slow);
   await page.route('**/js/repo.js', route => route.fulfill({ contentType: 'text/javascript', body }));
 }
 

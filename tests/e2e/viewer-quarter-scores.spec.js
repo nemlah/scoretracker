@@ -1,6 +1,5 @@
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, resetAll, seed, update } from './helpers.js';
+import { closeAll, consoleProblems, open, resetAll, seed, update } from './helpers.js';
 
 const roster = [{ id: 'p5', name: 'Alexiou', cap: 5, archived: false }];
 const lineup = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
@@ -23,12 +22,7 @@ const seedGame = (events, { status = 'final', opponent = 'Rivals', period = stat
 
 let problems;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (isPlaywrightServiceWorkerBlock(message.text())) return;
-    if (message.type() === 'error' || message.type() === 'warning') problems.push(`console: ${message.text()}`);
-  });
+  problems = consoleProblems(page, { consoleTypes: ['error', 'warning'] });
   await resetAll();
 });
 test.afterEach(() => {
@@ -36,7 +30,6 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 const grid = page => page.getByTestId('quarter-scores');
 const heads = page => grid(page).locator('thead th');
 const goalsOf = (page, row) => page.getByTestId(row).locator('td');

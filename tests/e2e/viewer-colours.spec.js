@@ -1,6 +1,5 @@
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, resetAll, seed } from './helpers.js';
+import { closeAll, consoleProblems, cssColour, open, resetAll, seed, tab } from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
 import { teamGame } from '../fixtures/team-game.js';
 import { seasonStatsFull } from '../fixtures/season-stats.js';
@@ -16,12 +15,7 @@ const ACCENTS = ['#0057b8', '#c8102e', '#f2b705', '#00843d'];
 
 let problems;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (isPlaywrightServiceWorkerBlock(message.text())) return;
-    if (message.type() === 'error') problems.push(`console: ${message.text()}`);
-  });
+  problems = consoleProblems(page);
   await resetAll();
   await Promise.all([
     seed('team/main', { currentGameId: 'team-g1', roster }),
@@ -37,12 +31,9 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
-const tab = (page, name) => page.getByTestId(`tab-${name}`);
-
 // The page's own accent.js import sets its pair a moment after first paint: wait for it, then override.
 async function paint(page, accent) {
-  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim())).not.toBe('');
+  await expect.poll(() => cssColour(page.locator('html'), '--on-accent')).not.toBe('');
   await page.evaluate(async value => {
     document.documentElement.style.setProperty('--accent', value);
     const { applyAccentPair } = await import('/js/accent.js');
@@ -74,13 +65,9 @@ const over = (top, under) => ({
   a: 1,
 });
 
-const computed = (page, selector, property) => page.locator(selector).first().evaluate(
-  (el, name) => getComputedStyle(el)[name],
-  property,
-);
 // A fill that must be opaque: a transparent or translucent one is a failure, never measured.
 async function opaque(page, selector, property, label) {
-  const colour = parseColour(await computed(page, selector, property));
+  const colour = parseColour(await cssColour(page.locator(selector).first(), property));
   expect(colour.a, `${label}: ${selector} ${property} is opaque`).toBe(1);
   return toHex(colour);
 }
@@ -90,11 +77,11 @@ const fromHex = hexColour => {
 };
 // A text colour, composited over the fill it is drawn on.
 async function textOn(page, selector, fillHex) {
-  return toHex(over(parseColour(await computed(page, selector, 'color')), fromHex(fillHex)));
+  return toHex(over(parseColour(await cssColour(page.locator(selector).first(), 'color')), fromHex(fillHex)));
 }
 // The fill of one element of a locator, which must be opaque.
 async function fillOf(locator, label) {
-  const colour = parseColour(await locator.evaluate(el => getComputedStyle(el).backgroundColor));
+  const colour = parseColour(await cssColour(locator, 'backgroundColor'));
   expect(colour.a, `${label} is opaque`).toBe(1);
   return toHex(colour);
 }

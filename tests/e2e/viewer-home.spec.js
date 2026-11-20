@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
-import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { seasonFor, todayIso } from '../../js/model.js';
 import {
-  closeAll, delivered, get, instrumentRepo, recordedHome, recordHome, remove, resetAll, restartHomeRecord, seed, update,
+  closeAll, consoleProblems, delivered, get, instrumentRepo, open,
+  recordHome, recordedHome, remove, resetAll, restartHomeRecord, seed, update,
 } from './helpers.js';
 
 const roster = [
@@ -45,12 +45,7 @@ const seedSeason = ({ liveOpponent = 'Waves', currentStatus = 'live' } = {}) => 
 
 let problems;
 test.beforeEach(async ({ page }) => {
-  problems = [];
-  page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
-  page.on('console', message => {
-    if (isPlaywrightServiceWorkerBlock(message.text())) return;
-    if (message.type() === 'error' || message.type() === 'warning') problems.push(`console: ${message.text()}`);
-  });
+  problems = consoleProblems(page, { consoleTypes: ['error', 'warning'] });
   await resetAll();
 });
 test.afterEach(() => {
@@ -58,7 +53,6 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
-const open = (page, hash = '') => page.goto(`/index.html?emulator=1${hash}`);
 const hashOf = page => page.evaluate(() => location.hash);
 const opponentName = page => page.locator('.board-opp');
 const home = page => page.getByTestId('games-list');
@@ -69,13 +63,15 @@ const rows = page => page.getByTestId('result-row');
 // Chromium and WebKit word a request that the test aborted or cut off differently, and Firestore logs
 // its own transport errors and that it cannot reach its backend. None of that is an app error.
 const NETWORK_NOISE = /ERR_FAILED|ERR_INTERNET_DISCONNECTED|Load failed|Could not reach Cloud Firestore|transport errored|WebKit encountered|due to access control checks/;
-const dropNoise = () => { problems = problems.filter(problem => !NETWORK_NOISE.test(problem)); };
+const dropNoise = () => {
+  problems.splice(0, problems.length, ...problems.filter(problem => !NETWORK_NOISE.test(problem)));
+};
 
 // Removes the one console warning an injected failure is expected to print, and proves it was printed.
 function expectWarning(pattern) {
   const found = problems.filter(problem => pattern.test(problem));
   expect(found).toHaveLength(1);
-  problems = problems.filter(problem => !pattern.test(problem));
+  problems.splice(0, problems.length, ...problems.filter(problem => !pattern.test(problem)));
 }
 
 // Whether the celebration was ever shown. The overlay hides itself after 2.5 s, so checking it at the end
