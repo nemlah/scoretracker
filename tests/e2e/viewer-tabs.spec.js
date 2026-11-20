@@ -56,7 +56,9 @@ test.beforeEach(async ({ page }) => {
   page.on('console', message => {
     if (message.type() !== 'error') return;
     // Only an error whose own location (or text) names the intercepted URL; anything else still fails the test.
-    if (blockedUrl && (blockedUrl.test(message.location()?.url ?? '') || blockedUrl.test(message.text()))) {
+    // Only the browser's own resource-load failure for the intercepted request: that URL as its location, and
+    // its text. An error the app logs about the same file is not it.
+    if (blockedUrl && message.location()?.url === blockedUrl && /^Failed to load resource/.test(message.text())) {
       blockedErrors.push(message.text());
       return;
     }
@@ -233,8 +235,8 @@ test.describe('the Team module fails to load', () => {
   test.use({ serviceWorkers: 'block' });
 
   for (const screen of screens) {
-    test(`on ${screen.name} the Team tab says so and the other tabs still work`, async ({ page }) => {
-      blockedUrl = /\/js\/teamView\.js(\?|$)/;
+    test(`on ${screen.name} the Team tab says so and the other tabs still work`, async ({ page, baseURL }) => {
+      blockedUrl = new URL('/js/teamView.js', baseURL).href;
       await page.route('**/js/teamView.js', route => route.abort());
       await seedAll();
       await open(page, screen.hash);
@@ -305,6 +307,8 @@ test.describe('the Players tab', () => {
           p5: { name: 'Alexiou', games: 2, goals: 3, excl: 0, pens: 0 },
           p12: { name: 'Κωνσταντινίδης', games: 2, goals: 2, excl: 0, pens: 0 },
           pold: { name: 'Old Player', games: 1, goals: 1, excl: 0, pens: 0 },
+          // An id that is also a property of every object: no roster entry, so no chip.
+          constructor: { name: 'Ctor Player', games: 1, goals: 1, excl: 0, pens: 0 },
         },
         goalies: {
           g1x: { name: 'Georgiou', games: 2, saves: 9, penSaves: 1, goalsAgainst: 7 },
@@ -315,13 +319,15 @@ test.describe('the Players tab', () => {
     ]);
     await open(page, '#/');
     await tab(page, 'players').click();
-    await expect(page.getByTestId('season-row')).toHaveCount(3);
+    await expect(page.getByTestId('season-row')).toHaveCount(4);
     const row = name => page.locator('[data-testid="season-row"]', { hasText: name });
     const keeper = name => page.locator('[data-testid="season-goalie-row"]', { hasText: name });
     await expect(row('Alexiou').locator('.cap')).toHaveText('5');
     await expect(row('Κωνσταντινίδης').locator('.cap')).toHaveText('12');
     await expect(row('Old Player').locator('.cap')).toHaveCount(0);
     await expect(row('Old Player').locator('.who-name')).toHaveText('Old Player');
+    await expect(row('Ctor Player').locator('.cap')).toHaveCount(0);
+    await expect(row('Ctor Player').locator('.who-name')).toHaveText('Ctor Player');
     await expect(keeper('Georgiou').locator('.cap')).toHaveText('1');
     await expect(keeper('Old Keeper').locator('.cap')).toHaveCount(0);
     await expect(keeper('Old Keeper').locator('.who-name')).toHaveText('Old Keeper');

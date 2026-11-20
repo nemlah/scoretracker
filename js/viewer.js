@@ -813,7 +813,7 @@ function renderSeason(plan, tabsShown) {
   renderIfChanged(panelEls.results, [results, stats], () => resultsPanel(results, stats));
   // The season's totals carry no cap: it comes from the current roster, by player id.
   const caps = rosterCaps();
-  renderIfChanged(panelEls.players, [results, stats, caps], () => seasonPlayersPanel(results, stats, caps));
+  renderIfChanged(panelEls.players, [results, stats, [...caps]], () => seasonPlayersPanel(results, stats, caps));
   // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
   renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus], () => {
     if (results === 'failed') return teamUnavailable();
@@ -834,10 +834,10 @@ function resultsPanel(results, stats) {
 
 // Cap numbers of the current roster, by player id. A player the roster no longer holds has none.
 function rosterCaps() {
-  const caps = {};
+  const caps = new Map(); // a Map: a historical id like 'constructor' must not find an inherited value
   const roster = state.team.data?.roster;
   for (const player of Array.isArray(roster) ? roster : []) {
-    if (typeof player?.id === 'string' && Number.isInteger(player.cap)) caps[player.id] = player.cap;
+    if (typeof player?.id === 'string' && Number.isInteger(player.cap)) caps.set(player.id, player.cap);
   }
   return caps;
 }
@@ -906,7 +906,7 @@ function resultItem(result) {
 
 // A season row's name, with the cap chip when the roster still knows the player.
 const seasonWho = (player, caps) => h('span', { class: 'who' },
-  caps[player.id] === undefined ? null : capBadge(caps[player.id], false),
+  caps.has(player.id) ? capBadge(caps.get(player.id), false) : null,
   h('span', { class: 'who-name' }, player.name));
 
 function seasonGoaliesTable(goalies, caps) {
