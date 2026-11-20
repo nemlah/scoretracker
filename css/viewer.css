@@ -264,7 +264,7 @@ body.viewer {
   font-variant-numeric: tabular-nums;
   color: var(--v-led);
 }
-.board > .shootout { margin: 0; font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
+.board > .board-shootout { margin: 0; font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
 
 /* Goals by quarter: Q1 to Q4 across, our row, then theirs. The current quarter's head is amber. */
 .board-quarters {
@@ -307,7 +307,6 @@ body.viewer {
   background: var(--v-led);
   animation: pulse 1.6s ease-in-out infinite;
 }
-.shootout { font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
 
 @keyframes pulse { 50% { opacity: 0.25; } }
 @keyframes flash { from { color: var(--v-board-ink); } to { color: var(--v-led); } }
@@ -318,24 +317,8 @@ body.viewer {
 
 /* Empty state */
 .empty { padding: 1rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--paper); }
-.empty h2 { font-size: 1.375rem; font-weight: 700; line-height: 1.25; }
-.empty h2 + p { margin-top: 0.5rem; color: var(--v-muted); }
 .empty p { max-width: 28rem; }
 
-/* Tables and lists */
-.section {
-  padding: 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--paper);
-}
-.section > * + * { margin-top: 0.75rem; }
-.section > h2 {
-  font: 700 0.8125rem/1.3 var(--font-body);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--v-muted);
-}
 /* A titled block of a panel: the small-caps heading, then a card with a table in it. */
 .panel-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; }
 .panel-block > h2 {
@@ -1005,6 +988,7 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   color: var(--v-board-ink);
 }
 .quarter-scores .quarter { white-space: nowrap; }
+.shootout { font: 700 1.5rem/1.2 var(--font-num); color: var(--v-board-ink); }
 
 /* Man-up / man-down */
 /* Man-up and man-down read the same here (they differ by their text); the green chip is on the timeline tag. */
@@ -1013,6 +997,23 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 .scoreboard .situation-figures { margin-top: 0.75rem; color: var(--v-board-muted); }
 .scoreboard .situation-figures:not(:has(.situation-figure:not(:empty))) { display: none; }
 .situation-figure { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+
+/* The previous release's empty state and game sections, by their old class names. */
+.empty h2 { font-size: 1.375rem; font-weight: 700; line-height: 1.25; }
+.empty h2 + p { margin-top: 0.5rem; color: var(--v-muted); }
+.section {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
+.section > * + * { margin-top: 0.75rem; }
+.section > h2 {
+  font: 700 0.8125rem/1.3 var(--font-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--v-muted);
+}
 
 /* The previous release's pages follow. */
 /* The live banner: amber with ink text, at least 56 px tall. */

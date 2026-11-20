@@ -834,18 +834,74 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
   });
 }
 
+// The previous viewer.css, served in place of this release's. The count says the route fired: the test is
+// about that file, so it fails if the worker or the cache served the new one instead.
+async function servePreviousStylesheet(page) {
+  const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
+  const served = { count: 0 };
+  await page.route('**/css/viewer.css*', route => {
+    served.count++;
+    return route.fulfill({ contentType: 'text/css', body: previous });
+  });
+  return served;
+}
+
 test('with the previous release stylesheet the new scoreboard still shows both scores and the opponent', async ({ page }) => {
   // The previous viewer.css knows none of this release's board classes.
-  const previous = execFileSync('git', ['show', '58f859d:css/viewer.css'], { encoding: 'utf8' });
-  await page.route('**/css/viewer.css*', route => route.fulfill({ contentType: 'text/css', body: previous }));
+  const served = await servePreviousStylesheet(page);
   await seedLive();
   await open(page, '#/game/g1');
   await expect(page.getByTestId('score-us')).toBeVisible();
+  expect(served.count, 'the previous viewer.css was served').toBeGreaterThan(0);
   await expect(page.getByTestId('score-us')).toHaveText('12');
   await expect(page.getByTestId('score-them')).toBeVisible();
   await expect(page.getByTestId('score-them')).toHaveText('11');
   await expect(page.locator('.board-opp')).toBeVisible();
   await expect(page.getByTestId('timeline-item').first()).toBeVisible();
+});
+
+test('with the previous release stylesheet a shootout score is readable on its real background', async ({ page }) => {
+  // The previous viewer.css paints every .shootout white, for a dark board it no longer has around the new one.
+  const served = await servePreviousStylesheet(page);
+  await Promise.all([
+    seed('team/main', { currentGameId: 'g1', roster }),
+    seed('games/g1', {
+      opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'live', period: 'SO', lineup,
+      events: [ev('goal', 1, 'p10'), ev('oppGoal', 2), ev('goal', 'SO', 'p10'), ev('goal', 'SO', 'p11'), ev('oppGoal', 'SO')],
+    }),
+  ]);
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await expect(page.getByTestId('score-them')).toHaveText('1');
+  const shootout = page.getByTestId('shootout');
+  await expect(shootout).toBeVisible();
+  await expect(shootout).toHaveText('(2 – 1 pen.)');
+  expect(served.count, 'the previous viewer.css was served').toBeGreaterThan(0);
+  // The text colour against what is painted behind it: the backgrounds of the element and its ancestors, from the
+  // page outwards, stacked on white.
+  const [text, behind] = await shootout.evaluate(el => {
+    const layers = [];
+    for (let node = el; node; node = node.parentElement) layers.unshift(getComputedStyle(node).backgroundColor);
+    const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    const hex = colour => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, 1, 1);
+      context.fillStyle = colour;
+      context.fillRect(0, 0, 1, 1);
+      return `#${[...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(c => c.toString(16).padStart(2, '0')).join('')}`;
+    };
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, 1, 1);
+    for (const layer of layers) {
+      context.fillStyle = layer;
+      context.fillRect(0, 0, 1, 1);
+    }
+    const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+    const stacked = `#${[r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')}`;
+    return [hex(getComputedStyle(el).color), stacked];
+  });
+  expect(contrastRatio(text, behind), `${text} on ${behind}`).toBeGreaterThanOrEqual(4.5);
 });
 
 test.describe('the previous stylesheet beside the new timeline markup', () => {

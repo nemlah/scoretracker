@@ -353,7 +353,7 @@ const note = h('p', { class: 'connection-note', 'data-testid': 'connection-note'
   refresh(), h('span', {}, t('connectionNote')));
 const scoreUs = h('span', { class: 'board-score', 'data-testid': 'score-us' });
 const scoreThem = h('span', { class: 'board-score', 'data-testid': 'score-them' });
-const shootout = h('p', { class: 'shootout', 'data-testid': 'shootout', hidden: true });
+const shootout = h('p', { class: 'board-shootout', 'data-testid': 'shootout', hidden: true });
 const quarterScores = h('table', { class: 'board-quarters', 'data-testid': 'quarter-scores', hidden: true });
 const liveBadge = h('span', { class: 'board-live', 'data-testid': 'live-badge', hidden: true },
   h('span', { class: 'live-dot', 'aria-hidden': 'true' }), t('live'));
