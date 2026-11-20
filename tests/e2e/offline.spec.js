@@ -29,15 +29,29 @@ test.afterAll(closeAll);
 const tile = (page, cap) => page.locator(`[data-testid="tile"][data-cap="${cap}"]`);
 const goal = page => tile(page, 5).getByTestId('tile-goal');
 const swReady = page => page.evaluate(async () => { await navigator.serviceWorker.ready; });
-// The worker stores a Google Fonts file only when a page it controls asks for it. The first load is not
-// controlled yet, and on the next one the font is asked for only once the text is drawn, so going offline
-// straight after that reload can leave the font out of the cache: the offline load then asks the network
-// for it (net::ERR_FAILED; a real request to fonts.gstatic.com, so it comes and goes). Every font file a
-// page asked for must be stored before the test goes offline. The worker answers before its cache write
-// is done, so this polls the shell cache itself.
+// Google Fonts is answered by the test, so these tests never wait for (or fail on) the real service. The
+// stylesheet is a plain @font-face on a system font, so no font file is asked for; the font host answers an
+// empty file all the same, if one ever is. `hits` lists every request that reached the stub, whoever made it:
+// the page on its first load, the worker when it fetches for its cache. After the page has gone offline a
+// new hit would mean the network was asked again, so the cache did not serve it.
+const FONT_STYLES = "@font-face { font-family: 'Sofia Sans'; font-weight: 400 700; src: local('Arial'), local('Helvetica'); }";
+async function stubFonts(context) {
+  const hits = [];
+  await context.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => {
+    const url = route.request().url();
+    hits.push(url);
+    return url.startsWith('https://fonts.googleapis.com/')
+      ? route.fulfill({ contentType: 'text/css', body: FONT_STYLES })
+      : route.fulfill({ contentType: 'font/woff2', headers: { 'access-control-allow-origin': '*' }, body: '' });
+  });
+  return hits;
+}
+// The worker stores a Google Fonts file only when a page it controls asks for it, and it answers before
+// its cache write is done. Everything the page asked for from Google Fonts must be in the shell cache before
+// the test goes offline, so this polls the shell cache itself.
 const watchFonts = page => {
   const urls = new Set();
-  page.on('request', request => { if (request.url().startsWith('https://fonts.gstatic.com/')) urls.add(request.url()); });
+  page.on('request', request => { if (/^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(request.url())) urls.add(request.url()); });
   return urls;
 };
 const fontsCached = (page, urls) => expect.poll(async () => {
@@ -45,7 +59,7 @@ const fontsCached = (page, urls) => expect.poll(async () => {
   // taken after it, on every round.
   await page.evaluate(() => document.fonts.ready);
   const list = [...urls];
-  if (list.length === 0) return 'no font file requested';
+  if (list.length === 0) return 'no font request';
   return page.evaluate(async wanted => {
     const shell = await Promise.all((await caches.keys()).filter(name => name.startsWith('wp-shell-')).map(name => caches.open(name)));
     const missing = [];
@@ -55,7 +69,7 @@ const fontsCached = (page, urls) => expect.poll(async () => {
     }
     return missing.length === 0 ? 'cached' : `not cached: ${missing.join(' ')}`;
   }, list);
-}, { message: 'every font file the page asked for is in the shell cache' }).toBe('cached');
+}, { message: 'everything the page asked for from Google Fonts is in the shell cache' }).toBe('cached');
 
 async function startGame(page) {
   await page.goto(TRACKER_URL);
@@ -119,6 +133,7 @@ test('the viewer shows the connection note offline and hides it after reconnecti
 });
 
 test('the viewer reopens offline from the cached shell', async ({ page, context }) => {
+  const stubbed = await stubFonts(context);
   const fonts = watchFonts(page);
   await page.goto(VIEWER_URL);
   await expect(page.getByTestId('results-empty')).toBeVisible();
@@ -127,9 +142,12 @@ test('the viewer reopens offline from the cached shell', async ({ page, context 
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
   await expect(page.getByTestId('results-empty')).toBeVisible();
   await fontsCached(page, fonts);
+  const asked = stubbed.length;
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByTestId('connection-note')).toBeVisible();
+  // The stylesheet came from the shell cache: nothing asked the stub again.
+  expect(stubbed.length, 'Google Fonts was not asked again offline').toBe(asked);
   await context.setOffline(false);
   dropNetworkNoise(problems);
 });
@@ -141,6 +159,7 @@ test('home reopens offline from cached results, with the connection note and no 
     lineup: [{ playerId: 'p5', name: 'Alexiou', cap: 5 }], events: [],
   });
   await seed('stats/2019-20', { results: [{ gameId: 'g1', date: '2019-11-01', opponent: 'Rivals', us: 2, them: 1 }] });
+  const stubbed = await stubFonts(context);
   const fonts = watchFonts(page);
   await page.goto(VIEWER_URL);
   await expect(page.getByTestId('games-list')).toHaveAttribute('data-results', 'ready');
@@ -149,6 +168,7 @@ test('home reopens offline from cached results, with the connection note and no 
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
   await expect(page.getByTestId('games-list')).toHaveAttribute('data-results', 'ready');
   await fontsCached(page, fonts);
+  const asked = stubbed.length;
   // Firestore keeps what it has seen; the page after this reload is a new load with no connection.
   await context.setOffline(true);
   await recordHome(page);
@@ -167,6 +187,7 @@ test('home reopens offline from cached results, with the connection note and no 
     expect(list.slice(0, first).every(entry => ['', 'loading'].includes(entry.results)), JSON.stringify(list)).toBe(true);
   }
   expect(states.at(-1)).toEqual({ season: '2019-20', results: 'ready', first: 'Rivals' });
+  expect(stubbed.length, 'Google Fonts was not asked again offline').toBe(asked);
   await context.setOffline(false);
   dropNetworkNoise(problems);
 });
