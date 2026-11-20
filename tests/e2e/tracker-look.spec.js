@@ -427,6 +427,14 @@ for (const [width, height] of [[844, 390], [667, 375]]) {
       expect(control.top, `${control.id} top`).toBeGreaterThanOrEqual(0);
       expect(control.bottom, `${control.id} bottom`).toBeLessThanOrEqual(height + 0.5);
     }
+    // Every tile button, on a goalie and on a field tile, is a 44 px target in both directions.
+    const narrow = await page.getByTestId('tiles').evaluate(el => [...el.querySelectorAll('button')]
+      .filter(button => getComputedStyle(button).visibility !== 'hidden' && button.getBoundingClientRect().width > 0)
+      .map(button => ({ name: `${button.dataset.testid}:${button.closest('.tile').dataset.cap}`, ...button.getBoundingClientRect().toJSON() }))
+      .filter(({ width, height }) => width < 43.5 || height < 43.5)
+      .map(({ name, width, height }) => `${name} ${Math.round(width)}x${Math.round(height)}`));
+    expect(narrow, 'tile buttons under 44 px').toEqual([]);
+    expect(await tile(page, 13).getByTestId('tile-pen-save').count(), 'a goalie tile is checked').toBe(1);
     // The tile list scrolls inside its own pane, and a tile at the end can be brought fully into view.
     const pane = await page.getByTestId('tiles').evaluate(el => ({ scrolls: el.scrollHeight > el.clientHeight, overflow: getComputedStyle(el).overflowY }));
     expect(pane.overflow).toBe('auto');
@@ -678,3 +686,57 @@ test('360 px game detail: the events panel has no second border inside its card'
   for (const link of borders.chain) expect(link.widths, `${link.tag} has no border`).toEqual([0, 0, 0, 0]);
   expect((await overflowing(page, 360)).scroll).toBeLessThanOrEqual(360);
 });
+
+// The moved banner and the unsaved banner together on the shortest screens: they scroll inside the left column,
+// so the header, the score row and every dock button stay on screen and the page itself does not scroll.
+for (const [width, height] of [[844, 360], [667, 375]]) {
+  test(`${width} x ${height} landscape: both banners scroll in the column and the dock stays on screen`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => {
+      const entries = Array.from({ length: 12 }, (_, i) => ({
+        id: `failed-${i}`, gameId: 'g1', op: 'add', status: 'failed',
+        event: { id: `offline-${i}`, type: 'goal', period: 3, ts: i, playerId: 'p11' },
+      }));
+      localStorage.setItem('wp-journal', JSON.stringify(entries));
+    });
+    await openGame(page, { opponent: longOpponent, period: 3, events: richEvents('up') });
+    await expect(page.getByTestId('tile')).toHaveCount(6);
+    await otherDeviceTakesControl();
+    await expect(page.getByTestId('takeover-banner')).toBeVisible();
+    await expect(page.getByTestId('failed-banner')).toBeVisible();
+    const inside = async id => {
+      const box = await page.getByTestId(id).boundingBox();
+      expect(box.x, `${id} left`).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(300.5);
+      expect(box.y, `${id} top`).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height, `${id} bottom`).toBeLessThanOrEqual(height + 0.5);
+      return box;
+    };
+    expect(await page.evaluate(() => document.scrollingElement.scrollHeight), 'the page does not scroll').toBeLessThanOrEqual(height);
+    for (const id of ['situation', 'opp-goal', 'undo', 'events-open', 'period-next']) {
+      const box = await inside(id);
+      expect(box.height, `${id} height`).toBeGreaterThanOrEqual(44);
+    }
+    const bar = await page.locator('header.bar').boundingBox();
+    expect(bar.y).toBeGreaterThanOrEqual(0);
+    await expect(page.getByTestId('score-us')).toBeInViewport();
+    // The banners are taller than their share of the column, so they scroll in place...
+    const region = await page.locator('.banners').evaluate(el => ({ scrolls: el.scrollHeight > el.clientHeight, overflow: getComputedStyle(el).overflowY }));
+    expect(region.overflow).toBe('auto');
+    expect(region.scrolls, 'the banners are taller than their room').toBe(true);
+    // ...and their buttons can each be brought into view and used.
+    for (const id of ['take-over', 'retry-failed', 'discard-failed']) {
+      const button = page.getByTestId(id);
+      await button.scrollIntoViewIfNeeded();
+      await inside(id);
+      // Retry and Discard are disabled while tracking is elsewhere, so a click would wait: ask what is under the centre instead.
+      expect(await button.evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        const top = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        return el === top || el.contains(top);
+      }), `${id} is not covered`).toBe(true);
+    }
+    expect(await page.evaluate(() => document.scrollingElement.scrollHeight), 'the page still does not scroll').toBeLessThanOrEqual(height);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+  });
+}
