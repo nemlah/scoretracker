@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { closeAll, get, resetAll, seed, update } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, reloadTracker, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, reloadTracker, unlockTracker, waitForTrackerControl } from './tracker-helpers.js';
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -135,6 +135,7 @@ async function startGoalieGame(page, roster = goalieRoster) {
   await page.getByTestId('opponent-input').fill('Opponent FC');
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.getByTestId('score-us')).toBeVisible();
 }
 
 // A game written straight to the server, opened through Home.
@@ -247,7 +248,7 @@ test('a goalie change scrolls back to the top', async ({ page }) => {
   await startGoalieGame(page);
   await page.setViewportSize({ width: 360, height: 480 });
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
   await tile(page, 13).getByTestId('tile-in-goal').click();
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
 });
@@ -285,6 +286,7 @@ const moreSheet = page => page.getByTestId('goalie-more-sheet');
 
 const heights = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el => [el.dataset.cap, el.getBoundingClientRect().height]));
 async function expectEqualHeights(page) {
+  await page.evaluate(() => document.fonts.ready);
   for (const width of [360, 800]) {
     await page.setViewportSize({ width, height: 900 });
     const all = await heights(page);
@@ -459,6 +461,7 @@ test('⋯ is disabled for an OUT goalie and on a device not in control during a 
   });
   await expect(tile(page, 13).getByTestId('tile-more')).toBeDisabled();
   await expect(tile(page, 1).getByTestId('tile-more')).toBeEnabled();
+  await waitForTrackerControl();
   await update('control/tracker', { activeUid: 'another-device' });
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await expect(tile(page, 1).getByTestId('tile-more')).toBeDisabled();
@@ -544,6 +547,7 @@ test('a game without goalies looks as before', async ({ page }) => {
   await page.getByTestId('home-new').click();
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.getByTestId('score-us')).toBeVisible();
   await expect(page.locator('[data-goalie]')).toHaveCount(0);
   await expect(page.getByTestId('tile-save')).toHaveCount(0);
   await expect(page.getByTestId('tile-in-goal')).toHaveCount(0);

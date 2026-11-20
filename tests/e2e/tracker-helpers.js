@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { get } from './helpers.js';
 import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from './network-noise.js';
 
 export const TRACKER_URL = '/track.html?emulator=1';
@@ -26,6 +27,10 @@ export async function unlockTracker(page, code = CODE) {
   await page.getByTestId('code-input').fill(code);
   await page.getByTestId('unlock-btn').click();
   await expect(page.getByTestId('home-new')).toBeVisible();
+}
+
+export async function waitForTrackerControl() {
+  await expect.poll(async () => (await get('control/tracker'))?.activeUid).toBeTruthy();
 }
 
 // Browsers report in-flight Firestore channel requests that they abort on navigation or

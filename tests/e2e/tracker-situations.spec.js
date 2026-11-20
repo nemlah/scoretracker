@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { closeAll, get, resetAll, seed } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, unlockTracker, waitForTrackerControl } from './tracker-helpers.js';
 
 const roster = [
   { id: 'p2', name: 'Papadakis', cap: 2, archived: false },
@@ -33,10 +33,13 @@ async function currentGameId() {
 async function startGame(page) {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
+  await waitForTrackerControl();
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
+  // The game and team pointer commit together, behind any control claim made en route.
+  return currentGameId();
 }
 
 // A game written straight to the server, opened through Home so the unlock step still works.
@@ -133,6 +136,7 @@ test('the period button closes an open man-up as missed', async ({ page }) => {
 test('Undo of the goal reopens the man-up', async ({ page }) => {
   await startGame(page);
   await situation(page).click();
+  await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
   await tile(page, 5).getByTestId('tile-goal').click();
   await expect(situation(page)).toHaveAttribute('data-state', 'none');
   await expect(page.getByTestId('live-situations')).toHaveText('MU 1/1 · MD 0/0');
@@ -237,7 +241,7 @@ test('opening a man-down does not move the tiles', async ({ page }) => {
 });
 
 test('ending the game with a man-up open removes the tint', async ({ page }) => {
-  await startGame(page);
+  const id = await startGame(page);
   await situation(page).click();
   await expect(body(page)).toHaveClass(/sit-up/);
   await page.getByTestId('events-open').click();
@@ -249,4 +253,5 @@ test('ending the game with a man-up open removes the tint', async ({ page }) => 
   await expect(page.getByTestId('home-new')).toBeVisible();
   await expect(body(page)).not.toHaveClass(/sit-up/);
   await expect(body(page)).not.toHaveClass(/sit-down/);
+  await expect.poll(async () => (await get(`games/${id}`))?.status).toBe('final');
 });
