@@ -85,11 +85,12 @@ const fontsCached = (page, urls) => expect.poll(async () => {
   }, list);
 }, { message: 'everything the page asked for from Google Fonts is in the shell cache' }).toBe('cached');
 
-async function startGame(page) {
+async function startGame(page, date) {
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
+  if (date) await page.getByTestId('date-input').fill(date);
   await page.getByTestId('start-game').click();
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect.poll(async () => (await get('team/main'))?.currentGameId).toBeTruthy();
@@ -207,7 +208,7 @@ test('home reopens offline from cached results, with the connection note and no 
 });
 
 test('taps after losing control are flagged, retried after taking back', async ({ page, context, browser }) => {
-  const gameId = await startGame(page);
+  const gameId = await startGame(page, '2026-11-16');
   const aUid = await waitForHolder();
   const contextB = await browser.newContext({ baseURL: ORIGIN });
   const viewerContext = await browser.newContext({ baseURL: ORIGIN });
@@ -217,11 +218,14 @@ test('taps after losing control are flagged, retried after taking back', async (
     await openLiveGame(viewer);
     await expect(viewer.getByTestId('score-us')).toHaveText('0');
 
-    // Device A loses its signal and taps. The tap is only in A's cache and journal.
+    // Device A loses its signal and taps. The three taps are only in A's cache and journal.
     await context.setOffline(true);
     await expect(page.getByTestId('sync-status')).toHaveText(OFFLINE_TEXT);
     await goal(page).click();
-    await expect(page.getByTestId('score-us')).toHaveText('1');
+    await tile(page, 2).getByTestId('tile-goal').click();
+    await page.getByTestId('opp-goal').click();
+    await expect(page.getByTestId('score-us')).toHaveText('2');
+    await expect(page.getByTestId('score-them')).toHaveText('1');
 
     // Device B unlocks and takes over while A is away.
     const pageB = await contextB.newPage();
@@ -233,17 +237,47 @@ test('taps after losing control are flagged, retried after taking back', async (
     // A comes back: its queued write is refused by the rules.
     await context.setOffline(false);
     await expect(page.getByTestId('takeover-banner')).toBeVisible();
-    await expect(page.getByTestId('failed-banner')).toContainText('1 tap not saved', { timeout: 15000 });
+    const row = page.getByTestId('failed-row');
+    const desc = row.getByTestId('failed-desc');
+    const retry = row.getByTestId('retry-failed');
+    const discard = row.getByTestId('discard-failed');
+    await expect(row.getByTestId('failed-title')).toHaveText('3 taps not saved', { timeout: 15000 });
+    await expect(row.getByTestId('failed-icon')).toHaveAttribute('aria-hidden', 'true');
+    await expect(row.getByTestId('failed-game-link')).toHaveCount(0);
+    const labels = 'Goal · #5 Alexiou, Goal · #2 Papadakis +1 more';
+    await expect(desc).toHaveText(`16/11/2026 · Opponent FC: ${labels}`);
+    await expect(retry).toBeDisabled();
+    await expect(discard).toBeEnabled();
+    const retryBox = await retry.boundingBox();
+    const discardBox = await discard.boundingBox();
+    expect(retryBox.height).toBe(48);
+    expect(discardBox.height).toBe(48);
+    expect(retryBox.width).toBeCloseTo(discardBox.width, 0);
+    expect(retryBox.y).toBe(discardBox.y);
+    const rowBox = await row.boundingBox();
+    expect(retryBox.x).toBeCloseTo(rowBox.x, 0);
+    expect(discardBox.x + discardBox.width).toBeCloseTo(rowBox.x + rowBox.width, 0);
     await expect(viewer.getByTestId('score-us')).toHaveText('0');
     expect((await get(`games/${gameId}`)).events).toEqual([]);
 
-    // A takes control back and retries the refused tap.
+    // A fresh game snapshot changes the description while both action buttons stay in the DOM.
+    const buttons = { retry: await retry.elementHandle(), discard: await discard.elementHandle() };
+    await update(`games/${gameId}`, { opponent: 'Corrected FC' });
+    await expect(desc).toHaveText(`16/11/2026 · Corrected FC: ${labels}`);
+    expect(await retry.evaluate((el, before) => el === before, buttons.retry)).toBe(true);
+    expect(await discard.evaluate((el, before) => el === before, buttons.discard)).toBe(true);
+
+    // A takes control back and retries the refused taps.
     await page.getByTestId('take-over').click();
     await expect(page.getByTestId('takeover-banner')).toBeHidden();
-    await page.getByTestId('retry-failed').click();
-    await expect(viewer.getByTestId('score-us')).toHaveText('1', { timeout: 10000 });
+    await retry.click();
+    await expect.poll(async () => (await get(`games/${gameId}`)).events.map(e => [e.type, e.playerId ?? null])).toEqual([
+      ['goal', 'p5'], ['goal', 'p2'], ['oppGoal', null],
+    ]);
+    await expect(viewer.getByTestId('score-us')).toHaveText('2', { timeout: 10000 });
+    await expect(viewer.getByTestId('score-them')).toHaveText('1');
     await expect(page.getByTestId('failed-banner')).toBeHidden();
-    await expect(page.getByTestId('score-us')).toHaveText('1');
+    await expect(page.getByTestId('score-us')).toHaveText('2');
   } finally {
     await contextB.close();
     await viewerContext.close();
@@ -429,6 +463,7 @@ test('refused taps stay visible and recoverable after the current game has chang
     // The live game is "next" now, and the refused tap of the earlier game is still offered.
     await expect(reopened.getByTestId('score-us')).toHaveText('0');
     await expect(reopened.getByTestId('failed-banner')).toContainText('1 tap not saved');
+    await expect(reopened.getByTestId('failed-desc')).toBeHidden();
     await expect(reopened.getByTestId('failed-game-link')).toHaveAttribute('href', `#/games/${gameId}`);
     // The link is a 44 x 44 target (the banner is the real one, built by a refused tap).
     const linkBox = await reopened.getByTestId('failed-game-link').boundingBox();

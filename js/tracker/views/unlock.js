@@ -1,3 +1,4 @@
+import { team } from '../../config.js';
 import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
@@ -39,7 +40,14 @@ export function mount(root, ctx) {
     error,
     button,
   );
-  root.append(h('section', { class: 'unlock' }, h('h2', {}, t('unlockHeading')), notice, form));
+  const crest = team.crest ? h('img', {
+    class: 'unlock-crest', 'data-testid': 'unlock-crest', width: 120, height: 120, alt: '',
+    onerror: event => { event.currentTarget.hidden = true; },
+    src: team.crest,
+  }) : null;
+  root.append(h('section', { class: 'unlock' },
+    h('div', { class: 'unlock-brand' }, crest, h('h2', {}, t('unlockHeading'))),
+    notice, form));
 
   function sync() {
     const offline = ctx.getState().online === false;

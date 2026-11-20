@@ -25,7 +25,7 @@ body.tracker {
   text-align: left;
 }
 
-/* The header is the board. */
+/* R2 tracker markup, kept for mixed caches; remove in R4 */
 .bar {
   display: flex;
   align-items: center;
@@ -40,6 +40,13 @@ body.tracker {
 .bar .btn--ghost { color: var(--t-white); }
 .bar :focus-visible, .live-top :focus-visible, .unlock :focus-visible { outline-color: var(--t-led); }
 
+.bar.bar--team { gap: 0.75rem; padding-block: 0.625rem; }
+.bar-brand { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.bar-brand .brand { font-size: 1.125rem; letter-spacing: 0.08em; line-height: 1.2; }
+.bar-crest, .unlock-crest { object-fit: contain; }
+.bar-crest { flex: none; }
+.bar--team .btn--ghost { flex: none; padding: 0.25rem 0.875rem; font-weight: 600; font-size: 0.9375rem; }
+
 .view {
   padding: 1.5rem 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
 }
@@ -48,7 +55,7 @@ body.tracker {
 
 .status-line { color: var(--ink); }
 
-/* Banners sit directly under the header: one line, one action. */
+/* Banners sit directly under the header. */
 .banner {
   display: flex;
   align-items: center;
@@ -146,6 +153,7 @@ body.tracker:has(.unlock) { background: var(--t-board); }
   color: var(--t-white);
 }
 .unlock h2 { font-size: 1.75rem; letter-spacing: 0.04em; }
+.unlock-brand { display: grid; justify-items: center; gap: 0.75rem; text-align: center; }
 .unlock label { font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--t-board-muted); }
 .unlock .help { color: var(--t-board-muted); }
 .unlock .input--code { min-height: 4rem; border: 2px solid var(--t-led); background: var(--unlock-field); color: var(--t-led); }
@@ -208,6 +216,7 @@ body.tracker:has(.unlock) { background: var(--t-board); }
 }
 
 .banner-actions { display: flex; gap: 0.5rem; flex: none; }
+/* R2 tracker markup, kept for mixed caches; remove in R4 */
 /* Unsaved taps: pale red, Retry filled, Discard outlined. */
 .banner--failed { background: var(--fail-bg); border-bottom-color: var(--rope); }
 .failed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; width: 100%; }
@@ -228,6 +237,20 @@ body.tracker:has(.unlock) { background: var(--t-board); }
 /* Tracking moved: pale amber with Take over; the write controls under it are dimmed. */
 .banner--takeover { background: var(--moved-bg); border-bottom-color: var(--t-led); }
 .banner--takeover .btn { min-height: 3rem; padding-inline: 1rem; background: var(--t-board); border-color: var(--t-board); color: var(--t-led); font-size: 1rem; }
+.banner--moved, .banner--unsaved { padding-block: 0.625rem 0.75rem; }
+.takeover-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.takeover-copy strong { font-weight: 700; }
+.takeover-copy .takeover-paused, .failed-row .failed-desc {
+  color: var(--t-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.failed-title { display: flex; align-items: center; gap: 0.5rem; overflow-wrap: anywhere; }
+.failed-icon { flex: none; color: var(--t-out); }
+.banner--moved .btn, .banner--unsaved .banner-actions .btn:first-child { border: 0; }
+.banner--moved .btn { padding-block: 0.375rem; }
+.banner--unsaved .banner-actions .btn { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .btn--center { justify-content: center; }
 .btn--fit { justify-self: start; text-decoration: none; }
 
@@ -301,7 +324,10 @@ body.sit-up .dock::before { top: 0; background: var(--sit-band-up); }
 body.sit-down .dock::before { top: 0; background: var(--sit-band-down); }
 body.sit-up .live-status, body.sit-down .live-status { color: var(--ink); }
 body.on-live #app { max-width: 60rem; }
+/* R2 tracker markup, kept for mixed caches; remove in R4 */
 body.on-live .bar { padding-block: 0.25rem; }
+body.on-live .bar--team { padding-block: 0.375rem; }
+body.on-live .bar-brand .brand { font-size: 1rem; }
 body.on-live .view { padding: 0; }
 .live-status { padding: 1.5rem 1rem; }
 

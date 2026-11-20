@@ -134,9 +134,11 @@ const rosterNames = async () => ((await get('team/main'))?.roster ?? []).map(pla
 test('second device takes over; first becomes read-only and can take back', async ({ page, browser }) => {
   await startGame(page);
   await withTwoDevices(page, browser, async pageB => {
-    await expect(page.getByTestId('takeover-banner')).toBeVisible();
-    await expect(page.getByTestId('takeover-banner')).toContainText('Tracking moved to another device');
-    await expect(page.getByTestId('take-over')).toHaveText('Take over');
+    const banner = page.getByTestId('takeover-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner.getByTestId('takeover-title')).toHaveText('Tracking moved to another device');
+    await expect(banner.getByTestId('takeover-paused')).toHaveText('Taps here are paused.');
+    await expect(banner.getByTestId('take-over')).toHaveText('Take over');
     await expect(page.getByTestId('opp-goal')).toBeDisabled();
     await expect(pageB.getByTestId('takeover-banner')).toBeHidden();
 
@@ -148,10 +150,14 @@ test('second device takes over; first becomes read-only and can take back', asyn
     expect(await activeUid()).toBe(holder);
     await expect(page.getByTestId('takeover-banner')).toBeVisible();
 
-    await page.getByTestId('take-over').click();
+    await banner.getByTestId('take-over').click();
     await expect(page.getByTestId('takeover-banner')).toBeHidden();
     await expect(page.getByTestId('opp-goal')).toBeEnabled();
     await expect(pageB.getByTestId('takeover-banner')).toBeVisible();
+    await expect.poll(async () => {
+      const uid = await activeUid();
+      return Boolean(uid) && uid !== holder;
+    }).toBe(true);
   });
 });
 

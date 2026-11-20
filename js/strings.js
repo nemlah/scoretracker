@@ -139,6 +139,7 @@ const STRINGS = {
   navHome: 'Home',
   offlineBanner: 'Offline. Changes are saved here and sent when you reconnect.',
   takeoverBanner: 'Tracking moved to another device',
+  takeoverPaused: 'Taps here are paused.',
   takeoverButton: 'Take over',
   takeoverNeedsConnection: 'Taking over needs a connection. Connect to the internet and try again.',
   writeFailed: 'That change could not be saved. Try again.',
@@ -182,6 +183,7 @@ const STRINGS = {
   // Failed taps banner
   tapNotSaved: '1 tap not saved',
   tapsNotSaved: '{n} taps not saved',
+  failedMore: '+{n} more',
   retryFailed: 'Retry',
   discardFailed: 'Discard',
   failedGameLink: 'View game',

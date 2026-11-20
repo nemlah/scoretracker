@@ -2,8 +2,9 @@ import '../sw-register.js';
 import { team as teamConfig } from '../config.js';
 import { initFirebase, signIn } from '../firebase.js';
 import { createJournal } from '../journal.js';
+import { formatDate } from '../model.js';
 import { createRepo } from '../repo.js';
-import { t } from '../strings.js';
+import { eventLabel, t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
 import { createWriteErrorHandler } from './ownership.js';
 import * as ownership from './ownership.js';
@@ -115,22 +116,33 @@ const backButton = h('button', {
   type: 'button', class: 'btn btn--ghost', 'data-testid': 'nav-home', hidden: true,
   onclick: () => navigate('/'),
 }, t('navHome'));
-const takeoverBanner = h('div', { class: 'banner banner--takeover', 'data-testid': 'takeover-banner', hidden: true },
-  h('p', {}, t('takeoverBanner')),
+const takeoverBanner = h('div', {
+  class: 'banner banner--takeover banner--moved', 'data-testid': 'takeover-banner', role: 'alert', hidden: true,
+},
+  h('p', { class: 'takeover-copy' },
+    h('strong', { 'data-testid': 'takeover-title' }, t('takeoverBanner')), ' ',
+    h('span', { class: 'takeover-paused', 'data-testid': 'takeover-paused' }, t('takeoverPaused'))),
   h('button', { type: 'button', class: 'btn btn--small', 'data-testid': 'take-over', onclick: () => takeOver() },
     t('takeoverButton')));
 const offlineBanner = h('div', { class: 'banner', 'data-testid': 'offline-banner', hidden: true },
   h('p', {}, t('offlineBanner')));
 // One row per game with unsaved taps, whichever game is on screen.
 const failedList = h('ul', { class: 'failed-list' });
-const failedBanner = h('div', { class: 'banner banner--failed', 'data-testid': 'failed-banner', role: 'alert', hidden: true },
+const failedBanner = h('div', { class: 'banner banner--failed banner--unsaved', 'data-testid': 'failed-banner', role: 'alert', hidden: true },
   failedList);
-let failedSignature = '';
+const failedRows = new Map();
 const banners = h('div', { class: 'banners' }, takeoverBanner, failedBanner, offlineBanner);
 const view = h('main', { class: 'view' });
 const toast = h('div', { class: 'toast', role: 'status', 'aria-live': 'polite', 'data-testid': 'toast', hidden: true });
+const crest = teamConfig.crest ? h('img', {
+  class: 'bar-crest', 'data-testid': 'tracker-crest', width: 32, height: 32, alt: '',
+  onerror: event => { event.currentTarget.hidden = true; },
+  src: teamConfig.crest,
+}) : null;
 root.append(
-  h('header', { class: 'bar' }, h('h1', { class: 'brand' }, teamConfig.name), backButton),
+  h('header', { class: 'bar bar--team' },
+    h('div', { class: 'bar-brand' }, crest, h('h1', { class: 'brand' }, teamConfig.name)),
+    backButton),
   banners, view, toast,
 );
 
@@ -244,12 +256,14 @@ function refreshFailed() {
 function failedGroups() {
   const groups = new Map();
   for (const entry of state.failedTaps) {
-    const group = groups.get(entry.gameId) ?? { gameId: entry.gameId, count: 0, gone: false };
+    const group = groups.get(entry.gameId) ?? { count: 0, gone: false, events: [], more: 0 };
     group.count += 1;
     group.gone ||= entry.gone === true;
+    if (group.events.length < 2) group.events.push(entry.event);
+    else group.more += 1;
     groups.set(entry.gameId, group);
   }
-  return [...groups.values()];
+  return groups;
 }
 
 async function retryGame(gameId) {
@@ -264,29 +278,86 @@ function discardGame(gameId) {
   recovery.discard(gameId);
 }
 
-function failedRow(group) {
-  const text = group.count === 1 ? t('tapNotSaved') : t('tapsNotSaved', { n: group.count });
-  return h('li', { class: 'failed-row', 'data-testid': 'failed-row', 'data-game-id': group.gameId },
-    h('p', {}, text, ' ', group.gone
-      ? h('span', { 'data-testid': 'failed-gone' }, t('failedGameGone'))
-      : h('a', { href: `#/games/${encodeURIComponent(group.gameId)}`, 'data-testid': 'failed-game-link' }, t('failedGameLink'))),
+function failedIcon() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const icon = document.createElementNS(ns, 'svg');
+  const attrs = {
+    class: 'failed-icon', 'data-testid': 'failed-icon', 'aria-hidden': 'true',
+    width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+  };
+  for (const [name, value] of Object.entries(attrs)) icon.setAttribute(name, value);
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M12 9v4M12 17h.01M10.3 3.9L2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z');
+  icon.append(path);
+  return icon;
+}
+
+function failedRow(gameId) {
+  const title = h('span', { 'data-testid': 'failed-title' });
+  const titleCopy = h('span', {}, title, ' ');
+  const desc = h('p', { class: 'failed-desc', 'data-testid': 'failed-desc', hidden: true });
+  const gone = h('span', { 'data-testid': 'failed-gone' }, t('failedGameGone'));
+  const link = h('a', { href: `#/games/${encodeURIComponent(gameId)}`, 'data-testid': 'failed-game-link' }, t('failedGameLink'));
+  let note = null;
+  const element = h('li', { class: 'failed-row', 'data-testid': 'failed-row', 'data-game-id': gameId },
+    h('p', { class: 'failed-title' }, failedIcon(), titleCopy),
+    desc,
     h('span', { class: 'banner-actions' },
       h('button', {
         type: 'button', class: 'btn btn--small', 'data-write': true, 'data-testid': 'retry-failed',
-        onclick: () => retryGame(group.gameId),
+        onclick: () => retryGame(gameId),
       }, t('retryFailed')),
       h('button', {
         type: 'button', class: 'btn btn--small', 'data-testid': 'discard-failed',
-        onclick: () => discardGame(group.gameId),
+        onclick: () => discardGame(gameId),
       }, t('discardFailed'))));
+
+  function update(group) {
+    const heading = group.count === 1 ? t('tapNotSaved') : t('tapsNotSaved', { n: group.count });
+    if (title.textContent !== heading) title.textContent = heading;
+
+    const game = !group.gone && state.game?.id === gameId ? state.game : null;
+    const nextNote = group.gone ? gone : game ? null : link;
+    if (note !== nextNote) {
+      note?.remove();
+      if (nextNote) titleCopy.append(nextNote);
+      note = nextNote;
+    }
+
+    let description = '';
+    if (game) {
+      const labels = group.events.map(event => eventLabel(event, game.lineup ?? []));
+      const more = group.more > 0 ? ` ${t('failedMore', { n: group.more })}` : '';
+      description = `${formatDate(game.date)} · ${game.opponent}: ${labels.join(', ')}${more}`;
+    }
+    if (desc.textContent !== description) desc.textContent = description;
+    const hideDescription = !game;
+    if (desc.hidden !== hideDescription) desc.hidden = hideDescription;
+  }
+  return { element, update };
 }
 
 function renderFailed() {
   const groups = failedGroups();
-  const signature = JSON.stringify(groups);
-  if (signature === failedSignature) return;
-  failedSignature = signature;
-  failedList.replaceChildren(...groups.map(failedRow));
+  for (const [id, row] of failedRows) {
+    if (groups.has(id)) continue;
+    row.element.remove();
+    failedRows.delete(id);
+  }
+  // A game snapshot can change the description between pointerdown and click.
+  // Keep the existing controls and only insert or move rows when the group order changes.
+  let next = failedList.firstElementChild;
+  for (const [id, group] of groups) {
+    let row = failedRows.get(id);
+    if (!row) {
+      row = failedRow(id);
+      failedRows.set(id, row);
+    }
+    row.update(group);
+    if (row.element !== next) failedList.insertBefore(row.element, next);
+    next = row.element.nextElementSibling;
+  }
 }
 
 function isConfirmed(meta) {

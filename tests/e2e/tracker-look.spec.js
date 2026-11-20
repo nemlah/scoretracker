@@ -2,6 +2,7 @@ import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, cssColour, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, collectProblems, formatConsoleProblem, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
+import { team } from '../../js/config.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
 const longOpponent = 'Πανελλήνιος Γυμναστικός Σύλλογος Πειραιώς Ολυμπιακός';
@@ -197,20 +198,35 @@ test('the moved banner is pale amber and the live screen under it is dimmed', as
   await expect.poll(() => effectiveOpacity(page.locator('.live-score'))).toBe(1);
 });
 
-test('the unsaved banner is pale red with Retry and Discard', async ({ page }) => {
+test('the tracker header shows a 32 px decorative team crest before the name', async ({ page }) => {
   await openGame(page, { events: [] });
-  // Real failed taps need an offline write that is refused (offline.spec); here the markup app.js builds is put in place.
-  await page.evaluate(() => {
-    const banner = document.querySelector('[data-testid="failed-banner"]');
-    banner.querySelector('.failed-list').innerHTML = `<li class="failed-row" data-testid="failed-row"><p>2 taps not saved <a href="#/games/g1">Open game</a></p><span class="banner-actions"><button type="button" class="btn btn--small" data-testid="retry-failed">Retry</button><button type="button" class="btn btn--small" data-testid="discard-failed">Discard</button></span></li>`;
-    banner.hidden = false;
-  });
-  const banner = page.getByTestId('failed-banner');
-  await expect(banner).toBeVisible();
-  expect(await cssColour(banner, 'backgroundColor')).toBe('rgb(253, 236, 238)');
-  expect(await cssColour(banner, 'borderBottomColor')).toBe('rgb(215, 38, 61)');
-  expect(await cssColour(page.getByTestId('retry-failed'), 'backgroundColor')).toBe('rgb(11, 19, 32)');
-  expect(await cssColour(page.getByTestId('discard-failed'), 'color')).toBe('rgb(179, 32, 47)');
+  const crest = page.getByTestId('tracker-crest');
+  await expect(crest).toBeVisible();
+  await expect(crest).toHaveAttribute('src', team.crest);
+  await expect(crest).toHaveAttribute('alt', '');
+  await expect(crest).toHaveAttribute('width', '32');
+  await expect(crest).toHaveAttribute('height', '32');
+  expect(await crest.boundingBox()).toMatchObject({ width: 32, height: 32 });
+  const brand = page.locator('header.bar > .bar-brand');
+  await expect(brand.locator('img.bar-crest + h1.brand')).toHaveText(team.name);
+  await expect(page.locator('header.bar > .bar-brand + [data-testid="nav-home"]')).toHaveText('Home');
+  await crest.dispatchEvent('error');
+  await expect(crest).toBeHidden();
+});
+
+test('the unlock crest is 120 px above the existing heading', async ({ page }) => {
+  await page.goto(HOME_URL);
+  const crest = page.getByTestId('unlock-crest');
+  await expect(crest).toBeVisible();
+  await expect(crest).toHaveAttribute('src', team.crest);
+  await expect(crest).toHaveAttribute('alt', '');
+  const crestBox = await crest.boundingBox();
+  expect(crestBox).toMatchObject({ width: 120, height: 120 });
+  const heading = page.getByRole('heading', { name: 'Enter the tracker code', exact: true });
+  expect((await heading.boundingBox()).y).toBeGreaterThanOrEqual(crestBox.y + crestBox.height);
+  await expect(page.getByText('The code is 6 letters and digits.', { exact: true })).toBeVisible();
+  await crest.dispatchEvent('error');
+  await expect(crest).toBeHidden();
 });
 
 test('the toast is the board', async ({ page }) => {
@@ -229,6 +245,14 @@ for (const [width, height, name] of viewports) {
   for (const blockFonts of [false, true]) {
     test(`${width} x ${height} (${name}): no sideways scroll, controls 44 px${blockFonts ? ', fonts blocked' : ''}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
+      // Open with failed taps from an earlier session so the real banner is laid out under the moved banner.
+      await page.addInitScript(() => {
+        const entries = Array.from({ length: 12 }, (_, i) => ({
+          id: `failed-${i}`, gameId: 'g1', op: 'add', status: 'failed',
+          event: { id: `offline-${i}`, type: 'goal', period: 3, ts: i, playerId: 'p11' },
+        }));
+        localStorage.setItem('wp-journal', JSON.stringify(entries));
+      });
       const blockedUrls = [];
       const fontErrors = [];
       if (blockFonts) {
@@ -256,12 +280,9 @@ for (const [width, height, name] of viewports) {
       await expect(tile(page, 1).getByTestId('tile-save')).toBeVisible();
       await otherDeviceTakesControl();
       await expect(page.getByTestId('takeover-banner')).toBeVisible();
-      // Both banners at once, the failed one with its longest wording.
-      await page.evaluate(() => {
-        const banner = document.querySelector('[data-testid="failed-banner"]');
-        banner.querySelector('.failed-list').innerHTML = `<li class="failed-row"><p>12 taps not saved <a href="#/games/g1">Open game</a></p><span class="banner-actions"><button type="button" class="btn btn--small">Retry</button><button type="button" class="btn btn--small">Discard</button></span></li>`;
-        banner.hidden = false;
-      });
+      await expect(page.getByTestId('failed-desc')).toHaveText(
+        `08/11/2026 · ${longOpponent}: Goal · #11 Παπαδόπουλος-Αθανασίου, Goal · #11 Παπαδόπουλος-Αθανασίου +10 more`,
+      );
       if (!blockFonts) {
         // Then the fonts, for that very text. check() alone is true when no face matches, so also require a
         // loaded face whose unicode-range covers Greek (U+0370-03FF) in both families.
