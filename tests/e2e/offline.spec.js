@@ -29,6 +29,21 @@ test.afterAll(closeAll);
 const tile = (page, cap) => page.locator(`[data-testid="tile"][data-cap="${cap}"]`);
 const goal = page => tile(page, 5).getByTestId('tile-goal');
 const swReady = page => page.evaluate(async () => { await navigator.serviceWorker.ready; });
+// The worker stores a Google Fonts file only when a page it controls asks for it. The first load is not
+// controlled yet, and on the next one the font is asked for only once the text is drawn, so going offline
+// straight after that reload can leave the font out of the cache: the offline load then asks the network
+// for it (net::ERR_FAILED; a real request to fonts.gstatic.com, so it comes and goes). Every font file a
+// page asked for must be stored before the test goes offline.
+const watchFonts = page => {
+  const urls = new Set();
+  page.on('request', request => { if (request.url().startsWith('https://fonts.gstatic.com/')) urls.add(request.url()); });
+  return urls;
+};
+const fontsCached = (page, urls) => expect.poll(() => page.evaluate(async list => {
+  await document.fonts.ready;
+  const stored = await Promise.all(list.map(url => caches.match(url, { ignoreVary: true })));
+  return stored.every(Boolean);
+}, [...urls]), { message: 'every font file the page asked for is cached' }).toBe(true);
 
 async function startGame(page) {
   await page.goto(TRACKER_URL);
@@ -92,11 +107,14 @@ test('the viewer shows the connection note offline and hides it after reconnecti
 });
 
 test('the viewer reopens offline from the cached shell', async ({ page, context }) => {
+  const fonts = watchFonts(page);
   await page.goto(VIEWER_URL);
   await expect(page.getByTestId('results-empty')).toBeVisible();
   await swReady(page);
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+  await expect(page.getByTestId('results-empty')).toBeVisible();
+  await fontsCached(page, fonts);
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByTestId('connection-note')).toBeVisible();
@@ -111,11 +129,14 @@ test('home reopens offline from cached results, with the connection note and no 
     lineup: [{ playerId: 'p5', name: 'Alexiou', cap: 5 }], events: [],
   });
   await seed('stats/2019-20', { results: [{ gameId: 'g1', date: '2019-11-01', opponent: 'Rivals', us: 2, them: 1 }] });
+  const fonts = watchFonts(page);
   await page.goto(VIEWER_URL);
   await expect(page.getByTestId('games-list')).toHaveAttribute('data-results', 'ready');
   await swReady(page);
   await page.reload();
   await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+  await expect(page.getByTestId('games-list')).toHaveAttribute('data-results', 'ready');
+  await fontsCached(page, fonts);
   // Firestore keeps what it has seen; the page after this reload is a new load with no connection.
   await context.setOffline(true);
   await recordHome(page);
