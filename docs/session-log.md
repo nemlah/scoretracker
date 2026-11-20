@@ -27,7 +27,7 @@
   - handler rejections are swallowed in the drain.
 - **Merged** to main locally at b606af7 (fast-forward; the branch and worktree are removed). Merged main: unit 313, e2e 856 passed in 3.8 min on 3 workers. **Not pushed:** main is 14 commits ahead of origin. The next push deploys to Pages; the only production line is the emulator-only `js/firebase.js:17`.
 - **Where we left off:**
-  - Next is Release 3 (Direction B). The owner wants it built with Codex mainly: Codex writes code and does reviews, Claude orchestrates (memory `credits-offload-codex`).
+  - Next is Release 3 (Direction B), Codex mainly. Codex implements, sonnet reviews Codex code, Codex reviews the plan, and e2e-heavy tasks are routed per task (memory `credits-offload-codex`).
   - Start from the R2.1 entry's open items: re-sync the design system to R2; answer the two open spec questions (game-flow order; "Shootout" vs "SO"); plan R3 from the spec's R3 carry-overs.
   - Push main first, or with R3.
   - The flake waiver list is kept. Proposal: drop it after a week of clean runs on main.
