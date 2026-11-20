@@ -798,6 +798,15 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
           whatSize: getComputedStyle(what).fontSize,
           tagVisible: tag ? rect(tag).width > 0 && rect(tag).right <= sideBox.right + 0.5 : null,
           pillInMid: pill ? rect(pill).width <= 64 && rect(pill).left >= rect(row.querySelector('.tl-mid')).left - 0.5 : null,
+          ourGoal: row.dataset.side === 'us' && row.classList.contains('tl-goal'),
+          pillText: pill ? pill.textContent : null,
+          pillFits: pill ? pill.scrollWidth <= pill.clientWidth : null,
+          pillHeight: pill ? rect(pill).height : null,
+          pillBoxInMid: pill ? (() => {
+            const mid = rect(row.querySelector('.tl-mid'));
+            return rect(pill).left >= mid.left - 0.5 && rect(pill).right <= mid.right + 0.5 && rect(pill).width <= 64;
+          })() : null,
+          midWidth: rect(row.querySelector('.tl-mid')).width,
         };
       });
       return { rows, scroll: [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth] };
@@ -807,7 +816,10 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
       const label = `${row.text}`;
       expect(row.sideInner, `${label}: the side is at least 100 px wide`).toBeGreaterThanOrEqual(100);
       expect(row.nameLines, `${label}: one line`).toBe(1);
-      expect(row.ellipsis, `${label}: ellipsis, no wrap, 15 px`).toEqual(['ellipsis', 'nowrap', '15px']);
+      expect(row.ellipsis, `${label}: ellipsis, no wrap, 17 px for our goals and 15 px for the rest`)
+        .toEqual(['ellipsis', 'nowrap', row.ourGoal ? '17px' : '15px']);
+      // Only our goal rows are taller (56 px); every other row stays at its 48 px, never above 50.
+      expect(row.rowHeight, `${label}: row height`).toBeLessThanOrEqual(row.ourGoal ? 58 : 50);
       expect(row.nameInside, `${label}: the name stays in its side`).toBe(true);
       expect(row.whatInside, `${label}: the event line stays in its side`).toBe(true);
       expect(row.whatCut, `${label}: the event line and its tag are not cut`).toBe(false);
@@ -827,10 +839,73 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 740, height: 360 }
         expect(row.nameWidth, `${label}: text box`).toBeGreaterThanOrEqual(100);
         expect(row.nameLines, `${label}: name on one line`).toBe(1);
         expect(row.whatHeight, `${label}: event on one line`).toBeLessThan(20);
-        expect(row.rowHeight, `${label}: one line each, 48 px`).toBeLessThanOrEqual(50);
+        expect(row.rowHeight, `${label}: one line each, 48 px (56 px for our goal)`).toBeLessThanOrEqual(row.ourGoal ? 58 : 50);
       }
     }
+    // Our biggest score, 12–11, in the larger pill: its text is inside the pill and the pill inside the 64 px middle.
+    const ourPills = m.rows.filter(row => row.ourGoal && row.pillText);
+    expect(ourPills.length, 'our goals with a score').toBe(12);
+    const total = row => row.pillText.split('–').reduce((sum, n) => sum + Number(n), 0);
+    const biggest = ourPills.reduce((a, b) => (total(b) > total(a) ? b : a));
+    expect(biggest.pillText, 'the biggest two-digit pill').toBe('12–11');
+    expect(biggest.midWidth, 'the middle column').toBe(64);
+    expect(biggest.pillFits, 'the pill text is inside the pill').toBe(true);
+    expect(biggest.pillHeight, 'the pill text is on one line').toBeLessThan(40);
+    expect(biggest.pillBoxInMid, 'the pill box is inside the 64 px middle').toBe(true);
     expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
+  });
+}
+
+// Our goals are a step larger than every other row: the scorer, the score pill and the row. Theirs, the
+// fouls and the saves are not.
+for (const scheme of ['light', 'dark']) {
+  test.describe(`our goals on the timeline, ${scheme}`, () => {
+    test.use({ colorScheme: scheme });
+
+    test('our goal row has a 17 px bold name, a 22 px pill and a 56 px row; the other rows stay as they were', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await Promise.all([
+        seed('team/main', { currentGameId: 'g1', roster }),
+        seed('games/g1', {
+          opponent: 'Rivals', date: '2026-11-08', season: '2026-27', status: 'live', period: 1,
+          situations: true, lineup,
+          events: [ev('goal', 1, 'p10'), ev('oppGoal', 1), ev('excl', 1, 'p11'), ev('save', 1, 'p1')],
+        }),
+      ]);
+      await open(page, '#/game/g1');
+      await expect(page.getByTestId('timeline-item')).toHaveCount(4);
+      const rows = await page.evaluate(() => [...document.querySelectorAll('[data-testid="timeline-item"]')].map(row => {
+        const name = getComputedStyle(row.querySelector('.tl-name'));
+        const pill = row.querySelector('.tl-score');
+        return {
+          side: row.dataset.side,
+          goal: row.classList.contains('tl-goal'),
+          rowHeight: row.getBoundingClientRect().height,
+          nameSize: name.fontSize,
+          nameWeight: name.fontWeight,
+          nameColour: name.color,
+          pillSize: pill ? getComputedStyle(pill).fontSize : null,
+        };
+      }));
+      // Newest first.
+      const [save, excl, theirs, ours] = rows;
+      expect([ours.side, ours.goal, theirs.side, theirs.goal], 'the rows are newest first').toEqual(['us', true, 'them', true]);
+      expect(ours.nameSize, 'our goal: name size').toBe('17px');
+      expect(ours.nameWeight, 'our goal: name weight').toBe('700');
+      expect(ours.pillSize, 'our goal: pill size').toBe('22px');
+      expect(ours.rowHeight, 'our goal: row height').toBeGreaterThanOrEqual(56);
+      expect(theirs.nameSize, 'their goal: name size').toBe('15px');
+      expect(theirs.pillSize, 'their goal: pill size').toBe('19px');
+      expect(theirs.rowHeight, 'their goal: row height').toBeLessThan(56);
+      expect(excl.pillSize, 'the exclusion has no pill').toBeNull();
+      expect(excl.nameSize, 'the exclusion: name size').toBe('15px');
+      expect(excl.rowHeight, 'the exclusion: row height').toBeLessThan(56);
+      expect(save.nameSize, 'the save: name size').toBe('15px');
+      expect(save.rowHeight, 'the save: row height').toBeLessThan(56);
+      // The scorer is in the full ink colour, as the fouls are; the opponent's goal stays muted.
+      expect(ours.nameColour, 'our goal: ink').toBe(excl.nameColour);
+      expect(theirs.nameColour, 'their goal: muted, not ink').not.toBe(excl.nameColour);
+    });
   });
 }
 

@@ -496,6 +496,9 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
 /* Goals read heavier than the fouls, the opponent's quieter, and ordinary saves lighter. */
 .tl-goal .tl-name { font-weight: 600; }
 .tl-row--them .tl-name, .tl-minor .tl-name { color: var(--v-muted); }
+/* Our goals stand a step larger than every other row: the row, the scorer and the score pill. R1 markup has no .tl-row. */
+.tl-row--us.tl-goal { min-height: 56px; }
+.tl-row--us.tl-goal .tl-name { font-size: 1.0625rem; font-weight: 700; color: var(--ink); }
 .tl-what {
   max-width: 100%;
   display: inline-flex;
@@ -533,6 +536,9 @@ table.goalies td:first-child { overflow-wrap: anywhere; }
   font-variant-numeric: tabular-nums;
 }
 .tl-row--us .tl-score { border-color: var(--v-board-line); background: var(--v-board); color: var(--v-led); }
+/* At 22 px a two-digit score is as wide as the 64 px column: never wrap it (WebKit broke "12–11" at the dash) and
+   tighten the digits so it fits with room to spare. */
+.tl-row--us.tl-goal .tl-score { font-size: 1.375rem; letter-spacing: -0.03em; white-space: nowrap; }
 /* Any other event, or a goal whose score is not known: a 28 px box, the stroke icon in it (or its glyph). */
 .tl-mid > .tl-icon {
   width: 28px;
