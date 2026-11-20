@@ -1,6 +1,6 @@
 # Session log
 
-## 20/11/2026 - E2e speed: hermetic fixture, per-worker projects, 3 workers (branch e2e-speed, not merged)
+## 20/11/2026 - E2e speed: hermetic fixture, per-worker projects, 3 workers (merged to main, not pushed)
 - **Result:** the full e2e run takes 3.6 min on 3 workers (856 passed), down from 18.8 min serial. Serial (`PW_WORKERS=1`) takes 10.5 min. Unit tests: 313.
 - **How:**
   - `tests/e2e/fixtures.js` serves the Firebase SDK, Sofia fonts (`tests/fixtures/fonts/`, OFL), a gapi stub and cleardot locally in every context. It fails any other external request.
@@ -25,7 +25,12 @@
   - the teardown counters are heavier than needed;
   - the fonts CSS route ignores the query;
   - handler rejections are swallowed in the drain.
-- **Where we left off:** branch `e2e-speed` in `.worktrees/e2e-speed`, waiting for the owner's merge decision. The flake waiver list is kept; proposal: drop it after a week of clean runs on main.
+- **Merged** to main locally at b606af7 (fast-forward; the branch and worktree are removed). Merged main: unit 313, e2e 856 passed in 3.8 min on 3 workers. **Not pushed:** main is 14 commits ahead of origin. The next push deploys to Pages; the only production line is the emulator-only `js/firebase.js:17`.
+- **Where we left off:**
+  - Next is Release 3 (Direction B). The owner wants it built with Codex mainly: Codex writes code and does reviews, Claude orchestrates (memory `credits-offload-codex`).
+  - Start from the R2.1 entry's open items: re-sync the design system to R2; answer the two open spec questions (game-flow order; "Shootout" vs "SO"); plan R3 from the spec's R3 carry-overs.
+  - Push main first, or with R3.
+  - The flake waiver list is kept. Proposal: drop it after a week of clean runs on main.
 
 ## 20/11/2026 - Why e2e takes ~19 min and how to cut it (investigation, no code changed)
 - **Measured on main:** unit 4 s, emulator 8 s, e2e 18.8 min. 872 runs in series (`workers: 1`, needed because `resetAll` wipes the one shared emulator project). WebKit 744 s, Chromium 370 s, median test 1.06 s. The 27 tests over 4 s add 173 s; fixed sleeps add about 30 s per browser.
