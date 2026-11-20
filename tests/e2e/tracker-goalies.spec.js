@@ -127,6 +127,18 @@ const boxes = page => page.getByTestId('tile').evaluateAll(tiles => tiles.map(el
   return [rect.x + scrollX, rect.y + scrollY, rect.width, rect.height]; // page coordinates: a tap may scroll
 }));
 
+async function waitForCreatedGame(roster) {
+  const lineup = roster.map(({ id, name, cap, goalie }) => ({
+    playerId: id, name, cap, ...(goalie === true ? { goalie: true } : {}),
+  })).sort((a, b) => a.cap - b.cap);
+  // Both callers seed team/main without a pointer before starting the game.
+  const id = await currentGameId();
+  await expect.poll(async () => {
+    const game = await get(`games/${id}`);
+    return game && { status: game.status, period: game.period, lineup: game.lineup };
+  }).toEqual({ status: 'live', period: 1, lineup });
+}
+
 async function startGoalieGame(page, roster = goalieRoster) {
   await seed('team/main', { roster });
   await page.goto(TRACKER_URL);
@@ -134,6 +146,7 @@ async function startGoalieGame(page, roster = goalieRoster) {
   await page.getByTestId('home-new').click();
   await page.getByTestId('opponent-input').fill('Opponent FC');
   await page.getByTestId('start-game').click();
+  await waitForCreatedGame(roster);
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect(page.getByTestId('score-us')).toBeVisible();
 }
@@ -247,8 +260,11 @@ test('a Save on the goalie in goal does not pause anything', async ({ page }) =>
 test('a goalie change scrolls back to the top', async ({ page }) => {
   await startGoalieGame(page);
   await page.setViewportSize({ width: 360, height: 480 });
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  const scrolledY = await page.evaluate(() => {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+    return scrollY;
+  });
+  expect(scrolledY).toBeGreaterThan(0);
   await tile(page, 13).getByTestId('tile-in-goal').click();
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
 });
@@ -541,11 +557,13 @@ test('an OUT goalie has every button disabled', async ({ page }) => {
 });
 
 test('a game without goalies looks as before', async ({ page }) => {
-  await seed('team/main', { roster: goalieRoster.map(({ goalie, ...rest }) => rest) });
+  const roster = goalieRoster.map(({ goalie, ...rest }) => rest);
+  await seed('team/main', { roster });
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
   await page.getByTestId('home-new').click();
   await page.getByTestId('start-game').click();
+  await waitForCreatedGame(roster);
   await expect(page.getByTestId('score-us')).toHaveText('0');
   await expect(page.getByTestId('score-us')).toBeVisible();
   await expect(page.locator('[data-goalie]')).toHaveCount(0);

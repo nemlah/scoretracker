@@ -134,9 +134,10 @@ test('the period button closes an open man-up as missed', async ({ page }) => {
 });
 
 test('Undo of the goal reopens the man-up', async ({ page }) => {
-  await startGame(page);
+  const id = await startGame(page);
   await situation(page).click();
-  await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
+  await expect.poll(async () => (await get(`games/${id}`))?.events?.some(event => event.type === 'manUp'))
+    .toBe(true);
   await tile(page, 5).getByTestId('tile-goal').click();
   await expect(situation(page)).toHaveAttribute('data-state', 'none');
   await expect(page.getByTestId('live-situations')).toHaveText('MU 1/1 · MD 0/0');
