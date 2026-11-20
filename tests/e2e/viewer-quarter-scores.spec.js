@@ -97,6 +97,24 @@ test('a live game in Q3 marks Q3 as current and shows a dash for Q4', async ({ p
   await expect(heads(page).nth(0)).not.toHaveCSS('color', 'rgb(255, 194, 61)');
 });
 
+test('a goal recorded in a quarter after the current one shows its count, so the grid still adds up', async ({ page }) => {
+  // Live in Q3, with a goal in Q4 (the tracker can step the period back). Quarters after the current one
+  // show a dash only while they have no goals.
+  await seedGame([...quarter(1, 1, 0), ...quarter(3, 1, 1), ...quarter(4, 1, 0)], { status: 'live', period: 3 });
+  await open(page, '#/game/g1');
+  await expect(page.getByTestId('live-badge')).toBeVisible();
+  await expect(grid(page)).toBeVisible();
+  await expect(page.getByTestId('score-us')).toHaveText('3');
+  await expect(heads(page).nth(2)).toHaveAttribute('aria-current', 'true');
+  await expect(grid(page).locator('[aria-current]')).toHaveCount(1);
+  await expect(goalsOf(page, 'quarter-us')).toHaveText(['1', '0', '1', '1']);
+  await expect(goalsOf(page, 'quarter-them')).toHaveText(['0', '0', '1', '0']);
+  // With the Q4 goal gone, the same quarter is a dash again.
+  await update('games/g1', { events: [...quarter(1, 1, 0), ...quarter(3, 1, 1)] });
+  await expect(goalsOf(page, 'quarter-us')).toHaveText(['1', '0', '1', '–'], { timeout: 5000 });
+  await expect(goalsOf(page, 'quarter-them')).toHaveText(['0', '0', '1', '–']);
+});
+
 test('in the shootout no quarter is current and the four quarters show their goals', async ({ page }) => {
   await seedGame([...quarter(1, 1, 0), ...quarter(2, 0, 1), ...quarter(3, 1, 1), ...quarter(4, 0, 0), ev('goal', 'SO')],
     { status: 'live', period: 'SO' });

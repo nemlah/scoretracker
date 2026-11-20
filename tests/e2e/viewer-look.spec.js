@@ -603,14 +603,125 @@ for (const [scheme, board, line] of [['light', '#0b1320', 'rgb(122, 135, 150)'],
   });
 }
 
-test('landscape on a phone: the game screen has no sideways scroll, with every badge and the grid', async ({ page }) => {
-  await page.setViewportSize({ width: 740, height: 360 });
-  await seedLive();
+// The combined worst case of the board: the longest Greek opponent, two-digit scores and two-digit quarter
+// counts, two-digit caps, the LIVE badge, an open man-up chip and the period box, all at once.
+const seedWorstBoard = () => {
+  const events = [ev('gkIn', 1, 'p1')];
+  for (const [period, us, them] of [[1, 10, 11], [2, 12, 10], [3, 11, 12]]) {
+    for (let i = 0; i < us; i += 1) events.push(ev('goal', period, i % 2 ? 'p11' : 'p13'));
+    for (let i = 0; i < them; i += 1) events.push(ev('oppGoal', period));
+  }
+  events.push(ev('manUp', 3));
+  return Promise.all([
+    seed('team/main', { currentGameId: 'g1', roster }),
+    seed('games/g1', {
+      opponent: longOpponent, date: '2026-11-08', season: '2026-27', status: 'live', period: 3,
+      situations: true, lineup, events,
+    }),
+  ]);
+};
+
+for (const scheme of ['light', 'dark']) {
+  test.describe(`the worst board, ${scheme}`, () => {
+    test.use({ colorScheme: scheme });
+
+    for (const [width, height, name] of [[360, 740, 'portrait'], [844, 390, 'landscape']]) {
+      test(`${width} x ${height} ${name}: every part stays in the board, the name is one cut line`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        await seedWorstBoard();
+        await open(page, '#/game/g1');
+        await expect(page.getByTestId('score-us')).toHaveText('33');
+        await expect(page.getByTestId('score-them')).toHaveText('33');
+        await expect(page.getByTestId('live-badge')).toBeVisible();
+        await expect(page.getByTestId('period')).toHaveText('Q3');
+        await expect(page.getByTestId('situation-badge')).toHaveAttribute('data-kind', 'manUp');
+        await expect(page.getByTestId('quarter-us').locator('td')).toHaveText(['10', '12', '11', '–']);
+        await expect(page.getByTestId('quarter-them').locator('td')).toHaveText(['11', '10', '12', '–']);
+        await expect(page.locator('.board-opp')).toHaveText(longOpponent);
+        // The Greek faces for this very text, so the widths are the real ones.
+        await page.evaluate(async text => {
+          await document.fonts.ready;
+          await Promise.all([
+            document.fonts.load('700 22px "Sofia Sans"', text),
+            document.fonts.load('800 76px "Sofia Sans Extra Condensed"', '33'),
+          ]);
+        }, longOpponent);
+
+        const m = await page.evaluate(() => {
+          const rect = el => el.getBoundingClientRect();
+          const board = rect(document.querySelector('.board'));
+          const inside = el => {
+            const r = rect(el);
+            return r.width > 0 && r.left >= board.left - 0.5 && r.right <= board.right + 0.5;
+          };
+          const byId = id => document.querySelector(`[data-testid="${id}"]`);
+          const parts = ['live-badge', 'situation-badge', 'period', 'score-us', 'score-them', 'quarter-scores', 'crest'];
+          const opp = document.querySelector('.board-opp');
+          const oppBox = rect(opp);
+          const label = byId('quarter-them').querySelector('th');
+          const labelStyle = getComputedStyle(label);
+          const firstCell = byId('quarter-them').querySelector('td');
+          const labelBox = rect(label);
+          const cols = [...byId('quarter-us').querySelectorAll('td')].map(cell => rect(cell).width);
+          const top = rect(document.querySelector('.board-top'));
+          return {
+            board: { width: board.width, height: board.height },
+            inside: Object.fromEntries(parts.map(id => [id, inside(byId(id))])),
+            oppInside: inside(opp),
+            oppLines: oppBox.height / parseFloat(getComputedStyle(opp).lineHeight),
+            oppStyle: { overflow: getComputedStyle(opp).overflow, ellipsis: getComputedStyle(opp).textOverflow, wrap: getComputedStyle(opp).whiteSpace },
+            oppCut: opp.scrollWidth > opp.clientWidth,
+            // The label is contained: its box ends before the first number, ellipsis is set, and the
+            // grid's columns are equal, so a long label cannot push them.
+            label: {
+              endsBeforeCells: labelBox.right <= rect(firstCell).left + 0.5,
+              ellipsis: labelStyle.textOverflow, overflow: labelStyle.overflow, wrap: labelStyle.whiteSpace,
+              inside: inside(label),
+            },
+            colSpread: Math.max(...cols) - Math.min(...cols),
+            topHeight: top.height,
+            scroll: [document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth],
+          };
+        });
+        expect(m.inside, 'every part inside the board').toEqual({
+          'live-badge': true, 'situation-badge': true, period: true, 'score-us': true, 'score-them': true,
+          'quarter-scores': true, crest: true,
+        });
+        expect(m.oppInside, 'the opponent inside the board').toBe(true);
+        expect(m.oppLines, 'the opponent is one line').toBeLessThan(1.5);
+        expect(m.oppStyle).toEqual({ overflow: 'hidden', ellipsis: 'ellipsis', wrap: 'nowrap' });
+        expect(m.oppCut, 'the long name is really cut').toBe(true);
+        expect(m.label).toEqual({
+          endsBeforeCells: true, ellipsis: 'ellipsis', overflow: 'hidden', wrap: 'nowrap', inside: true,
+        });
+        expect(m.colSpread, 'the four columns are the same width').toBeLessThanOrEqual(1);
+        expect(m.topHeight, 'the top row stays on one line').toBeLessThan(48);
+        // Strip 52 + top row + two score rows + shootout-less grid: 340 px at most, in either orientation.
+        expect(m.board.height, 'board height').toBeLessThanOrEqual(340);
+        expect(m.scroll[0], 'scrollWidth').toBeLessThanOrEqual(m.scroll[1]);
+      });
+    }
+  });
+}
+
+// The grid label is a cell of fixed width. Whatever the label holds, the cell holds it: a label wider than
+// its column is cut, and the number columns keep their size.
+test('a grid label wider than its column is cut by the cell and does not push the numbers', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await seedWorstBoard();
   await open(page, '#/game/g1');
-  await expect(page.getByTestId('score-us')).toHaveText('12');
-  await expect(page.getByTestId('situation-badge')).toBeVisible();
-  await expect(page.getByTestId('quarter-scores')).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect(page.getByTestId('score-us')).toHaveText('33');
+  const before = await page.getByTestId('quarter-us').locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
+  // Force the label wider than its 52 px column, as a long team name would.
+  await page.getByTestId('quarter-us').locator('th').evaluate(el => { el.textContent = 'ΠΑΝΕΛΛΗΝΙΟΣ ΓΥΜΝΑΣΤΙΚΟΣ'; });
+  const after = await page.getByTestId('quarter-us').locator('td').evaluateAll(cells => cells.map(cell => cell.getBoundingClientRect().left));
+  expect(after).toEqual(before);
+  const label = await page.getByTestId('quarter-us').locator('th').evaluate(el => ({
+    cut: el.scrollWidth > el.clientWidth, right: el.getBoundingClientRect().right,
+    cell: el.closest('tr').querySelector('td').getBoundingClientRect().left,
+  }));
+  expect(label.cut, 'the text is longer than the cell').toBe(true);
+  expect(label.right, 'the cell ends before the first number').toBeLessThanOrEqual(label.cell + 0.5);
 });
 
 test('with the previous release stylesheet the new scoreboard still shows both scores and the opponent', async ({ page }) => {

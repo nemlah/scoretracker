@@ -127,6 +127,17 @@ test('the scoreboard is two rows: the team, its crest and score above the oppone
   await expect(crest).toHaveAttribute('alt', '');
   await expect(page.getByTestId('crest')).toHaveCount(1);
   await expect.poll(() => crest.evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+
+  // Two digits over one: the digits themselves line up on the right (the cells share a column, so their
+  // boxes always do).
+  await update('games/g1', { events: [...liveEvents(), ...Array.from({ length: 7 }, () => ev('goal', 2, 'p5'))] });
+  await expect(us).toHaveText('10', { timeout: 5000 });
+  const edges = await page.evaluate(() => ['score-us', 'score-them'].map(id => {
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector(`[data-testid="${id}"]`));
+    return range.getBoundingClientRect().right;
+  }));
+  expect(Math.abs(edges[0] - edges[1]), 'digits share a right edge').toBeLessThanOrEqual(1);
 });
 
 test('the top row has the LIVE badge, the period box and no date while live; a final game has FINAL and its date', async ({ page }) => {
