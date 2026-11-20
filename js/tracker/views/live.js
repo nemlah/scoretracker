@@ -325,6 +325,8 @@ export function mount(root, ctx) {
       // is off only while this scroll runs. Anywhere else a banner appearing above the viewport must
       // not shift the tiles under a finger.
       stopGoalieScroll();
+      // On a short landscape screen the tiles scroll in their own pane (a no-op everywhere else).
+      tileList.scrollTop = 0;
       if (reduce || window.scrollY === 0) { window.scrollTo({ top: 0, behavior: 'auto' }); return; }
       document.body.classList.add('goalie-scrolling');
       window.addEventListener('scrollend', stopGoalieScroll);

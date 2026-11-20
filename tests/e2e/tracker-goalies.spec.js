@@ -273,6 +273,21 @@ test('a goalie change scrolls back to the top', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => document.body.classList.contains('goalie-scrolling'))).toBe(false);
 });
 
+test('a goalie change scrolls the landscape tile pane back to the top', async ({ page }) => {
+  // Eight tiles: more than one screen height at 375 px.
+  const field = [3, 4, 5, 6, 7, 8].map(cap => ({ id: `p${cap}`, name: `Player ${cap}`, cap, archived: false }));
+  await startGoalieGame(page, [...goalieRoster.filter(player => player.goalie === true), ...field]);
+  await page.setViewportSize({ width: 667, height: 375 });
+  const pane = page.getByTestId('tiles');
+  const scrolled = await pane.evaluate(el => {
+    el.scrollTop = el.scrollHeight;
+    return el.scrollTop;
+  });
+  expect(scrolled, 'the pane has scrolled down').toBeGreaterThan(0);
+  await tile(page, 13).getByTestId('tile-in-goal').click({ force: true });
+  await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
+});
+
 test('scroll anchoring stays on while no goalie scroll is running', async ({ page }) => {
   await startGoalieGame(page);
   await page.setViewportSize({ width: 360, height: 480 });

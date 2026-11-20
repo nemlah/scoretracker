@@ -1,8 +1,10 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, cssColour, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, collectProblems, formatConsoleProblem, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 import { team } from '../../js/config.js';
+import { contrastRatio } from '../../js/accent.js';
 
 // The longest seeded Greek names (see tracker-roster), two-digit caps, a two-digit score, every badge.
 const longOpponent = 'Πανελλήνιος Γυμναστικός Σύλλογος Πειραιώς Ολυμπιακός';
@@ -370,4 +372,309 @@ test('the unlock screen is the board with an amber code field', async ({ page })
   expect(await cssColour(page.getByTestId('code-input'), 'color')).toBe('rgb(255, 194, 61)');
   expect(await cssColour(page.getByTestId('code-input'), 'borderTopColor')).toBe('rgb(255, 194, 61)');
   expect(await page.evaluate(() => document.scrollingElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+// Short landscape (a phone on its side): the header, the score, the band and the dock stand in a left column
+// of at most 300 px; the tiles fill the rest in two columns and scroll on their own.
+for (const [width, height] of [[844, 390], [667, 375]]) {
+  test(`${width} x ${height} landscape: left column of header, score, band and dock; two columns of tiles`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await openGame(page, { period: 3, events: richEvents('up') });
+    await expect(page.getByTestId('score-us')).toHaveText('12');
+    await expect(page.getByTestId('situation-band')).toBeVisible();
+    await expect(page.getByTestId('tile')).toHaveCount(6);
+    const left = {
+      bar: await page.locator('header.bar').boundingBox(),
+      top: await page.locator('.live-top--board').boundingBox(),
+      band: await page.getByTestId('situation-band').boundingBox(),
+      dock: await page.locator('.dock').boundingBox(),
+    };
+    for (const [name, box] of Object.entries(left)) {
+      expect(box.x, `${name} starts at the left edge`).toBeLessThanOrEqual(0.5);
+      expect(box.x + box.width, `${name} is no wider than 300 px`).toBeLessThanOrEqual(300.5);
+    }
+    // One stack: header, then the score row (with the band inside it), then the dock at the foot.
+    expect(left.top.y).toBeGreaterThanOrEqual(left.bar.y + left.bar.height - 0.5);
+    expect(left.band.y).toBeGreaterThan(left.top.y);
+    expect(left.band.y + left.band.height).toBeLessThanOrEqual(left.top.y + left.top.height + 0.5);
+    expect(left.dock.y).toBeGreaterThanOrEqual(left.top.y + left.top.height - 0.5);
+    expect(left.dock.y + left.dock.height).toBeLessThanOrEqual(height + 0.5);
+    // The R2 strips drawn over the score row and the dock are not the band's duplicate.
+    for (const [selector, pseudo] of [['.live-top--board', '::after'], ['.dock', '::before']]) {
+      expect(await page.locator(selector).evaluate((el, p) => getComputedStyle(el, p).content, pseudo), `${selector}${pseudo}`).toBe('none');
+    }
+    // The tiles sit to the right of the column, two to a row.
+    const field = [tile(page, 10), tile(page, 5), tile(page, 2), tile(page, 11)];
+    const boxes = [];
+    for (const locator of field) boxes.push(await locator.boundingBox());
+    for (const box of boxes) expect(box.x).toBeGreaterThanOrEqual(left.dock.x + left.dock.width - 0.5);
+    expect(boxes.filter(box => Math.abs(box.y - boxes[0].y) < 1).length, 'tiles sharing the first row').toBe(2);
+    expect(new Set(boxes.map(box => Math.round(box.x))).size, 'two columns').toBe(2);
+    expect(Math.max(...boxes.map(box => box.x + box.width)), 'tiles stay inside the screen').toBeLessThanOrEqual(width);
+
+    const controls = await page.evaluate(() => ({
+      scroll: document.scrollingElement.scrollWidth,
+      docks: ['situation', 'opp-goal', 'undo', 'events-open', 'period-next'].map(id => {
+        const rect = document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect();
+        return { id, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, height: rect.height };
+      }),
+    }));
+    expect(controls.scroll, 'scrollWidth').toBeLessThanOrEqual(width);
+    for (const control of controls.docks) {
+      expect(control.height, `${control.id} height`).toBeGreaterThanOrEqual(44);
+      expect(control.left, `${control.id} left`).toBeGreaterThanOrEqual(0);
+      expect(control.right, `${control.id} right`).toBeLessThanOrEqual(300.5);
+      expect(control.top, `${control.id} top`).toBeGreaterThanOrEqual(0);
+      expect(control.bottom, `${control.id} bottom`).toBeLessThanOrEqual(height + 0.5);
+    }
+    // The tile list scrolls inside its own pane, and a tile at the end can be brought fully into view.
+    const pane = await page.getByTestId('tiles').evaluate(el => ({ scrolls: el.scrollHeight > el.clientHeight, overflow: getComputedStyle(el).overflowY }));
+    expect(pane.overflow).toBe('auto');
+    expect(pane.scrolls, 'six tiles do not fit one screen height').toBe(true);
+    await tile(page, 1).scrollIntoViewIfNeeded();
+    const last = await tile(page, 1).boundingBox();
+    expect(last.y).toBeGreaterThanOrEqual(0);
+    expect(last.y + last.height).toBeLessThanOrEqual(height + 0.5);
+    expect(await page.evaluate(() => document.scrollingElement.scrollHeight), 'the page itself does not scroll').toBeLessThanOrEqual(height);
+  });
+}
+
+// A phone can hold the previous release's live.js next to this stylesheet. The landscape rules are scoped to
+// body.live-r3, which only the new live.js sets, so the old module keeps its one-row dock and reaches every control.
+test.describe('mixed cache: R2 live.js under the R3 stylesheet, landscape', () => {
+  test.use({ serviceWorkers: 'block' });
+  for (const [width, height] of [[844, 390], [667, 375]]) {
+    test(`${width} x ${height}: the dock buttons are visible and 44 px, and the last tile clears the dock`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      let served = 0;
+      const previous = execFileSync('git', ['show', '720f124:js/tracker/views/live.js'], { encoding: 'utf8' });
+      await page.route('**/js/tracker/views/live.js*', route => {
+        served += 1;
+        return route.fulfill({ contentType: 'text/javascript', body: previous });
+      });
+      await openGame(page, { period: 3, events: richEvents('up') });
+      await expect(page.getByTestId('score-us')).toHaveText('12');
+      expect(served, 'the R2 live.js was served').toBeGreaterThan(0);
+      await expect(page.locator('.live-top--board'), 'the R2 markup has no board header').toHaveCount(0);
+      await expect(page.locator('body.live-r3')).toHaveCount(0);
+      await expect(page.locator('.dock')).toHaveCSS('position', 'fixed');
+      for (const id of ['situation', 'opp-goal', 'undo', 'events-open']) {
+        const button = page.getByTestId(id);
+        await expect(button, id).toBeVisible();
+        const box = await button.boundingBox();
+        expect(box.height, `${id} height`).toBeGreaterThanOrEqual(44);
+        expect(box.x, `${id} left`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(width);
+        expect(box.y + box.height, `${id} bottom`).toBeLessThanOrEqual(height + 0.5);
+        await button.click({ trial: true });
+      }
+      // Scrolled to the end, the last tile ends above the dock.
+      await tile(page, 1).scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, document.scrollingElement.scrollHeight));
+      const lastTile = await tile(page, 1).boundingBox();
+      const dock = await page.locator('.dock').boundingBox();
+      expect(lastTile.y + lastTile.height).toBeLessThanOrEqual(dock.y + 0.5);
+      expect(await page.evaluate(() => document.scrollingElement.scrollWidth), 'scrollWidth').toBeLessThanOrEqual(width);
+    });
+  }
+});
+
+// ---- 360 px worst case, light, in every club colour --------------------------------------------------------
+const greekName = 'Παναγιώτης Παπαδόπουλος';
+const worstLineup = [
+  { playerId: 'g13', name: greekName, cap: 13, goalie: true },
+  { playerId: 'p11', name: greekName, cap: 11 },
+  { playerId: 'p10', name: 'Αλεξίου', cap: 10 },
+];
+const ACCENTS = ['#0057b8', '#c8102e', '#f2b705', '#00843d'];
+
+// Every box that has width stays left of the viewport edge, nothing scrolls sideways.
+const overflowing = (page, width) => page.evaluate(limit => ({
+  scroll: document.scrollingElement.scrollWidth,
+  outside: [...document.querySelectorAll('body *')]
+    .filter(el => el.getBoundingClientRect().width > 0 && getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().right > limit + 0.5
+      && !el.closest('.sheet-backdrop[hidden]'))
+    .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}`),
+}), width);
+
+// A name that is cut with an ellipsis on one line: it has more text than room, one line of height, and it ends before the box beside it.
+async function expectEllipsised(locator, label, beside = null) {
+  const m = await locator.evaluate(el => {
+    const style = getComputedStyle(el);
+    return {
+      cut: el.scrollWidth > el.clientWidth,
+      ellipsis: style.textOverflow === 'ellipsis' && style.whiteSpace === 'nowrap' && style.overflow !== 'visible',
+      lines: el.getBoundingClientRect().height / parseFloat(style.lineHeight),
+      right: el.getBoundingClientRect().right,
+    };
+  });
+  expect(m.cut, `${label}: scrollWidth > clientWidth`).toBe(true);
+  expect(m.ellipsis, `${label}: ellipsis on one line`).toBe(true);
+  expect(m.lines, `${label}: one line`).toBeLessThan(1.5);
+  if (beside) expect(m.right, `${label} ends before the next box`).toBeLessThanOrEqual((await beside.boundingBox()).x + 0.5);
+}
+
+async function expectButtons44(page) {
+  const short = await page.evaluate(() => [...document.querySelectorAll('button, a.btn, .game-row')]
+    .filter(el => el.getBoundingClientRect().width > 0 && getComputedStyle(el).visibility !== 'hidden')
+    .map(el => ({ name: `${el.dataset.testid ?? el.className}:${el.textContent.trim().slice(0, 12)}`, height: el.getBoundingClientRect().height }))
+    .filter(({ height }) => height < 44));
+  expect(short, 'buttons under 44 px').toEqual([]);
+}
+
+test('360 px live worst case: two-digit caps, a long Greek name, three pips, a two-digit goal count, man-down band, unsaved banner', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.addInitScript(() => {
+    const entries = Array.from({ length: 12 }, (_, i) => ({
+      id: `failed-${i}`, gameId: 'g1', op: 'add', status: 'failed',
+      event: { id: `offline-${i}`, type: 'goal', period: 3, ts: i, playerId: 'p11' },
+    }));
+    localStorage.setItem('wp-journal', JSON.stringify(entries));
+  });
+  const events = [ev('gkIn', 3, 'g13')];
+  for (let i = 0; i < 12; i += 1) events.push(ev('goal', 1 + (i % 3), 'p11'));
+  for (let i = 0; i < 14; i += 1) events.push(ev('save', 3, 'g13'));
+  events.push(ev('penSave', 3, 'g13'), ev('excl', 3, 'p11'), ev('excl', 3, 'p11'), ev('pen', 3, 'p11'));
+  events.push({ id: 'down', type: 'manDown', period: 3, ts: Date.now() - 5000 });
+  await openGame(page, { opponent: longOpponent, period: 3, lineup: worstLineup, events });
+  await expect(page.getByTestId('score-us')).toHaveText('12');
+  await expect(page.getByTestId('situation-band')).toHaveAttribute('data-state', 'manDown');
+  await expect(page.getByTestId('failed-banner')).toBeVisible();
+  await expect(tile(page, 11).locator('.pip.is-on')).toHaveCount(3);
+  await expect(tile(page, 11).getByTestId('tile-goals')).toHaveText('12');
+  await expect(tile(page, 11).getByTestId('tile-out')).toBeVisible();
+  await expect(tile(page, 13).getByTestId('tile-saves')).toContainText('14');
+  await page.evaluate(() => document.fonts.ready);
+
+  const measured = await overflowing(page, 360);
+  expect(measured.scroll, 'scrollWidth').toBeLessThanOrEqual(360);
+  expect(measured.outside, 'boxes past the right edge').toEqual([]);
+  await expectEllipsised(tile(page, 11).locator('.tile-name'), 'field tile name', tile(page, 11).locator('.tile-stats'));
+  await expectEllipsised(tile(page, 13).locator('.tile-name'), 'goalie tile name', tile(page, 13).locator('.in-goal-slot'));
+  // The longest saves line stays on one line inside the goalie tile.
+  const saves = await tile(page, 13).getByTestId('tile-saves').evaluate(el => ({
+    lines: el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight), right: el.getBoundingClientRect().right,
+  }));
+  expect(saves.lines, 'saves line height in lines').toBeLessThan(1.5);
+  expect(saves.right, 'saves line ends inside the tile').toBeLessThanOrEqual((await tile(page, 13).boundingBox()).x + (await tile(page, 13).boundingBox()).width);
+  await expectButtons44(page);
+  // The tile's own buttons are all inside the tile.
+  const tileBox = await tile(page, 11).boundingBox();
+  for (const id of ['tile-goal', 'tile-excl', 'tile-pen']) {
+    const box = await tile(page, 11).getByTestId(id).boundingBox();
+    expect(box.x, `${id} left`).toBeGreaterThanOrEqual(tileBox.x);
+    expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(tileBox.x + tileBox.width + 0.5);
+  }
+  // The cap chip reads at 4.5:1 in every club colour; the layout does not depend on the colour.
+  for (const accent of ACCENTS) {
+    await page.evaluate(async value => {
+      document.documentElement.style.setProperty('--accent', value);
+      const { applyAccentPair } = await import('/js/accent.js');
+      applyAccentPair(document.documentElement.style, value);
+    }, accent);
+    const cap = tile(page, 10).locator('.cap--tile');
+    const [fill, text] = await Promise.all([cssColour(cap, 'backgroundColor'), cssColour(cap, 'color')]);
+    const rgb = value => value.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+    const hex = value => `#${rgb(value).map(c => Math.round(c).toString(16).padStart(2, '0')).join('')}`;
+    expect(hex(fill), `cap fill is ${accent}`).toBe(accent);
+    expect(contrastRatio(hex(text), hex(fill)), `cap text on ${accent}`).toBeGreaterThanOrEqual(4.5);
+    expect((await overflowing(page, 360)).scroll, `scrollWidth with ${accent}`).toBeLessThanOrEqual(360);
+  }
+});
+
+test('360 px events sheet: a long Greek goal label is cut and Change scorer stays at 44 px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const events = [ev('gkIn', 1, 'g13'), ev('goal', 1, 'p11'), ev('goal', 2, 'p11')];
+  await openGame(page, { opponent: longOpponent, period: 2, lineup: worstLineup, events });
+  await page.getByTestId('events-open').click();
+  const sheet = page.getByTestId('events-sheet');
+  await expect(sheet).toBeVisible();
+  const rows = sheet.getByTestId('ev-row');
+  await expect(rows).toHaveCount(3);
+  const row = rows.filter({ hasText: greekName }).first();
+  await expectEllipsised(row.locator('.ev-label'), 'event label', row.getByTestId('ev-edit'));
+  const edit = row.getByTestId('ev-edit');
+  await expect(edit).toBeVisible();
+  const box = await edit.boundingBox();
+  expect(box.height, 'Change scorer height').toBeGreaterThanOrEqual(44);
+  expect(box.x + box.width, 'Change scorer stays on screen').toBeLessThanOrEqual(360);
+  await edit.click();
+  await expect(row.getByTestId('ev-scorer')).toBeVisible();
+  const panel = await sheet.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+  expect(panel.scroll, 'the sheet does not scroll sideways').toBeLessThanOrEqual(panel.client);
+  expect((await overflowing(page, 360)).scroll).toBeLessThanOrEqual(360);
+  await expectButtons44(page);
+});
+
+test('360 px home: the live card cuts a long Greek opponent; nav rows and New game are 44 px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await seed('games/g1', {
+    opponent: `${greekName} ${longOpponent}`, date: '2026-11-08', season: '2026-27', status: 'live', period: 3, lineup: worstLineup, events: richEvents(),
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await expect(page.getByTestId('home-live')).toBeVisible();
+  // The same page at 360 and 390 px (resized, not reloaded).
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 740 });
+    await expectEllipsised(page.locator('.home-live-opponent'), `home live opponent at ${width}`);
+    await expect(page.getByTestId('home-live-score')).toBeVisible();
+    for (const id of ['home-new', 'home-roster', 'home-games', 'home-resume']) {
+      const box = await page.getByTestId(id).boundingBox();
+      expect(box.height, `${id} height at ${width}`).toBeGreaterThanOrEqual(44);
+    }
+    const measured = await overflowing(page, width);
+    expect(measured.scroll, `scrollWidth at ${width}`).toBeLessThanOrEqual(width);
+    expect(measured.outside, `boxes past the right edge at ${width}`).toEqual([]);
+    await expectButtons44(page);
+  }
+});
+
+test('360 px past games: a shootout row keeps its chip, cut name and score on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const shootout = Array.from({ length: 7 }, (_, i) => ev(i < 4 ? 'goal' : 'oppGoal', 'SO', i < 4 ? 'p11' : undefined));
+  await seed('games/g1', {
+    opponent: `${greekName} ${longOpponent}`, date: '2026-11-08', season: '2026-27', status: 'final', period: 'SO', lineup: worstLineup,
+    events: [ev('goal', 4, 'p11'), ev('oppGoal', 4), ...shootout],
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.evaluate(() => { location.hash = '#/games'; });
+  const row = page.getByTestId('game-row').first();
+  await expect(row).toBeVisible();
+  await expect(row.locator('.game-date')).toContainText('pen. 4–3');
+  await expect(row.getByTestId('game-chip')).toHaveText('W');
+  await expectEllipsised(row.locator('.game-opponent'), 'past game opponent', row.locator('.game-score'));
+  const rowBox = await row.boundingBox();
+  const score = await row.locator('.game-score').boundingBox();
+  expect(score.x + score.width, 'score inside the row').toBeLessThanOrEqual(rowBox.x + rowBox.width);
+  expect((await overflowing(page, 360)).scroll).toBeLessThanOrEqual(360);
+  expect((await overflowing(page, 360)).outside).toEqual([]);
+  await expectButtons44(page);
+});
+
+test('360 px game detail: the events panel has no second border inside its card', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await seed('games/g1', {
+    opponent: longOpponent, date: '2026-11-08', season: '2026-27', status: 'final', period: 4, lineup: worstLineup,
+    events: [ev('goal', 1, 'p11'), ev('oppGoal', 2)],
+  });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.evaluate(() => { location.hash = '#/games/g1'; });
+  const card = page.locator('.detail-card').first();
+  await expect(card.getByTestId('ev-row').first()).toBeVisible();
+  // Only the card draws a frame: no wrapper between it and the rows adds a border, so two lines never run side by side.
+  const borders = await card.evaluate(el => {
+    const widths = node => ['Top', 'Right', 'Bottom', 'Left'].map(side => parseFloat(getComputedStyle(node)[`border${side}Width`]));
+    const chain = [];
+    for (let node = el.querySelector('[data-testid="ev-row"]').parentElement; node && node !== el; node = node.parentElement) {
+      chain.push({ tag: `${node.tagName}.${node.className}`, widths: widths(node) });
+    }
+    return { card: widths(el), chain };
+  });
+  expect(borders.card, 'the card has its border').toEqual([1, 1, 1, 1]);
+  expect(borders.chain.length, 'the rows sit inside wrappers').toBeGreaterThan(0);
+  for (const link of borders.chain) expect(link.widths, `${link.tag} has no border`).toEqual([0, 0, 0, 0]);
+  expect((await overflowing(page, 360)).scroll).toBeLessThanOrEqual(360);
 });

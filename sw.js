@@ -1,7 +1,7 @@
 // Offline app shell. Classic script: service workers are not loaded as modules here.
 // The Cache Storage is shared by every site on the origin (GitHub Pages project sites included),
 // so the name carries this worker's scope and cleanup only ever touches caches of this scope.
-const CACHE = `wp-shell-v3::${self.registration.scope}`;
+const CACHE = `wp-shell-v4::${self.registration.scope}`;
 
 // SHELL-START
 const SHELL = [

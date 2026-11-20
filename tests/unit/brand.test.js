@@ -52,7 +52,7 @@ test('pages link the icons', () => {
 });
 
 test('cache name is v3', () => {
-  assert.ok(read('sw.js').includes('wp-shell-v3::'));
+  assert.ok(read('sw.js').includes('wp-shell-v4::'));
 });
 
 test('shell lists the manifest and icons', () => {

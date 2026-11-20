@@ -340,8 +340,9 @@ body.on-live .bar-brand .brand { font-size: 1rem; }
 body.on-live .view { padding: 0; }
 .live-status { padding: 1.5rem 1rem; }
 
-/* R2 tracker markup, kept for mixed caches; remove in R4 */
-/* The separate score row remains sticky on the R2 live screen. */
+/* The score row, shared by both live screens: R3 live.js renders it as .live-top.live-top--board, and R2 live.js (kept for
+   mixed caches) as a plain .live-top. R3 still needs every rule up to .tiles, so R4 must not remove them. The R2-only
+   parts (the strips under a situation, the old header sizes) are under the "R2 tracker markup" tags above. */
 .live-top {
   position: sticky;
   top: 0;
@@ -700,13 +701,84 @@ body.sheet-open { overflow: hidden; }
    shift the tiles under a finger. */
 body.live-r3.goalie-scrolling { overflow-anchor: none; }
 
-/* Order the board and banners visually within the app. The short landscape layout is separate. */
+/* The R3 live screen. The rules below are gated on R3 classes (.live-top--board, .tile--board, body.live-r3), so an
+   R2 live.js under this stylesheet keeps its R2 look. */
+body.live-r3 .live-top--board::after, body.live-r3 .dock::before { content: none; }
+.live-top--board .live-head { gap: 0.75rem; padding-bottom: 0.625rem; }
+.live-top--board .live-score { align-items: flex-start; gap: clamp(0.375rem, 3.6vw, 0.875rem); line-height: 0.9; }
+.live-top--board :is(.score-us, .score-them) { padding: 0; border: 0; }
+.live-top--board .score-figure { display: grid; gap: 0.25rem; }
+.live-top--board .score-bar { height: 0.25rem; border-radius: 2px; background: var(--t-bar); }
+.live-top--board .score-dash {
+  align-self: center;
+  padding-bottom: 0.5rem;
+  font: 700 1.75rem/1 var(--font-body);
+}
+.live-top--board .live-meta {
+  flex-direction: column;
+  padding-bottom: 0.375rem;
+  overflow-wrap: anywhere;
+}
+.live-top--board .btn--period { flex: none; }
+.live-top--board .situation-band {
+  --situation-band-bottom: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.375rem;
+  padding-inline: 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.live-top--board .situation-band[data-state="manUp"] { background: var(--sit-band-up); color: var(--t-white); }
+.live-top--board .situation-band[data-state="manDown"] { background: var(--sit-band-down); color: var(--t-ink); }
+.live-top--board .situation-band-seconds { font: 800 1.25rem/1 var(--font-num); letter-spacing: 0; }
+
+body.live-r3 .tiles { gap: 0.625rem; }
+.tile--board, .tile--board .tile-head { gap: 0.625rem; }
+.tile--board .tile-who { flex-wrap: nowrap; }
+.tile--board .tile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.tile--board .out-label { flex: none; }
+.tile--board .tile-stats { gap: 0.625rem; }
+.tile--board .tile-goals-label { display: none; }
+.tile--board .pips { gap: 3px; }
+.tile--board .pip { width: 0.75rem; height: 0.75rem; }
+.tile--board .pip--excl { background: var(--rope); border-color: var(--rope); }
+.tile--board .pip--pen { background: var(--pen); border-color: var(--pen); font-size: 0.625rem; }
+
+.tile--board.tile--goalie .tile-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  row-gap: 0;
+}
+.tile--board.tile--goalie .tile-who { display: contents; }
+.tile--board.tile--goalie .cap--tile { grid-area: 1 / 1 / span 2; }
+.tile--board .tile-name-line { grid-area: 1 / 2; align-self: end; }
+.tile--board.tile--goalie .pips { grid-area: 1 / 3; align-self: end; margin-bottom: 0.25rem; }
+.tile--board .in-goal-slot { grid-area: 1 / 4 / span 2; }
+.tile--board .tile-saves { grid-area: 2 / 2 / 3 / 4; align-self: start; }
+.tile--board .in-goal-badge { padding-block: 0.125rem; }
+.tile--board .btn--goal, .tile--board .btn--pen, .tile--board .btn--save { border: 0; }
+
+body.live-r3 .dock { padding-top: 0.625rem; box-shadow: 0 -2px 10px var(--shadow-dock); }
+body.live-r3 .dock-inner { grid-template-columns: minmax(0, 1fr); }
+body.live-r3 .btn--undo { display: block; padding-inline: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.live-r3 .btn--events { padding-inline: 1.125rem; }
+body.live-r3 .toast { padding-inline: 0.875rem; }
+
+/* Portrait and tall screens: the header, the score row and the banners are stacked above the tiles, in that order. */
 @media (orientation: portrait), (min-height: 501px) {
   body.live-r3 #app { display: flex; flex-direction: column; }
   body.live-r3 .view, body.live-r3 .live { display: contents; }
   body.live-r3 .bar { order: -2; padding-block: 0.375rem; }
   .live-top--board { order: -1; }
-  .live-top--board .live-head { gap: 0.75rem; padding-bottom: 0.625rem; }
   .live-top--board .live-score-block {
     display: flex;
     flex-wrap: wrap;
@@ -714,74 +786,106 @@ body.live-r3.goalie-scrolling { overflow-anchor: none; }
     gap: 0.25rem 0.875rem;
     min-width: 0;
   }
-  .live-top--board .live-score { align-items: flex-start; gap: clamp(0.375rem, 3.6vw, 0.875rem); line-height: 0.9; }
-  .live-top--board :is(.score-us, .score-them) { padding: 0; border: 0; }
-  .live-top--board .score-figure { display: grid; gap: 0.25rem; }
-  .live-top--board .score-bar { height: 0.25rem; border-radius: 2px; background: var(--t-bar); }
-  .live-top--board .score-dash {
-    align-self: center;
-    padding-bottom: 0.5rem;
-    font: 700 1.75rem/1 var(--font-body);
-  }
-  .live-top--board .live-meta {
-    flex-direction: column;
-    padding-bottom: 0.375rem;
-    overflow-wrap: anywhere;
-  }
-  .live-top--board .btn--period { flex: none; }
-  body.live-r3 .live-top--board::after, body.live-r3 .dock::before { content: none; }
-  .live-top--board .situation-band {
-    --situation-band-bottom: 0.375rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: 0.375rem;
-    padding-inline: 1rem;
-    font-size: 0.875rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-  }
-  .live-top--board .situation-band[data-state="manUp"] { background: var(--sit-band-up); color: var(--t-white); }
-  .live-top--board .situation-band[data-state="manDown"] { background: var(--sit-band-down); color: var(--t-ink); }
-  .live-top--board .situation-band-seconds { font: 800 1.25rem/1 var(--font-num); letter-spacing: 0; }
+}
 
-  body.live-r3 .tiles { gap: 0.625rem; }
-  .tile--board, .tile--board .tile-head { gap: 0.625rem; }
-  .tile--board .tile-who { flex-wrap: nowrap; }
-  .tile--board .tile-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    line-height: 1.2;
-  }
-  .tile--board .out-label { flex: none; }
-  .tile--board .tile-stats { gap: 0.625rem; }
-  .tile--board .tile-goals-label { display: none; }
-  .tile--board .pips { gap: 3px; }
-  .tile--board .pip { width: 0.75rem; height: 0.75rem; }
-  .tile--board .pip--excl { background: var(--rope); border-color: var(--rope); }
-  .tile--board .pip--pen { background: var(--pen); border-color: var(--pen); font-size: 0.625rem; }
-
-  .tile--board.tile--goalie .tile-head {
+/* Short landscape (a phone on its side): the left column is the board, 300 px at most. It holds the header,
+   the banners, the score row with its band, and the dock at the foot. The tiles fill the right side in two
+   columns and scroll in their own pane, so the controls never move. An R2 live.js has no body.live-r3 and keeps
+   the one-row dock of the rule above. */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.live-r3 #app {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    row-gap: 0;
+    grid-template-columns: min(300px, 40vw) minmax(0, 1fr);
+    grid-template-rows: auto auto auto 1fr;
+    min-height: 100vh;
+    min-height: 100dvh;
   }
-  .tile--board.tile--goalie .tile-who { display: contents; }
-  .tile--board.tile--goalie .cap--tile { grid-area: 1 / 1 / span 2; }
-  .tile--board .tile-name-line { grid-area: 1 / 2; align-self: end; }
-  .tile--board.tile--goalie .pips { grid-area: 1 / 3; align-self: end; margin-bottom: 0.25rem; }
-  .tile--board .in-goal-slot { grid-area: 1 / 4 / span 2; }
-  .tile--board .tile-saves { grid-area: 2 / 2 / 3 / 4; align-self: start; }
-  .tile--board .in-goal-badge { padding-block: 0.125rem; }
-  .tile--board .btn--goal, .tile--board .btn--pen, .tile--board .btn--save { border: 0; }
-
-  body.live-r3 .dock { padding-top: 0.625rem; box-shadow: 0 -2px 10px var(--shadow-dock); }
-  body.live-r3 .dock-inner { grid-template-columns: minmax(0, 1fr); }
-  body.live-r3 .btn--undo { display: block; padding-inline: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  body.live-r3 .btn--events { padding-inline: 1.125rem; }
-  body.live-r3 .toast { padding-inline: 0.875rem; }
+  body.live-r3 #app::before { content: ""; grid-area: 1 / 1 / -1 / 2; background: var(--t-board); }
+  body.live-r3 .view, body.live-r3 .live { display: contents; }
+  body.live-r3 .bar { grid-area: 1 / 1; padding: 0.375rem 0.75rem; border-bottom: 0; }
+  body.live-r3 .banners { grid-area: 2 / 1; min-width: 0; }
+  body.live-r3 .live-top--board { grid-area: 3 / 1; position: static; min-width: 0; }
+  body.live-r3 .dock {
+    grid-area: 4 / 1;
+    position: static;
+    align-self: end;
+    padding: 0.5rem 0.75rem 0.75rem;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  body.live-r3 .live-status { grid-area: 2 / 1 / 5 / -1; }
+  body.live-r3 .tiles {
+    grid-area: 1 / 2 / -1 / 3;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    align-items: start;
+    gap: 0.625rem;
+    padding: 0.75rem;
+  }
+  body.live-r3 .live-top--board .live-head { padding: 0.25rem 0.75rem 0.5rem; gap: 0.5rem; }
+  body.live-r3 .live-top--board .live-score-block { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+  body.live-r3 .live-top--board .live-score { font-size: 3.5rem; gap: 0.25rem; }
+  body.live-r3 .live-top--board .score-dash { padding-bottom: 0; font-size: 2rem; }
+  body.live-r3 .live-top--board .live-meta { min-width: 0; padding-bottom: 0; font-size: 0.75rem; }
+  body.live-r3 .live-top--board .btn--period { min-width: 4rem; min-height: 3.25rem; border-width: 2px; font-size: 1.75rem; }
+  body.live-r3 .live-top--board .situation-band { padding-inline: 0.75rem; margin-inline: 0; }
+  body.live-r3 .dock-inner { gap: 0.5rem; max-width: none; }
+  body.live-r3 .btn--opp, body.live-r3 .situation { min-height: 3.25rem; font-size: 0.875rem; font-weight: 700; line-height: 1.2; }
+  body.live-r3 .btn--opp { background: var(--t-white); border-color: var(--t-white); color: var(--t-ink); }
+  body.live-r3 .situation { box-shadow: inset 0 0 0 2px var(--t-white); border-color: transparent; }
+  body.live-r3 .situation:not([data-state="none"]) { color: var(--t-white); }
+  body.live-r3 .situation[data-state="manDown"] { color: var(--t-ink); box-shadow: inset 0 0 0 2px var(--t-ink); }
+  body.live-r3 .situation[data-state="none"] { background: transparent; color: var(--t-white); box-shadow: inset 0 0 0 2px var(--t-white); }
+  body.live-r3 .btn--undo, body.live-r3 .btn--events {
+    min-height: 3rem;
+    border-color: var(--t-line-strong);
+    background: transparent;
+    color: var(--t-white);
+    font-size: 0.875rem;
+  }
+  body.live-r3 .btn--undo { padding-inline: 0.625rem; }
+  body.live-r3 .btn--events { padding-inline: 0.875rem; }
+  body.live-r3 .toast { left: calc(min(300px, 40vw) + 0.75rem); bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px)); }
+  /* Tiles are about 250 px wide here (190 px at 667): pips and the in-goal slot do not fit beside a name. */
+  body.live-r3 .tiles .tile--board { align-self: stretch; padding: 0.625rem; gap: 0.5rem; }
+  body.live-r3 .tiles .tile--board .tile-head { gap: 0.5rem; }
+  .tile--board .cap--tile { width: 2.5rem; height: 2.5rem; font-size: 1.5rem; }
+  .tile--board .tile-stats { gap: 0.375rem; }
+  .tile--board .tile-goals { font-size: 1.875rem; }
+  .tile--board .pip { width: 0.625rem; height: 0.625rem; }
+  .tile--board.tile--goalie .tile-head { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 0.5rem; }
+  .tile--board.tile--goalie .cap--tile { grid-area: 1 / 1 / span 2; align-self: start; }
+  .tile--board .tile-name-line { grid-area: 1 / 2; align-self: center; }
+  .tile--board .in-goal-slot { grid-area: 1 / 3; width: 4.5rem; }
+  .tile--board .tile-saves { grid-area: 2 / 2; font-size: 0.8125rem; }
+  .tile--board.tile--goalie .pips { grid-area: 2 / 3; align-self: center; justify-self: end; margin: 0; }
+  .tile--board .tile-actions { gap: 0.375rem; }
+  .tile--board .btn--goal, .tile--board .tile-actions .btn--save { min-height: 3.75rem; font-size: 1.625rem; }
+  .tile--board:not(.tile--goalie) .tile-actions { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr) minmax(0, 0.9fr); }
+  .tile--board .btn--excl, .tile--board .btn--pen, .tile--board .tile-actions .btn--pen-save, .tile--board .tile-actions .btn--more {
+    min-height: 3.75rem;
+    font-size: 0.8125rem;
+    overflow-wrap: normal;
+  }
+  .tile--board.tile--goalie .tile-actions .btn { min-height: 3.75rem; }
+  .tile--board .tile-actions .btn--more { font-size: 1.625rem; }
+}
+/* On the narrowest phones sideways (667 px) Goal gets a column of its own, with Exclusion over Pen. */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 800px) {
+  .tile--board:not(.tile--goalie) .tile-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: repeat(2, 2.75rem); }
+  .tile--board:not(.tile--goalie) .tile-actions .btn--goal { grid-row: 1 / span 2; min-height: 0; }
+  .tile--board:not(.tile--goalie) .tile-actions .btn--excl, .tile--board:not(.tile--goalie) .tile-actions .btn--pen {
+    min-height: 2.75rem;
+    align-self: stretch;
+  }
 }
 
 /* Events list */
