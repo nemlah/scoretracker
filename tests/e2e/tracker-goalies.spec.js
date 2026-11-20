@@ -199,7 +199,7 @@ test('Pen save shows the pen count next to the saves', async ({ page }) => {
   await startGoalieGame(page);
   await tile(page, 1).getByTestId('tile-save').click();
   await tile(page, 1).getByTestId('tile-pen-save').click();
-  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('1 save · 1 pen');
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('1 save · 1 pen save');
   const id = await currentGameId();
   await expect.poll(async () => (await get(`games/${id}`)).events.map(e => e.type)).toEqual(['save', 'penSave']);
 });
@@ -331,9 +331,9 @@ test('goalie and player tiles are the same height with a long name on cap 13', a
   await expectEqualHeights(page);
 });
 
-test('goalie and player tiles are the same height with 12 saves · 2 pen showing', async ({ page }) => {
+test('goalie and player tiles are the same height with 12 saves · 2 pen saves showing', async ({ page }) => {
   await openSeeded(page, { events: savesAndPens });
-  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('12 saves · 2 pen');
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('12 saves · 2 pen saves');
   await page.setViewportSize({ width: 360, height: 900 });
   // The text is not cut off by the ellipsis at the narrowest width.
   expect(await tile(page, 1).getByTestId('tile-saves').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
@@ -341,7 +341,7 @@ test('goalie and player tiles are the same height with 12 saves · 2 pen showing
 });
 
 for (const [label, extra] of [['in goal', []], ['not in goal', [{ id: 'gk', type: 'gkIn', period: 1, ts: 5000, playerId: 'g1' }]]]) {
-  test(`one goalie tile with a two-digit cap, a long name, 12 saves · 2 pen and three fouls keeps two rows at 360 px (${label})`, async ({ page }) => {
+  test(`one goalie tile with a two-digit cap, a long name, 12 saves · 2 pen saves and three fouls keeps two rows at 360 px (${label})`, async ({ page }) => {
     const long = 'Κωνσταντινίδης';
     const own = events => events.map(event => ({ ...event, playerId: 'g13' }));
     await openSeeded(page, {
@@ -359,7 +359,7 @@ for (const [label, extra] of [['in goal', []], ['not in goal', [{ id: 'gk', type
     await page.setViewportSize({ width: 360, height: 900 });
     const goalie = tile(page, 13);
     await expect(goalie).toHaveClass(/is-out/);
-    await expect(goalie.getByTestId('tile-saves')).toHaveText('12 saves · 2 pen');
+    await expect(goalie.getByTestId('tile-saves')).toHaveText('12 saves · 2 pen saves');
     expect(await goalie.locator('.pip.is-on').count()).toBe(3);
     const field = (await pageBox(page, 5)).height;
     expect(near((await pageBox(page, 13)).height, field)).toBe(true);
@@ -421,6 +421,49 @@ test('the head shows IN GOAL or an In goal button, and saves instead of goals', 
   await expect(tile(page, 5).getByTestId('tile-goal')).toBeVisible();
 });
 
+test('the goalie sheet shows the cap, name and current in-goal badge above its actions', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const name = 'Παναγιώτης Παπαδόπουλος';
+  const lineup = [
+    { playerId: 'g1', name: 'Nikolaou', cap: 1, goalie: true },
+    { playerId: 'g13', name, cap: 13, goalie: true },
+  ];
+  const events = [
+    ...savesAndPens.filter(e => e.type === 'save').slice(0, 8),
+    savesAndPens.find(e => e.type === 'penSave'),
+  ].map(event => ({ ...event, playerId: 'g13' }));
+  await openSeeded(page, { lineup, events });
+  const goalie = tile(page, 13);
+  await expect(goalie.getByTestId('tile-saves')).toHaveText('8 saves · 1 pen save');
+  await goalie.getByTestId('tile-more').click();
+  const sheet = moreSheet(page);
+  await expect(sheet.getByRole('heading')).toHaveText(name);
+  await expect(sheet.locator('.more-name')).toHaveCSS('text-overflow', 'ellipsis');
+  await expect(sheet.locator('.sheet-head .cap')).toHaveText('13');
+  await expect(sheet.getByTestId('more-in-goal')).toHaveText('IN GOAL');
+  await expect(sheet.getByTestId('more-in-goal')).toBeVisible();
+  const cancel = sheet.getByTestId('goalie-more-close');
+  await expect(cancel).toHaveText('Cancel');
+  const [goal, excl, pen, bottom] = await Promise.all(['more-goal', 'more-excl', 'more-pen', 'goalie-more-close']
+    .map(id => sheet.getByTestId(id).boundingBox()));
+  expect(goal.width).toBeCloseTo(2 * excl.width, 0);
+  expect(excl.width).toBeCloseTo(pen.width, 0);
+  expect(goal.y).toBeCloseTo(excl.y, 0);
+  expect(excl.y).toBeCloseTo(pen.y, 0);
+  expect(bottom.y).toBeGreaterThanOrEqual(goal.y + goal.height);
+  expect(await sheet.evaluate(el => el.scrollWidth)).toBeLessThanOrEqual(360);
+
+  await update('games/g-seed', { events: [...events, { id: 'gk', type: 'gkIn', period: 1, ts: 5000, playerId: 'g1' }] });
+  await expect(goalie).not.toHaveAttribute('data-in-goal', 'true');
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByTestId('more-in-goal')).toBeHidden();
+  await cancel.click();
+  await expect(sheet).toBeHidden();
+  await goalie.getByTestId('tile-more').click();
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByTestId('more-in-goal')).toBeHidden();
+});
+
 test('the ⋯ sheet records a goalie\'s goal, exclusion or penalty', async ({ page }) => {
   await startGoalieGame(page);
   const id = await currentGameId();
@@ -428,7 +471,7 @@ test('the ⋯ sheet records a goalie\'s goal, exclusion or penalty', async ({ pa
 
   await tile(page, 1).getByTestId('tile-more').click();
   await expect(moreSheet(page)).toBeVisible();
-  await expect(moreSheet(page)).toContainText('#1');
+  await expect(moreSheet(page)).toHaveAccessibleName('#1 Nikolaou');
   await moreSheet(page).getByTestId('goalie-more-close').click();
   await expect(moreSheet(page)).toBeHidden();
   expect(await recorded()).toEqual([]);
@@ -517,7 +560,7 @@ test('a shootout penalty save shows on the goalie tile', async ({ page }) => {
   await openSeeded(page, { period: 'SO' });
   await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('0 saves');
   await tile(page, 1).getByTestId('tile-pen-save').click();
-  await expect(tile(page, 1).getByTestId('tile-saves')).toContainText('1 pen');
+  await expect(tile(page, 1).getByTestId('tile-saves')).toHaveText('0 saves · 1 pen save');
 });
 
 test('editing a cap on a game without goalies keeps the roster goalie ticks', async ({ page }) => {

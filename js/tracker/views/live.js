@@ -18,6 +18,7 @@ const GOALIE_LOCK_MS = 1000;
 const SITUATION_TICK_MS = 1000;
 const SITUATION_BUTTON = { none: 'manUpButton', manUp: 'manUpEndButton', manDown: 'manDownEndButton' };
 const SITUATION_TAP = { none: 'manUp', manUp: 'manUpEnd', manDown: 'manDownEnd' };
+const SITUATION_BAND = { manUp: 'situationManUp', manDown: 'situationManDown' };
 
 // One tile per lineup player. Tiles are updated in place, never rebuilt: a snapshot that lands
 // between a finger going down and coming up must not swap the button out from under it.
@@ -27,27 +28,47 @@ function buildTile(player, ctx, onGoalieTap, host) {
   const badge = h('span', { class: 'cap cap--tile' }, player.cap);
   const name = h('span', { class: 'tile-name' }, player.name);
   const out = h('span', { class: 'out-label', 'data-testid': 'tile-out', hidden: true }, t('out'));
-  const pips = Array.from({ length: PIPS }, () => h('i', { class: 'pip' }));
+  const pips = Array.from({ length: PIPS }, () => h('i', { class: 'pip', 'aria-hidden': 'true' }));
+  const exclTotal = h('span', { class: 'sr-only' }, '0');
   const exclCount = h('span', { class: 'pips', role: 'img', 'data-testid': 'tile-excl-count' },
-    pips, h('span', { class: 'sr-only' }, '0'));
-  const el = h('li', { class: 'tile', 'data-testid': 'tile', 'data-cap': player.cap, 'data-player-id': player.playerId });
+    pips, exclTotal);
+  const el = h('li', { class: 'tile tile--board', 'data-testid': 'tile', 'data-cap': player.cap, 'data-player-id': player.playerId });
   let field = null;
   let goalie = null;
   // The latest line this tile was updated with: the ⋯ sheet reads it when a button is tapped.
-  let current = { cap: player.cap, name: player.name, out: false, writable: false };
+  let current = { cap: player.cap, name: player.name, out: false, writable: false, inGoal: false };
   let more = null;
 
-  function closeMore() { more?.close(); }
+  function closeMore() { more?.sheet.close(); }
+
+  function updateMore() {
+    more.cap.textContent = current.cap;
+    more.name.textContent = current.name;
+    more.inGoalBadge.hidden = !current.inGoal;
+    more.panel.setAttribute('aria-label', t('moreSheetTitle', { cap: current.cap, name: current.name }));
+  }
 
   function openMore(from) {
     if (more) return;
+    const title = h('span', { class: 'more-name' });
     const sheet = createOverlay({
-      title: t('moreSheetTitle', { cap: current.cap, name: current.name }),
+      title,
       testid: 'goalie-more-sheet',
       closeTestId: 'goalie-more-close',
       // Built on open and removed on close: at most one such sheet is ever in the page.
-      onClose: () => { sheet.destroy(); if (more === sheet) more = null; },
+      onClose: () => { sheet.destroy(); if (more?.sheet === sheet) more = null; },
     });
+    const panel = sheet.el.querySelector('.sheet');
+    const header = panel.querySelector('.sheet-head');
+    const cancel = header.querySelector('button');
+    const cap = h('span', { class: 'cap cap--tile' });
+    const inGoalBadge = h('span', { class: 'in-goal-badge', 'data-testid': 'more-in-goal' }, t('inGoalBadge').toUpperCase());
+    panel.classList.add('sheet--goalie-more');
+    panel.removeAttribute('aria-labelledby');
+    header.prepend(cap);
+    header.append(inGoalBadge);
+    cancel.classList.add('more-cancel');
+    cancel.textContent = t('sheetCancel');
     // A snapshot may have put the goalie OUT, or taken control away, since the sheet opened:
     // the state is read at tap time, and the sheet closes either way.
     const choose = type => () => {
@@ -55,11 +76,14 @@ function buildTile(player, ctx, onGoalieTap, host) {
       sheet.close();
     };
     sheet.body.append(
-      h('button', { type: 'button', class: 'btn btn--goal', 'data-testid': 'more-goal', onclick: choose('goal') }, t('goalButton')),
-      h('button', { type: 'button', class: 'btn btn--excl', 'data-testid': 'more-excl', onclick: choose('excl') }, t('exclButton')),
-      h('button', { type: 'button', class: 'btn btn--pen', 'data-testid': 'more-pen', onclick: choose('pen') }, t('penButton')));
+      h('div', { class: 'tile-actions more-actions' },
+        h('button', { type: 'button', class: 'btn btn--goal', 'data-testid': 'more-goal', onclick: choose('goal') }, t('goalButton')),
+        h('button', { type: 'button', class: 'btn btn--excl', 'data-testid': 'more-excl', onclick: choose('excl') }, t('exclButton')),
+        h('button', { type: 'button', class: 'btn btn--pen', 'data-testid': 'more-pen', onclick: choose('pen') }, t('penButton'))),
+      cancel);
     host.append(sheet.el);
-    more = sheet;
+    more = { sheet, panel, cap, name: title, inGoalBadge };
+    updateMore();
     sheet.open(from);
   }
 
@@ -75,6 +99,7 @@ function buildTile(player, ctx, onGoalieTap, host) {
     }, t('saveButton'));
     const penSaveButton = h('button', {
       type: 'button', class: 'btn btn--pen-save', 'data-testid': 'tile-pen-save',
+      style: 'grid-column: 2', // Keep its slot when Save is hidden, including with R2 CSS.
       'aria-label': t('penSaveFor', { name: player.name }),
       onclick: () => onGoalieTap('penSave', player.playerId),
     }, t('penSaveButton'));
@@ -130,20 +155,22 @@ function buildTile(player, ctx, onGoalieTap, host) {
     isGoalie,
     closeMore,
     destroy() {
-      more?.destroy();
+      more?.sheet.destroy();
       more = null;
     },
-    update(line, writable, goalieLine = null, inGoal = false, shootout = false, goalieLocked = false) {
+    update(line, fouls, writable, goalieLine = null, inGoal = false, shootout = false, goalieLocked = false) {
       el.dataset.cap = line.cap;
-      current = { cap: line.cap, name: line.name, out: line.out, writable };
+      current = { cap: line.cap, name: line.name, out: line.out, writable, inGoal };
       badge.textContent = line.cap;
       badge.classList.toggle('cap--out', line.out);
       name.textContent = line.name;
       exclCount.setAttribute('aria-label', t('tileFoulsAria', { excl: line.excl, pens: line.pens }));
-      exclCount.lastChild.textContent = line.excl;
+      exclTotal.textContent = line.excl;
       pips.forEach((pip, i) => {
-        const isExcl = i < line.excl;
-        const isPen = !isExcl && i < line.excl + line.pens;
+        const isExcl = fouls[i] === 'excl';
+        const isPen = fouls[i] === 'pen';
+        pip.classList.toggle('pip--excl', isExcl);
+        pip.classList.toggle('pip--pen', isPen);
         pip.classList.toggle('is-on', isExcl || isPen);
         pip.classList.toggle('is-pen', isPen);
         pip.textContent = isPen ? t('penPip') : '';
@@ -153,7 +180,7 @@ function buildTile(player, ctx, onGoalieTap, host) {
       if (field !== null) {
         field.goals.textContent = line.goals;
         field.goalsLabel.textContent = goalCountLabel(line.goals);
-        field.goals.setAttribute('aria-label', t('tileGoalsAria', { n: line.goals }));
+        field.goals.setAttribute('aria-label', t(line.goals === 1 ? 'tileGoalsAriaOne' : 'tileGoalsAria', { n: line.goals }));
         field.soGoals.hidden = line.soGoals === 0;
         field.soGoals.textContent = line.soGoals === 0 ? '' : t('penaltyGoals', { n: line.soGoals });
         field.goalButton.disabled = !writable || line.out;
@@ -165,13 +192,13 @@ function buildTile(player, ctx, onGoalieTap, host) {
       const saveCount = goalieLine?.saves ?? 0;
       const savesText = saveCount === 1 ? t('tileSavesOne') : t('tileSaves', { n: saveCount });
       goalie.saves.textContent = penSaves > 0
-        ? t('tileSavesWithPen', { saves: savesText, pens: t('tilePenSaves', { n: penSaves }) })
+        ? t('tileSavesWithPen', { saves: savesText, pens: t(penSaves === 1 ? 'tilePenSavesOne' : 'tilePenSaves', { n: penSaves }) })
         : savesText;
       el.classList.toggle('is-in-goal', inGoal);
       if (inGoal) el.dataset.inGoal = 'true'; else delete el.dataset.inGoal;
-      // The badge and the button share one slot: whichever is not shown keeps its space.
-      goalie.inGoalBadge.style.visibility = inGoal ? 'visible' : 'hidden';
-      goalie.inGoalButton.style.visibility = inGoal ? 'hidden' : 'visible';
+      // The cap and the slot keep the row at the same height when the badge replaces the button.
+      goalie.inGoalBadge.hidden = !inGoal;
+      goalie.inGoalButton.hidden = inGoal;
       // Right after a goalie change the goalie buttons are refused for a moment, so a second
       // finger on the old layout cannot hit a tile that has just moved.
       goalie.saveButton.disabled = !writable || line.out || goalieLocked;
@@ -180,8 +207,8 @@ function buildTile(player, ctx, onGoalieTap, host) {
       // ⋯ is Goal, Exclusion and Pen: disabled like Goal on a player tile. An open sheet closes.
       goalie.moreButton.disabled = !writable || line.out;
       if (!writable || line.out) closeMore();
-      // Hidden, not removed: the button keeps its space, so nothing moves under a finger.
-      goalie.saveButton.style.visibility = shootout ? 'hidden' : 'visible';
+      if (more) updateMore();
+      goalie.saveButton.hidden = shootout;
     },
   };
 }
@@ -211,12 +238,23 @@ export function mount(root, ctx) {
   const periodButton = h('button', {
     type: 'button', class: 'btn btn--primary btn--period', 'data-testid': 'period-next', onclick: advancePeriod,
   }, periodLabel(1));
-  const head = h('div', { class: 'live-top' },
+  const bandLabel = h('span', { class: 'situation-band-label' });
+  const bandSeconds = h('span', { class: 'situation-band-seconds' });
+  const band = h('div', {
+    class: 'situation-band', 'data-testid': 'situation-band', 'data-state': 'none', hidden: true,
+    // Leave room for the strip drawn by the previous stylesheet.
+    style: 'padding-bottom: var(--situation-band-bottom, 8px)',
+  }, bandLabel, ' ', bandSeconds);
+  const head = h('div', { class: 'live-top live-top--board' },
     h('div', { class: 'live-head' },
       h('div', { class: 'live-score-block' },
-        h('div', { class: 'live-score' }, scoreUs, h('span', { class: 'score-dash', 'aria-hidden': 'true' }, '–'), scoreThem),
+        h('div', { class: 'live-score' },
+          h('span', { class: 'score-figure' }, scoreUs, h('span', { class: 'score-bar', 'aria-hidden': 'true' })),
+          h('span', { class: 'score-dash', 'aria-hidden': 'true' }, ':'),
+          scoreThem),
         h('div', { class: 'live-meta' }, shootout, situations, sync)),
-      periodButton));
+      periodButton),
+    band);
 
   const tileList = h('ul', { class: 'tiles', 'data-testid': 'tiles' });
 
@@ -244,7 +282,7 @@ export function mount(root, ctx) {
     h('button', { type: 'button', class: 'btn btn--wide', onclick: () => ctx.navigate('/') }, t('navHome')));
   root.append(game, loading, none);
   const sheet = createEventsSheet(ctx, root);
-  document.body.classList.add('on-live');
+  document.body.classList.add('on-live', 'live-r3');
 
   // After an Undo the button is disabled for a moment, so an accidental double tap is visibly
   // refused instead of removing a second event. A tap on an enabled button is always performed.
@@ -322,7 +360,9 @@ export function mount(root, ctx) {
   function renderSituationClock() {
     if (openSituation === null) return;
     const elapsed = Date.now() - openSituation.startTs;
-    situationSeconds.textContent = t('situationSeconds', { s: Math.max(0, Math.floor(elapsed / 1000)) });
+    const seconds = t('situationSeconds', { s: Math.max(0, Math.floor(elapsed / 1000)) });
+    situationSeconds.textContent = seconds;
+    bandSeconds.textContent = seconds;
     situationButton.classList.toggle('is-late', elapsed >= SITUATION_REMIND_MS);
   }
 
@@ -336,6 +376,9 @@ export function mount(root, ctx) {
     situationButton.dataset.state = state;
     situationLabel.textContent = t(SITUATION_BUTTON[state]);
     situationSeconds.hidden = openSituation === null;
+    band.hidden = openSituation === null;
+    band.dataset.state = state;
+    bandLabel.textContent = openSituation === null ? '' : t(SITUATION_BAND[state]).toUpperCase();
     situationButton.disabled = !writable || situationLocked;
     setTint(openSituation?.kind ?? null);
     if (openSituation === null) {
@@ -377,6 +420,14 @@ export function mount(root, ctx) {
     // The goalie tiles all have the same height, so a goalie change swaps them without moving any
     // field tile.
     const all = playerLines(current.lineup ?? [], events);
+    const foulsByPlayer = new Map();
+    // Older events can be edited after later ones have landed. Keep the replay order, with array
+    // order breaking ties just as it does in the model's foul-out calculation.
+    const fouls = events.filter(event => event.type === 'excl' || event.type === 'pen').sort((a, b) => a.ts - b.ts);
+    for (const { playerId, type } of fouls) {
+      if (!foulsByPlayer.has(playerId)) foulsByPlayer.set(playerId, []);
+      foulsByPlayer.get(playerId).push(type);
+    }
     const stats = goalieStats({ ...current, lineup: current.lineup ?? [], events });
     inGoalId = stats?.inGoal ?? null;
     const lines = [
@@ -396,7 +447,7 @@ export function mount(root, ctx) {
         tile = buildTile(line, ctx, goalieTap, root);
         tiles.set(line.playerId, tile);
       }
-      tile.update(line, writable, stats?.goalies.find(entry => entry.playerId === line.playerId),
+      tile.update(line, foulsByPlayer.get(line.playerId) ?? [], writable, stats?.goalies.find(entry => entry.playerId === line.playerId),
         stats?.inGoal === line.playerId, current.period === 'SO', goalieLocked);
       // Only move a tile that is out of place, so unchanged tiles keep their DOM identity.
       if (tileList.children[index] !== tile.el) tileList.insertBefore(tile.el, tileList.children[index] ?? null);
@@ -414,6 +465,8 @@ export function mount(root, ctx) {
 
   function clearSituation() {
     openSituation = null;
+    band.hidden = true;
+    band.dataset.state = 'none';
     clearInterval(situationTick);
     situationTick = null;
     setTint(null);
@@ -475,7 +528,7 @@ export function mount(root, ctx) {
       for (const tile of tiles.values()) tile.destroy();
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
-      document.body.classList.remove('on-live');
+      document.body.classList.remove('on-live', 'live-r3');
       document.documentElement.style.removeProperty('--dock-h');
       const lock = wakeLock;
       wakeLock = null;

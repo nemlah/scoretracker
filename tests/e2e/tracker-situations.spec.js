@@ -94,20 +94,31 @@ test('man-up opens, tints the page, and our goal closes it as scored', async ({ 
 });
 
 test('ending a man-up counts it as missed; a double tap does not end it', async ({ page }) => {
-  await startGame(page);
+  const id = await startGame(page);
+  const band = page.getByTestId('situation-band');
+  await expect(band).toBeHidden();
   await situation(page).dblclick();
   await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
   await expect(situation(page)).toBeDisabled();
-  await page.waitForTimeout(300);
+  await expect(band).toBeVisible();
+  await expect(band).toHaveAttribute('data-state', 'manUp');
+  await expect(band.locator('.situation-band-label')).toHaveText('MAN-UP');
+  const seconds = band.locator('.situation-band-seconds');
+  await expect(seconds).toHaveText(/^\d+ s$/);
+  const initial = parseInt(await seconds.textContent(), 10);
+  // Sample both clocks in one browser task so a tick cannot fall between the reads.
+  await expect.poll(() => seconds.evaluate((label, first) => {
+    const dock = document.querySelector('[data-testid="situation-seconds"]');
+    return parseInt(label.textContent, 10) > first && label.textContent === dock.textContent;
+  }, initial)).toBe(true);
   await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
-  const events = (await get(`games/${await currentGameId()}`)).events;
-  expect(events.filter(event => event.type === 'manUp')).toHaveLength(1);
-  expect(events.filter(event => event.type === 'manUpEnd')).toHaveLength(0);
-  await page.waitForTimeout(1100);
-  await expect(situation(page)).toBeEnabled();
+  const eventTypes = async () => (await get(`games/${id}`)).events.map(event => event.type);
+  await expect.poll(eventTypes).toEqual(['manUp']);
   await situation(page).click();
   await expect(situation(page)).toHaveAttribute('data-state', 'none');
+  await expect(band).toBeHidden();
   await expect(page.getByTestId('live-situations')).toHaveText('MU 0/1 · MD 0/0');
+  await expect.poll(eventTypes).toEqual(['manUp', 'manUpEnd']);
 });
 
 test('EXCL opens a man-down; an opponent goal concedes it', async ({ page }) => {
@@ -151,9 +162,11 @@ test('tint is removed when leaving the live screen', async ({ page }) => {
   await startGame(page);
   await situation(page).click();
   await expect(body(page)).toHaveClass(/sit-up/);
+  await expect(body(page)).toHaveClass(/\blive-r3\b/);
   await page.getByTestId('nav-home').click();
   await expect(page.getByTestId('home-resume')).toBeVisible();
   await expect(body(page)).not.toHaveClass(/sit-/);
+  await expect(body(page)).not.toHaveClass(/\blive-r3\b/);
   await page.getByTestId('home-resume').click();
   await expect(situation(page)).toHaveAttribute('data-state', 'manUp');
   await expect(body(page)).toHaveClass(/sit-up/);
@@ -227,18 +240,27 @@ test('PEN is at least as wide as EXCL and both are full-size targets on a narrow
   }
 });
 
-test('opening a man-down does not move the tiles', async ({ page }) => {
-  await startGame(page);
-  const yOf = async () => (await tile(page, 5).boundingBox()).y;
-  const before = await yOf();
+test('the man-down band sits between the score and the tiles until it ends', async ({ page }) => {
+  const id = await startGame(page);
+  const band = page.getByTestId('situation-band');
+  await expect(band).toBeHidden();
   await tile(page, 2).getByTestId('tile-excl').click();
   await expect(situation(page)).toHaveAttribute('data-state', 'manDown');
   await expect(body(page)).toHaveClass(/sit-down/);
-  expect(Math.abs((await yOf()) - before)).toBeLessThanOrEqual(0.5);
-  await page.getByTestId('opp-goal').click();
+  await expect(band).toBeVisible();
+  await expect(band).toHaveAttribute('data-state', 'manDown');
+  await expect(band.locator('.situation-band-label')).toHaveText('MAN-DOWN');
+  const bounds = await band.boundingBox();
+  const score = await page.locator('.live-head').boundingBox();
+  const tiles = await page.getByTestId('tiles').boundingBox();
+  expect(bounds.y).toBeCloseTo(score.y + score.height, 0);
+  expect(tiles.y).toBeGreaterThanOrEqual(bounds.y + bounds.height - 0.5);
+  await situation(page).click();
   await expect(situation(page)).toHaveAttribute('data-state', 'none');
+  await expect(band).toBeHidden();
   await expect(body(page)).not.toHaveClass(/sit-/);
-  expect(Math.abs((await yOf()) - before)).toBeLessThanOrEqual(0.5);
+  await expect.poll(async () => (await get(`games/${id}`)).events.map(event => event.type))
+    .toEqual(['excl', 'manDownEnd']);
 });
 
 test('ending the game with a man-up open removes the tint', async ({ page }) => {

@@ -150,9 +150,7 @@ test('a man-down is a hatched orange band with ink text on an orange page', asyn
   expect(await cssColour(situation(page), 'backgroundImage')).toContain('repeating-linear-gradient');
   expect(await cssColour(situation(page), 'color')).toBe('rgb(11, 19, 32)');
   expect(await cssColour(page.locator('body'), 'backgroundColor')).toBe('rgb(240, 138, 75)');
-  // The band over the board is hatched too, and never moves a box.
-  const band = await page.locator('.live-top').evaluate(el => getComputedStyle(el, '::after').backgroundImage);
-  expect(band).toContain('repeating-linear-gradient');
+  await expect(page.getByTestId('situation-band')).toHaveAttribute('data-state', 'manDown');
 });
 
 // The opacity a user sees: an element's own opacity times that of every ancestor.

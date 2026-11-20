@@ -1,7 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
 import { seasonFor, todayIso } from '../../js/model.js';
 import { closeAll, get, openLiveGame, resetAll, seed, update } from './helpers.js';
-import { CODE, TRACKER_URL, collectProblems, dropNetworkNoise, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, TRACKER_URL, collectProblems, dropNetworkNoise, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 const roster = [
@@ -114,6 +115,7 @@ test('goal, exclusion, opponent goal, undo label', async ({ page }) => {
   await tile(page, 5).getByTestId('tile-goal').click();
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(tile(page, 5).getByTestId('tile-goals')).toHaveText('1');
+  await expect(tile(page, 5).getByTestId('tile-goals')).toHaveAttribute('aria-label', '1 goal');
   await expect(page.getByTestId('undo')).toHaveText('Undo: Goal · #5 Alexiou (Q1)');
   expect(await page.evaluate(() => window.__vibrations)).toEqual([30]);
 
@@ -200,6 +202,121 @@ test('double tap records one goal', async ({ page }) => {
   await page.waitForTimeout(400);
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(tile(page, 5).getByTestId('tile-goals')).toHaveText('1');
+});
+
+test('the board score and tile counts stay in place and show fouls in event order', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const player = { playerId: 'p12', name: 'Παναγιώτης Παπαδόπουλος', cap: 12 };
+  const event = (id, type, ts) => ({ id, type, ts, period: 1, playerId: player.playerId });
+  const events = [
+    event('goal-1', 'goal', 1000), event('goal-2', 'goal', 2000), event('goal-3', 'goal', 3000),
+    event('excl', 'excl', 5000), event('pen', 'pen', 4000),
+  ];
+  await seed('games/board', {
+    opponent: 'Opponent FC', date: '2026-11-20', season: '2026-27', status: 'live', period: 1, lineup: [player], events,
+  });
+  await update('team/main', { currentGameId: 'board' });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-resume').click();
+  const score = page.getByTestId('score-us');
+  await expect(score).toHaveText('3');
+  const bar = score.locator('..').locator('.score-bar');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-hidden', 'true');
+  expect((await bar.boundingBox()).y).toBeGreaterThan((await score.boundingBox()).y);
+  const separator = page.locator('.live-score .score-dash');
+  await expect(separator).toHaveText(':');
+  await expect(separator).toHaveAttribute('aria-hidden', 'true');
+  const clubHeader = await page.locator('header.bar').boundingBox();
+  const scoreHeader = await page.locator('.live-top--board').boundingBox();
+  expect(scoreHeader.y).toBeCloseTo(clubHeader.y + clubHeader.height, 0);
+
+  const goals = tile(page, 12).getByTestId('tile-goals');
+  await expect(goals).toHaveText('3');
+  await expect(goals).toHaveAttribute('aria-label', '3 goals');
+  await expect(tile(page, 12).locator('.tile-goals-label')).toBeHidden();
+  const fouls = tile(page, 12).getByTestId('tile-excl-count');
+  await expect(fouls).toHaveAttribute('role', 'img');
+  await expect(fouls).toHaveAttribute('aria-label', 'Exclusions: 1, penalty fouls: 1');
+  const pips = fouls.locator('.pip');
+  await expect(pips).toHaveCount(3);
+  await expect(pips.nth(0)).toHaveClass(/pip--pen/);
+  await expect(pips.nth(1)).toHaveClass(/pip--excl/);
+  await expect(pips.nth(2)).toHaveClass('pip');
+  const name = tile(page, 12).locator('.tile-name');
+  await expect(name).toHaveText(player.name);
+  await expect(name).toHaveCSS('text-overflow', 'ellipsis');
+  await page.getByTestId('events-open').click({ trial: true });
+
+  const retained = [score, goals, pips.nth(0), tile(page, 12).getByTestId('tile-goal')];
+  const original = await Promise.all(retained.map(locator => locator.elementHandle()));
+  await update('games/board', { events: [...events, event('goal-4', 'goal', 6000)] });
+  await expect(score).toHaveText('4');
+  await expect(goals).toHaveText('4');
+  for (const [index, locator] of retained.entries()) {
+    expect(await locator.evaluate((node, previous) => node === previous, original[index])).toBe(true);
+  }
+});
+
+test.describe('mixed cache with R2 live tracker files', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('the score and controls work with either R2 live.js or R2 tracker.css', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    const pairings = [
+      ['js/tracker/views/live.js', 'text/javascript', 'Q2', 2],
+      ['css/tracker.css', 'text/css', 'Q3', 3],
+    ];
+    let gameId;
+    for (const [path, contentType, quarter, period] of pairings) {
+      const body = execFileSync('git', ['show', `720f124:${path}`], { encoding: 'utf8' });
+      const url = `**/${path}*`;
+      let served = 0;
+      await page.route(url, route => {
+        served++;
+        return route.fulfill({ contentType, body });
+      });
+      if (gameId === undefined) {
+        await startGame(page);
+        gameId = await currentGameId();
+      } else {
+        await page.reload();
+        dropNetworkNoise(problems);
+      }
+      const score = page.getByTestId('score-us');
+      await expect(score).toHaveText('0');
+      await expect(score).toBeVisible();
+      await score.click({ trial: true });
+      expect(served, `R2 ${path} was served`).toBeGreaterThan(0);
+      if (period === 2) {
+        await expect(page.locator('.live-top--board')).toHaveCount(0);
+        await expect(page.locator('.dock')).toHaveCSS('position', 'fixed');
+      }
+
+      const next = page.getByTestId('period-next');
+      await expect(next).toBeVisible();
+      await next.click();
+      await expect(next).toHaveText(quarter);
+      await expect.poll(async () => (await get(`games/${gameId}`)).period).toBe(period);
+      await tile(page, 5).getByTestId('tile-goal').click();
+      await expect(score).toHaveText('1');
+      await expect.poll(async () => (await get(`games/${gameId}`)).events.map(e => e.type)).toEqual(['goal']);
+
+      const undo = page.getByTestId('undo');
+      await expect(undo).toBeVisible();
+      await undo.click();
+      await expect(score).toHaveText('0');
+      await expect.poll(async () => (await get(`games/${gameId}`)).events).toEqual([]);
+
+      const events = page.getByTestId('events-open');
+      await expect(events).toBeVisible();
+      await events.click();
+      await expect(page.getByTestId('events-sheet')).toBeVisible();
+      await page.getByTestId('events-close').click();
+      await page.unroute(url);
+    }
+  });
 });
 
 test('rapid taps on different players are all kept and none is reported as unsaved', async ({ page }) => {
