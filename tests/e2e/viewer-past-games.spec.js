@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, resetAll, seed, update } from './helpers.js';
 
 const roster = [
@@ -40,6 +41,7 @@ test.beforeEach(async ({ page }) => {
   problems = [];
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
+    if (isPlaywrightServiceWorkerBlock(message.text())) return;
     if (message.type() === 'error') problems.push(`console: ${message.text()}`);
   });
   await resetAll();

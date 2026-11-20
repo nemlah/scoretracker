@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
+import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import {
   closeAll, delivered, instrumentRepo, resetAll, seed, update,
 } from './helpers.js';
@@ -24,7 +25,7 @@ test.beforeEach(async ({ page }) => {
   blockedErrors = [];
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() !== 'error') return;
+    if (message.type() !== 'error' || isPlaywrightServiceWorkerBlock(message.text())) return;
     // Only the browser's resource-load failure for the intercepted URL (its location and its text); an error the
     // app logs about the same file, or any other, still fails the test.
     if (blockedUrl && message.location()?.url === blockedUrl && /^Failed to load resource/.test(message.text())) {

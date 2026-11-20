@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EMULATOR } from '../../js/config.js';
-import { isFirestoreChannelLoss } from '../e2e/network-noise.js';
+import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from '../e2e/network-noise.js';
 
 const lostConnection = 'Failed to load resource: The network connection was lost.';
 const firestore = `http://${EMULATOR.host}:${EMULATOR.firestorePort}/google.firestore.v1.Firestore`;
 const listen = `${firestore}/Listen/channel?VER=8&RID=rpc`;
+
+for (const [name, text, dropped] of [
+  ['drops the exact Playwright service worker warning', 'Service Worker registration blocked by Playwright', true],
+  ['keeps an extended Playwright warning', 'Service Worker registration blocked by Playwright for /sw.js', false],
+  ['keeps a prefixed Playwright warning', 'Warning: Service Worker registration blocked by Playwright', false],
+  ['keeps an app registration failure', 'Service worker registration failed', false],
+]) {
+  test(name, () => assert.equal(isPlaywrightServiceWorkerBlock(text), dropped));
+}
 
 for (const [name, text, url, dropped] of [
   ['drops a lost Firestore Listen channel', lostConnection, listen, true],

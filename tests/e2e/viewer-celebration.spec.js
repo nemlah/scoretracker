@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
+import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
 
@@ -30,6 +31,7 @@ test.beforeEach(async ({ page }) => {
   problems = [];
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
+    if (isPlaywrightServiceWorkerBlock(message.text())) return;
     if (message.type() === 'error') problems.push(`console: ${message.text()}`);
   });
   await resetAll();

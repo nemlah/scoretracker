@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { closeAll, get, resetAll, seed, update } from './helpers.js';
 import { contrastRatio } from '../../js/accent.js';
 
@@ -54,7 +55,7 @@ test.beforeEach(async ({ page }) => {
   blockedErrors = [];
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() !== 'error') return;
+    if (message.type() !== 'error' || isPlaywrightServiceWorkerBlock(message.text())) return;
     // Only an error whose own location (or text) names the intercepted URL; anything else still fails the test.
     // Only the browser's own resource-load failure for the intercepted request: that URL as its location, and
     // its text. An error the app logs about the same file is not it.

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
+import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import { seasonFor, todayIso } from '../../js/model.js';
 import {
   closeAll, delivered, get, instrumentRepo, recordedHome, recordHome, remove, resetAll, restartHomeRecord, seed, update,
@@ -47,13 +48,12 @@ test.beforeEach(async ({ page }) => {
   problems = [];
   page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
   page.on('console', message => {
+    if (isPlaywrightServiceWorkerBlock(message.text())) return;
     if (message.type() === 'error' || message.type() === 'warning') problems.push(`console: ${message.text()}`);
   });
   await resetAll();
 });
 test.afterEach(() => {
-  // The transition tests block the service worker on purpose; the browser says so once.
-  problems = problems.filter(problem => problem !== 'console: Service Worker registration blocked by Playwright');
   expect(problems).toEqual([]);
 });
 test.afterAll(closeAll);
