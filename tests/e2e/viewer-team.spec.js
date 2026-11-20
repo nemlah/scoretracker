@@ -171,9 +171,11 @@ test.describe('the game Team tab', () => {
 
   test('penalties faced and saved, and the scorer count, follow the game', async ({ page }) => {
     await openGameTeam(page);
-    await expect(page.getByTestId('team-pens-against')).toHaveText('2 faced · 1 saved');
-    await expect(page.getByTestId('flow-scorers')).toHaveText('2');
-    // A save of the other penalty, a goal by the goalie-less cap 1 (a third scorer), and one with no scorer.
+    const { faced, saved } = expected.pensAgainst;
+    const text = (facedCount, savedCount) => `${facedCount} faced · ${savedCount} saved`;
+    await expect(page.getByTestId('team-pens-against')).toHaveText(text(faced, saved));
+    await expect(page.getByTestId('flow-scorers')).toHaveText(String(expected.flow.scorers));
+    // A save of the other penalty, a goal by cap 1, who has not scored (a new scorer), and one with no scorer.
     await update('games/team-g1', {
       events: [
         ...teamGame.events,
@@ -182,8 +184,9 @@ test.describe('the game Team tab', () => {
         { id: 'e21', type: 'goal', period: 4, ts: 21000 },
       ],
     });
-    await expect(page.getByTestId('team-pens-against')).toHaveText('2 faced · 2 saved');
-    await expect(page.getByTestId('flow-scorers')).toHaveText('3');
+    // Faced is unchanged, saved is one more; the scorer count counts the new scorer once, not the goal with none.
+    await expect(page.getByTestId('team-pens-against')).toHaveText(text(faced, saved + 1));
+    await expect(page.getByTestId('flow-scorers')).toHaveText(String(expected.flow.scorers + 1));
   });
 
   test('a game never ahead, behind in its longest run, with no goals of its own to count', async ({ page }) => {
@@ -519,7 +522,7 @@ const worstLineup = [
   { playerId: 'p12', name: longName, cap: 12 },
   { playerId: 'p13', name: 'Παπαδόπουλος-Αθανασίου', cap: 13 },
 ];
-function worstEvents() {
+function worstEvents(opponentGoals = 0) {
   let ts = 1000;
   const next = (type, period, playerId) => ({ id: `w${ts}`, type, period, ts: (ts += 10), ...(playerId ? { playerId } : {}) });
   const events = [];
@@ -528,6 +531,8 @@ function worstEvents() {
     for (let i = 0; i < 2; i += 1) events.push(next('manUp', quarter), next('manUpEnd', quarter));
     for (let i = 0; i < 12; i += 1) events.push(next('excl', quarter, 'p7'), next('manDownEnd', quarter));
   }
+  // `opponentGoals` more in Q3 level a 20-1 game: 20-20 after regulation, so a shootout decides it.
+  for (let i = 0; i < opponentGoals; i += 1) events.push(next('oppGoal', 3));
   events.push(next('excl', 3, 'p13'), next('pen', 3, 'p13'), next('oppGoal', 3));
   events.push(next('excl', 4, 'p12'), next('excl', 4, 'p12'), next('excl', 4, 'p12'));
   return events;
@@ -588,21 +593,24 @@ async function expectInView(page, ids) {
   }
 }
 
-// The screens' own badges with the Team tab selected: a live game (LIVE, the quarter, the open man-down) and a
-// final decided on a shootout; and home with the live banner and a season that holds a shootout result.
+// The screens' own badges with the Team tab selected: a live game (LIVE, the quarter, the open man-down), a live
+// game in its shootout (LIVE, the Shootout pill, the shootout score), a final decided on a shootout; and home with
+// the live banner over a season whose record a shootout decides. Shootout games are level after regulation (20-20).
 const liveWorst = { ...worstGame, status: 'live', period: 4 };
-const shootoutWorst = {
-  ...worstGame,
-  status: 'final',
-  period: 'SO',
-  events: [
-    ...worstEvents(),
-    { id: 'so1', type: 'goal', period: 'SO', ts: 90000, playerId: 'p13' },
-    { id: 'so2', type: 'oppGoal', period: 'SO', ts: 90010 },
-    { id: 'so3', type: 'goal', period: 'SO', ts: 90020, playerId: 'p13' },
-  ],
-};
-const shootoutResults = worstResults.map((result, index) => (index < 2 ? { ...result, soUs: 14, soThem: 13 } : result));
+const soEvents = [
+  { id: 'so1', type: 'goal', period: 'SO', ts: 90000, playerId: 'p13' },
+  { id: 'so2', type: 'oppGoal', period: 'SO', ts: 90010 },
+  { id: 'so3', type: 'goal', period: 'SO', ts: 90020, playerId: 'p13' },
+];
+const shootoutWorst = { ...worstGame, status: 'final', period: 'SO', events: [...worstEvents(19), ...soEvents] };
+const liveShootoutWorst = { ...worstGame, status: 'live', period: 'SO', events: [...worstEvents(19), ...soEvents] };
+// Eight results: three level after regulation and decided on penalties (two won, one lost), five won in the water.
+// Without the shootout the record would be 5 W · 3 D.
+const shootoutResults = worstResults.map((result, index) => {
+  if (index < 2) return { ...result, us: 12, them: 12, soUs: 14, soThem: 13 };
+  if (index === 2) return { ...result, us: 12, them: 12, soUs: 12, soThem: 13 };
+  return result;
+});
 
 for (const scheme of ['light', 'dark']) {
   for (const [width, height] of [[360, 740], [844, 390]]) {
@@ -719,6 +727,20 @@ for (const scheme of ['light', 'dark']) {
         await expectFits(page);
       });
 
+      test('a live game in its shootout keeps LIVE, the Shootout pill and the shootout score in view over the Team figures', async ({ page }) => {
+        await seedGame(liveShootoutWorst);
+        await open(page, '#/game/team-g1');
+        await expect(page.getByTestId('score-us')).toHaveText('20');
+        await tab(page, 'team').click();
+        await expect(page.getByTestId('team-manup').getByTestId('team-q').first()).toHaveText('10/12');
+        await expectInView(page, ['live-badge', 'period', 'shootout', 'score-us', 'score-them', 'tab-team']);
+        await expect(page.getByTestId('period')).toHaveText('Shootout');
+        await expect(page.getByTestId('shootout')).toHaveText('(2 – 1 pen.)');
+        await expect(page.getByTestId('final-badge')).toBeHidden();
+        await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('20');
+        await expectFits(page);
+      });
+
       test('a final decided on a shootout keeps FINAL and the shootout score in view over the Team figures', async ({ page }) => {
         await seedGame(shootoutWorst);
         await open(page, '#/game/team-g1');
@@ -726,7 +748,7 @@ for (const scheme of ['light', 'dark']) {
         await tab(page, 'team').click();
         await expect(page.getByTestId('team-manup').getByTestId('team-q').first()).toHaveText('10/12');
         await expectInView(page, ['final-badge', 'shootout', 'score-us', 'score-them', 'tab-team']);
-        await expect(page.getByTestId('shootout')).toHaveText(/2.*1/);
+        await expect(page.getByTestId('shootout')).toHaveText('(2 – 1 pen.)');
         await expect(page.getByTestId('live-badge')).toBeHidden();
         // The shootout is no part of the Team figures: goals stay the regulation 20.
         await expect(page.getByTestId('team-goals-for').getByTestId('team-goals-total')).toHaveText('20');
@@ -740,6 +762,8 @@ for (const scheme of ['light', 'dark']) {
         await tab(page, 'team').click();
         await expect(page.getByTestId('season-team-total').getByTestId('season-team-mu-total')).toHaveText('96/136');
         await expectInView(page, ['live-banner', 'season-record', 'tab-team']);
+        // The shootouts decide three of the games: 7 W · 1 L, not 5 W · 0 L · 3 D.
+        await expect(page.getByTestId('season-record')).toHaveText('7 W · 1 L');
         await expectFits(page);
       });
     });
