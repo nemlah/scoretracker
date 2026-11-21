@@ -1,5 +1,21 @@
 # Session log
 
+## 21/11/2026 - Release 3 (Direction B tracker) built on direction-b-r3 (not merged)
+- **Built:** 8 tasks and the final-review fix wave, 17 commits on 720f124 (code head 146cdaa): viewer carry-overs and game flow in timeline order; tracker crest header and banners; live score row, situation band, board tiles, goalie sheet; events sheet by quarter with row editors; home live card, past-game chips, game detail scoreboard; new game in two steps; landscape split, 360 px worst case, cache `wp-shell-v4`.
+- **Who:** Codex (gpt-6.2-sol) built Tasks 1–7; sonnet did Task 4 fix rounds 2–3, Task 8 and the final fix wave. Sonnet reviewed Codex's tasks, and Codex reviewed sonnet's. The final whole-branch review (sonnet) said "ready with fixes". Both Importants were fixed and re-reviewed by Codex.
+- **Tests:** unit 315; full e2e at 146cdaa 894 passed, 16 skipped (3 workers, 3.9 min). New WebKit flakes, all passing alone: tracker-look:230, tracker-roster:103, tracker-events:423.
+- **Canvas:** "R3 build" page (16 boards, 30 screenshots) for the owner to approve.
+- **Parked:**
+  - the landscape Pen button is ~43 px at 812×375 with notch insets;
+  - `lang="el"` is also set on Latin-script opponents;
+  - `display: contents` drops `<main>` on old Safari;
+  - the situation band shifts the tiles ~28 px (board design);
+  - Enter in a cap field no longer starts a game;
+  - the viewer's `.board-name`/`.season-team` still uppercase Greek with accents.
+- **Where we left off:** the owner decides "merge and deploy" (release routine). After the merge:
+  - remove the direction-b-r3 and r3-e2e worktrees and the SDD workspace;
+  - re-sync the design system artifact to R3 once.
+
 ## 20/11/2026 - E2e speed: hermetic fixture, per-worker projects, 3 workers (merged to main, not pushed)
 - **Result:** the full e2e run takes 3.6 min on 3 workers (856 passed), down from 18.8 min serial. Serial (`PW_WORKERS=1`) takes 10.5 min. Unit tests: 313.
 - **How:**
