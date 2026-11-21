@@ -156,7 +156,9 @@ export const recordedHome = async page => ({
 // `slow` shapes a document's answers: { holdMs, miss } first delivers a cached snapshot (a cache miss when
 // `miss`), then the real one after holdMs, and any later snapshot of that path waits behind the held one and
 // arrives right after it, in order. { hold: true, miss } does the same for the first server snapshot
-// until the test calls window.__releaseHeld(path). window.__queued counts each snapshot put on hold.
+// until the test calls window.__releaseHeld(path). { withhold: true } delivers nothing at all for the first
+// snapshot of that path (cached or server) until window.__releaseHeld(path), so a view waiting on it stays in
+// its loading state. window.__queued counts each snapshot put on hold.
 // { cached: true } delivers every snapshot as if from the cache,
 // so the server never seems to confirm it (the record still says what the server really sent).
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
@@ -180,6 +182,9 @@ export async function instrumentRepo(page, slow = {}) {
       };
       if (held[ref.path]) {
         // A hold is pending on this path: a later snapshot waits behind it and arrives after it, in order.
+        enqueue();
+      } else if (rule?.withhold && !seen.has(ref.path)) {
+        seen.add(ref.path);
         enqueue();
       } else if ((rule?.holdMs || (rule?.hold && !fromCache)) && !seen.has(ref.path)) {
         seen.add(ref.path);

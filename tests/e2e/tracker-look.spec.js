@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
 import { isPlaywrightServiceWorkerBlock } from './network-noise.js';
-import { closeAll, cssColour, resetAll, seed, update } from './helpers.js';
+import { closeAll, cssColour, cssVariableColour, hexOf, instrumentRepo, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, collectProblems, formatConsoleProblem, otherDeviceTakesControl, unlockTracker } from './tracker-helpers.js';
 import { team } from '../../js/config.js';
 import { contrastRatio } from '../../js/accent.js';
@@ -748,3 +749,153 @@ for (const [width, height] of [[844, 360], [667, 375]]) {
     expect(await page.evaluate(() => scrollY)).toBe(0);
   });
 }
+
+
+// Short landscape: the loading and the no-live-game screens sit on the light column. The left column is painted with
+// the board colour, and the status text is --ink, so a status that started in that column was unreadable.
+test.describe('landscape status screens', () => {
+  test.use({ serviceWorkers: 'block' });
+  for (const [width, height] of [[844, 390], [667, 375]]) {
+    for (const state of ['loading', 'none']) {
+      test(`${width} x ${height} landscape: the ${state === 'none' ? 'no-live-game' : 'loading'} status is readable and on screen`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        if (state === 'loading') {
+          await seed('games/g1', { opponent: 'Seeded FC', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup, events: [] });
+          // The game's first snapshot is withheld, so the live view stays in its loading state.
+          await instrumentRepo(page, { 'games/g1': { withhold: true } });
+        } else {
+          await seed('games/g1', { opponent: 'Seeded FC', date: '2026-11-08', season: '2026-27', status: 'final', period: 4, lineup, events: [] });
+        }
+        await page.goto(HOME_URL);
+        await unlockTracker(page);
+        await page.evaluate(() => { location.hash = '#/live'; });
+        const status = page.locator('.live-status:not([hidden])');
+        await expect(status).toBeVisible();
+        const text = state === 'none' ? status.locator('p') : status;
+        await expect(text).toHaveText(state === 'none' ? 'No game is live right now.' : 'Loading the game…');
+        if (state === 'loading') {
+          // Nothing arrives to flip the screen: this is a "nothing happened" check, there is no event to wait on.
+          await page.waitForTimeout(300);
+          await expect(text).toBeVisible();
+        }
+        expect(await page.evaluate(() => document.body.classList.contains('live-r3')), 'the R3 live grid is on').toBe(true);
+
+        const grid = await page.locator('#app').evaluate(el => {
+          const box = el.getBoundingClientRect();
+          return { boardRight: box.x + parseFloat(getComputedStyle(el).gridTemplateColumns), pseudo: getComputedStyle(el, '::before').backgroundColor };
+        });
+        const box = await status.boundingBox();
+        // The text colour against what is under it: the board colour where the box overlaps the left column, the page otherwise.
+        const board = await cssVariableColour(page, '--board');
+        expect(grid.pseudo, 'the left column is painted with the board colour').toBe(board);
+        const onBoard = box.x < grid.boardRight - 0.5;
+        const under = onBoard ? board : await cssColour(page.locator('body'), 'backgroundColor');
+        const ink = await cssColour(text, 'color');
+        expect(ink, 'the text colour differs from the background under it').not.toBe(under);
+        expect(contrastRatio(await hexOf(page, ink), await hexOf(page, under)), 'text contrast').toBeGreaterThanOrEqual(4.5);
+        expect(onBoard, 'the status starts right of the board column').toBe(false);
+
+        const inside = (name, rect) => {
+          expect(rect.x, `${name} left`).toBeGreaterThanOrEqual(0);
+          expect(rect.x + rect.width, `${name} right`).toBeLessThanOrEqual(width + 0.5);
+          expect(rect.y, `${name} top`).toBeGreaterThanOrEqual(0);
+          expect(rect.y + rect.height, `${name} bottom`).toBeLessThanOrEqual(height + 0.5);
+        };
+        inside('status', box);
+        inside('text', await text.boundingBox());
+        await expect(text).toBeInViewport({ ratio: 1 });
+        if (state === 'none') {
+          const home = status.getByRole('button', { name: 'Home' });
+          await expect(home).toBeInViewport({ ratio: 1 });
+          inside('Home button', await home.boundingBox());
+          expect((await home.boundingBox()).height, 'Home height').toBeGreaterThanOrEqual(44);
+        }
+      });
+    }
+  }
+});
+
+// track.html has viewport-fit=cover, so a notch can cover the short edges in landscape. Playwright cannot fake
+// env(safe-area-inset-*), so there are two checks: the stylesheet reads both insets inside the short-landscape block,
+// and the layout follows the --safe-l / --safe-r properties that block sets from them (a test overrides them on <body>).
+test('the short-landscape block reads the left and right safe-area insets', () => {
+  const css = readFileSync('css/tracker.css', 'utf8');
+  const start = css.indexOf('@media (orientation: landscape) and (max-height: 500px) {');
+  const end = css.indexOf('@media (orientation: landscape) and (max-height: 500px) and (max-width: 800px)');
+  expect(start, 'the landscape block exists').toBeGreaterThan(-1);
+  const block = css.slice(start, end);
+  expect(block).toContain('--safe-l: env(safe-area-inset-left');
+  expect(block).toContain('--safe-r: env(safe-area-inset-right');
+});
+
+for (const [width, height, left, right] of [[844, 390, 47, 47], [932, 430, 59, 59]]) {
+  test(`${width} x ${height} landscape: a notch (${left} px left, ${right} px right) is cleared by the header, score row, dock and tiles`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await openGame(page, { period: 3, events: richEvents('up') });
+    await expect(page.getByTestId('tile')).toHaveCount(6);
+    const measure = () => page.evaluate(() => {
+      const rect = id => document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect().toJSON();
+      const tileButtons = [...document.querySelectorAll('[data-testid="tiles"] button')]
+        .filter(button => button.getBoundingClientRect().width > 0)
+        .map(button => button.getBoundingClientRect());
+      return {
+        crest: rect('tracker-crest'),
+        score: rect('score-us'),
+        band: rect('situation-band'),
+        dock: ['situation', 'opp-goal', 'undo', 'events-open', 'period-next'].map(id => ({ id, ...rect(id) })),
+        dockInner: document.querySelector('.dock-inner').getBoundingClientRect().toJSON(),
+        tileRight: Math.max(...tileButtons.map(box => box.right)),
+        tileLeft: Math.min(...tileButtons.map(box => box.left)),
+        smallest: Math.min(...tileButtons.map(box => Math.min(box.width, box.height))),
+        scroll: document.scrollingElement.scrollWidth,
+        scrollHeight: document.scrollingElement.scrollHeight,
+      };
+    });
+    const before = await measure();
+    await page.evaluate(([l, r]) => {
+      document.body.style.setProperty('--safe-l', `${l}px`);
+      document.body.style.setProperty('--safe-r', `${r}px`);
+    }, [left, right]);
+    const after = await measure();
+    const near = (a, b, message) => expect(Math.abs(a - b), message).toBeLessThanOrEqual(1);
+
+    near(after.crest.x - before.crest.x, left, 'the header content moves right by the left inset');
+    near(after.score.x - before.score.x, left, 'the score moves right by the left inset');
+    near(after.band.x - before.band.x, left, 'the situation band moves right by the left inset');
+    for (const control of after.dock) {
+      const was = before.dock.find(entry => entry.id === control.id);
+      near(control.x - was.x, left, `${control.id} moves right by the left inset`);
+      near(control.width, was.width, `${control.id} keeps its width`);
+    }
+    near(after.dockInner.width, before.dockInner.width, 'the dock keeps its content width');
+    // The column grows by the inset, so the dock stays on screen and no wider than 300 px of content plus the inset.
+    for (const control of after.dock) {
+      expect(control.x + control.width, `${control.id} right`).toBeLessThanOrEqual(300 + left + 0.5);
+      expect(control.y + control.height, `${control.id} bottom`).toBeLessThanOrEqual(height + 0.5);
+      expect(control.height, `${control.id} height`).toBeGreaterThanOrEqual(44);
+    }
+    expect(after.tileRight, 'tile buttons clear the right inset').toBeLessThanOrEqual(width - right + 0.5);
+    near(before.tileRight - after.tileRight, right, 'the tile pane is padded by the right inset');
+    expect(after.tileLeft, 'tiles start right of the column').toBeGreaterThanOrEqual(300 + left - 0.5);
+    expect(after.smallest, 'tile buttons stay 44 px').toBeGreaterThanOrEqual(44);
+    expect(after.scroll, 'no sideways scroll').toBeLessThanOrEqual(width);
+    expect(after.scrollHeight, 'the page does not scroll').toBeLessThanOrEqual(height);
+  });
+}
+
+// An uppercased Greek name keeps its tonos unless the element says it is Greek (track.html is lang="en").
+test('390 px: an uppercased Greek opponent is marked lang="el" on the home card and the game detail', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed('games/g1', { opponent: 'Βουλιαγμένη', date: '2026-11-08', season: '2026-27', status: 'live', period: 1, lineup, events: [] });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  const card = page.getByTestId('home-live').locator('.home-live-opponent');
+  await expect(card).toHaveText('Βουλιαγμένη');
+  await expect(card).toHaveAttribute('lang', 'el');
+  expect(await card.evaluate(el => getComputedStyle(el).textTransform), 'the card name is the uppercased one').toBe('uppercase');
+  await page.evaluate(() => { location.hash = '#/games/g1'; });
+  const title = page.locator('h2.detail-team');
+  await expect(title).toHaveText('Βουλιαγμένη');
+  await expect(title).toHaveAttribute('lang', 'el');
+  expect(await title.evaluate(el => getComputedStyle(el).textTransform), 'the detail name is the uppercased one').toBe('uppercase');
+});

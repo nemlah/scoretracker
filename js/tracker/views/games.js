@@ -79,7 +79,7 @@ export function mount(root, ctx) {
     type: 'button', class: 'btn btn--ghost btn--small', 'data-testid': 'games-back', onclick: () => ctx.navigate('/games'),
   }, t('gamesBack'));
   const detailStatus = h('p', { class: 'status-line', role: 'status' }, t('trackerLoading'));
-  const title = h('h2', { class: 'detail-team game-opponent' });
+  const title = h('h2', { class: 'detail-team game-opponent', lang: 'el' });
   const meta = h('p', { class: 'help', 'data-testid': 'game-meta' });
   const badge = h('span', { class: 'tracker-badge' });
   const date = h('span', { class: 'tracker-board-date' });

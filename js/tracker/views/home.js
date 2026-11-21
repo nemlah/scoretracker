@@ -27,7 +27,7 @@ export function mount(root, ctx) {
   const badge = h('span', { class: 'tracker-badge tracker-badge--live' });
   const date = h('span', { class: 'tracker-board-date' });
   const score = h('span', { class: 'home-live-score', 'data-testid': 'home-live-score' });
-  const opponent = h('span', { class: 'home-live-name home-live-opponent game-opponent' });
+  const opponent = h('span', { class: 'home-live-name home-live-opponent game-opponent', lang: 'el' });
   const resume = h('button', {
     type: 'button', class: 'btn btn--primary btn--wide home-resume', 'data-testid': 'home-resume',
     onclick: () => ctx.navigate('/live'),
