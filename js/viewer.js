@@ -13,6 +13,8 @@ import {
 } from './strings.js';
 // A namespace import: the previous strings.js (a phone can mix releases) lacks competitionTag.
 import * as strings from './strings.js';
+// A namespace import too: the previous model.js lacks the scope functions, so the Showing selector needs all of them.
+import * as model from './model.js';
 import { clear, h } from './ui/dom.js';
 
 const STALE_MS = 6000;
@@ -343,7 +345,20 @@ const gamesList = h('header', { class: 'season-head', 'data-testid': 'games-list
 // below. Both are built when the screen changes (see buildTabs); a tab press and a snapshot only update them.
 const tabs = h('div', { class: 'tabs', role: 'tablist', 'data-testid': 'tabs', hidden: true });
 const panels = h('div', { class: 'stack', hidden: true });
-root.append(pastNav, gamesList, tabs, note, unavailable, panels);
+// The Showing selector of the Players and Team tabs. One element for the life of the page, outside every panel
+// that renderIfChanged clears, so its focus and open state survive a snapshot.
+const scopeLabel = h('label', { class: 'scope-label', for: 'scope-select', 'data-testid': 'scope-label' });
+const scopeSelect = h('select', {
+  id: 'scope-select',
+  class: 'scope-select',
+  'data-testid': 'scope-select',
+  onchange: () => {
+    scopeState.key = scopeSelect.value;
+    update();
+  },
+});
+const scopeBar = h('div', { class: 'scope-bar', 'data-testid': 'scope-bar', hidden: true }, scopeLabel, scopeSelect);
+root.append(pastNav, gamesList, tabs, scopeBar, note, unavailable, panels);
 
 const TAB_LABELS = {
   timeline: 'tabTimeline',
@@ -371,6 +386,8 @@ function selectTab(name, focus) {
   tabState.selected = name;
   showSelectedTab();
   if (focus) tabs.querySelector(`#tab-${name}`).focus();
+  // The selector shows on Players and Team only.
+  update();
 }
 
 function buildTabs(key) {
@@ -805,7 +822,10 @@ function timelineItem(event, game, manUpGoals, out) {
 }
 
 // The competition tag of a game or result row: null for a league game, and null when this strings.js predates it.
-const competitionTag = source => strings.competitionTag?.(source) ?? null;
+const competitionTag = source => strings.competitionTag?.(source, teamLists()) ?? null;
+// The team document's lists, by id, for the names in tags and in the selector. Absent lists are empty maps.
+const asMap = value => (value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {});
+const teamLists = () => ({ tournaments: asMap(state.team.data?.tournaments), phases: asMap(state.team.data?.phases) });
 const countFriendlies = results => (Array.isArray(results)
   ? results.filter(result => result?.competition === 'friendly').length : 0);
 // The Players and Team panels leave friendlies out; this says how many. Only with a strings.js that knows them.
@@ -815,25 +835,89 @@ const friendliesNote = results => {
     t('friendliesNotCounted', { n })) : null;
 };
 
+// The Showing selector's selection: in memory only, one for both tabs. It starts again on Season when the season
+// shown changes, and falls back to Season when its scope is gone.
+const scopeState = { season: null, key: 'season' };
+const scopeFunctions = ['seasonScopes', 'scopeRows', 'sumLines', 'hasLines'];
+// All of this release's model functions and strings, or the viewer behaves as it did before.
+const scopesSupported = () => scopeFunctions.every(name => typeof model[name] === 'function')
+  && strings.hasString?.('showingLabel') === true;
+
+const nameOf = entry => (typeof entry?.name === 'string' && entry.name.trim() !== '' ? entry.name : null);
+// The label of one scope: the list's name, else what the games recorded, else the generic word.
+function scopeLabelOf(key, rows) {
+  if (key === 'season') return t('scopeSeason');
+  if (key === 'league') return t('competitionLeague');
+  if (key === 'cup') return t('competitionCup');
+  const lists = teamLists();
+  if (key.startsWith('phase:')) {
+    const listed = nameOf(lists.phases[key.slice('phase:'.length)]);
+    return t('scopePhase', { name: listed ?? t('phaseField') });
+  }
+  const listed = nameOf(lists.tournaments[key.slice('tournament:'.length)]);
+  if (listed) return listed;
+  const newest = rows.filter(row => typeof row.competitionName === 'string' && row.competitionName.trim() !== '')
+    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0];
+  return newest?.competitionName ?? t('competitionTournament');
+}
+
+// The selector's options, or null when it must stay hidden: not home with results, a model or strings without it,
+// no team document yet, rows without player lines, or fewer than two scopes.
+function scopeOptions(plan, results, stats) {
+  if (plan.mode !== 'home' || results !== 'ready' || !scopesSupported()) return null;
+  if (state.team.data == null || !Array.isArray(stats?.results) || !model.hasLines(stats.results)) return null;
+  const keys = model.seasonScopes(stats.results);
+  if (keys.length < 2) return null;
+  return keys.map(key => ({ key, label: scopeLabelOf(key, model.scopeRows(stats.results, key)) }));
+}
+
+// Refreshes the selector in place and returns the key to show: 'season' unless a scope is selected and on offer.
+function renderScope(plan, tabsShown, results, stats) {
+  if (plan.mode === 'home' && scopeState.season !== plan.season) {
+    scopeState.season = plan.season;
+    scopeState.key = 'season';
+  }
+  const options = tabsShown ? scopeOptions(plan, results, stats) : null;
+  const onTab = tabState.selected === 'players' || tabState.selected === 'team';
+  scopeBar.hidden = options === null || !onTab;
+  if (options === null) return 'season';
+  if (!options.some(option => option.key === scopeState.key)) scopeState.key = 'season';
+  const listing = JSON.stringify(options);
+  if (scopeSelect.dataset.options !== listing) {
+    scopeSelect.dataset.options = listing;
+    scopeSelect.replaceChildren(...options.map(({ key, label }) => h('option', { value: key }, label)));
+  }
+  scopeLabel.textContent = t('showingLabel');
+  if (scopeSelect.value !== scopeState.key) scopeSelect.value = scopeState.key;
+  return scopeState.key;
+}
+
 // Home: the season in the state the plan names, one panel for each tab. Anything but home shows no season.
 function renderSeason(plan, tabsShown) {
   const results = plan.mode === 'home' ? plan.results : null;
   const shown = results === 'ready' || results === 'empty';
   const stats = shown && state.stats.key === plan.season ? state.stats.data : null;
   renderRecord(shown ? stats?.results : null);
+  const scope = renderScope(plan, tabsShown, results, stats);
   if (plan.mode !== 'home' || !tabsShown) return;
-  renderIfChanged(panelEls.results, [results, stats], () => resultsPanel(results, stats));
+  // The tags name list entries, so a rename in the team document redraws the rows.
+  renderIfChanged(panelEls.results, [results, stats, teamLists()], () => resultsPanel(results, stats));
   // The season's totals carry no cap: it comes from the current roster, by player id.
   const caps = rosterCaps();
-  renderIfChanged(panelEls.players, [results, stats, [...caps]], () => {
+  // Season shows the stored totals and the friendlies note. Another scope sums its own rows' lines.
+  const scoped = scope === 'season' ? null : model.scopeRows(stats.results, scope);
+  renderIfChanged(panelEls.players, [results, stats, [...caps], scope], () => {
+    if (scoped) return seasonPlayersPanel(results, { ...stats, ...model.sumLines(scoped) }, caps);
     const note = results === 'ready' ? friendliesNote(stats?.results) : null;
     return [...seasonPlayersPanel(results, stats, caps), ...(note ? [note] : [])];
   });
   // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
-  renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus], () => {
+  renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus, scope], () => {
     if (results === 'failed') return teamUnavailable();
     if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
-    const panel = teamPanel(() => state.teamView?.seasonPanel?.(stats ?? {}));
+    // The panel reads only `results`, so a scope narrows it by handing it fewer rows.
+    const panel = teamPanel(() => state.teamView?.seasonPanel?.(scoped ? { ...stats, results: scoped } : stats ?? {}));
+    if (scoped) return panel;
     // Past the loading and failed results above, the note follows whatever the panel shows: its figures, its
     // loading state or its unavailable line.
     const note = friendliesNote(stats?.results);
