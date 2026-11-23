@@ -18,6 +18,9 @@ export function initFirebase({ emulator = useEmulator(), name } = {}) {
     : firebaseConfig, name);
   const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    // Safari can hold streamed replies until the 30 s keep-alive.
+    // Long-polling replies arrive as complete HTTP responses.
+    experimentalForceLongPolling: true,
   });
   if (emulator) connectFirestoreEmulator(db, EMULATOR.host, EMULATOR.firestorePort);
   const auth = getAuth(app);
