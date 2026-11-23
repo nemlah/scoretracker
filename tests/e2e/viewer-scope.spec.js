@@ -147,6 +147,35 @@ test.describe('the Showing selector', () => {
     await expect(page.getByTestId('season-team-game-row')).toHaveCount(4);
   });
 
+  test('a scope that is gone does not come back with a later snapshot', async ({ page }) => {
+    await openPlayers(page);
+    await select(page).selectOption('phase:p2');
+    await expect(goalsOf(page, 'Alexiou')).toHaveText('3');
+    // Only league games with no phase: Season is the one scope left and the selector goes.
+    await seedStats(games().map(({
+      phaseId, tournamentId, competitionName, competition, ...g
+    }) => g));
+    await expect(select(page)).toBeHidden();
+    await expect(goalsOf(page, 'Alexiou')).toHaveText('20');
+    // The old scopes return: the selection was Season's since the selector went.
+    await seedStats(games());
+    await expect(select(page)).toBeVisible();
+    await expect(select(page)).toHaveValue('season');
+    await expect(goalsOf(page, 'Alexiou')).toHaveText('14');
+    await tab(page, 'team').click();
+    await expect(page.getByTestId('season-team-game-row')).toHaveCount(4);
+  });
+
+  test('a scope renamed in the team document updates the selector and keeps the selection', async ({ page }) => {
+    await openPlayers(page);
+    await select(page).selectOption('phase:p2');
+    await expect(goalsOf(page, 'Alexiou')).toHaveText('3');
+    await update('team/main', { 'phases.p2.name': 'Finals' });
+    await expect(select(page).locator('option').nth(3)).toHaveText('League – Finals');
+    await expect(select(page)).toHaveValue('phase:p2');
+    await expect(goalsOf(page, 'Alexiou')).toHaveText('3');
+  });
+
   test('a snapshot that changes a figure keeps focus on the select', async ({ page }) => {
     await openPlayers(page);
     await select(page).focus();
@@ -228,6 +257,20 @@ test.describe('tags', () => {
     await expect(page.getByTestId('game-competition')).toHaveText('Play-offs');
     await update('team/main', { 'phases.p2.name': 'Finals' });
     await expect(page.getByTestId('game-competition')).toHaveText('Finals');
+  });
+});
+
+test.describe('a tournament without a list name', () => {
+  test('is labelled by its newest game only, and by the generic word when that has no name', async ({ page }) => {
+    await seedTeam({ phases: lists.phases });
+    const older = game('t1a', 'Old FC', '2026-10-03', 1, 0, { competition: 'tournament', tournamentId: 't1', competitionName: 'Old Name' });
+    const newer = game('t1b', 'New FC', '2026-10-10', 2, 0, { competition: 'tournament', tournamentId: 't1' });
+    await seedStats([older, newer, game('l1', 'Lg FC', '2026-10-17', 3, 0)]);
+    await openPlayers(page);
+    await expect(select(page).locator('option')).toHaveText(['Season', 'League', 'Tournament']);
+    // With a name on the newest game, that name speaks for it.
+    await seedStats([older, { ...newer, competitionName: 'New Name' }, game('l1', 'Lg FC', '2026-10-17', 3, 0)]);
+    await expect(select(page).locator('option')).toHaveText(['Season', 'League', 'New Name']);
   });
 });
 

@@ -856,18 +856,22 @@ function scopeLabelOf(key, rows) {
   }
   const listed = nameOf(lists.tournaments[key.slice('tournament:'.length)]);
   if (listed) return listed;
-  const newest = rows.filter(row => typeof row.competitionName === 'string' && row.competitionName.trim() !== '')
-    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0];
-  return newest?.competitionName ?? t('competitionTournament');
+  // Only the newest game of the tournament speaks for it: an older snapshot's name is not its current one.
+  const newest = [...rows].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0];
+  const snapshot = typeof newest?.competitionName === 'string' ? newest.competitionName.trim() : '';
+  return snapshot || t('competitionTournament');
 }
 
 // The selector's options, or null when it must stay hidden: not home with results, a model or strings without it,
 // no team document yet, rows without player lines, or fewer than two scopes.
 function scopeOptions(plan, results, stats) {
   if (plan.mode !== 'home' || results !== 'ready' || !scopesSupported()) return null;
-  if (state.team.data == null || !Array.isArray(stats?.results) || !model.hasLines(stats.results)) return null;
-  const keys = model.seasonScopes(stats.results);
-  if (keys.length < 2) return null;
+  if (!Array.isArray(stats?.results)) return null;
+  // The selection is checked against the scopes on offer now, before any reason to hide the selector: a key that
+  // is gone must not come back with a later snapshot.
+  const keys = model.hasLines(stats.results) ? model.seasonScopes(stats.results) : [];
+  if (!keys.includes(scopeState.key)) scopeState.key = 'season';
+  if (state.team.data == null || keys.length < 2) return null;
   return keys.map(key => ({ key, label: scopeLabelOf(key, model.scopeRows(stats.results, key)) }));
 }
 
@@ -881,7 +885,6 @@ function renderScope(plan, tabsShown, results, stats) {
   const onTab = tabState.selected === 'players' || tabState.selected === 'team';
   scopeBar.hidden = options === null || !onTab;
   if (options === null) return 'season';
-  if (!options.some(option => option.key === scopeState.key)) scopeState.key = 'season';
   const listing = JSON.stringify(options);
   if (scopeSelect.dataset.options !== listing) {
     scopeSelect.dataset.options = listing;
@@ -906,13 +909,13 @@ function renderSeason(plan, tabsShown) {
   const caps = rosterCaps();
   // Season shows the stored totals and the friendlies note. Another scope sums its own rows' lines.
   const scoped = scope === 'season' ? null : model.scopeRows(stats.results, scope);
-  renderIfChanged(panelEls.players, [results, stats, [...caps], scope], () => {
+  renderIfChanged(panelEls.players, [results, stats, [...caps], scope, teamLists()], () => {
     if (scoped) return seasonPlayersPanel(results, { ...stats, ...model.sumLines(scoped) }, caps);
     const note = results === 'ready' ? friendliesNote(stats?.results) : null;
     return [...seasonPlayersPanel(results, stats, caps), ...(note ? [note] : [])];
   });
   // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
-  renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus, scope], () => {
+  renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus, scope, teamLists()], () => {
     if (results === 'failed') return teamUnavailable();
     if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
     // The panel reads only `results`, so a scope narrows it by handing it fewer rows.
