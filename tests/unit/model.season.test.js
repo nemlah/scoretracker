@@ -91,6 +91,68 @@ test('resultOutcome uses finite regulation scores and a decisive shootout for a 
   assert.equal(m.resultOutcome({ us: 8, them: 8, soUs: 3, soThem: 3 }), 'D');
   assert.equal(m.resultOutcome({ us: 9, them: 7, soUs: 2, soThem: 4 }), 'W');
 });
+
+const leagueFinal = {
+  id: 'league', date: '2026-11-01', opponent: 'Rivals', status: 'final', period: 4, competition: 'league',
+  lineup: [
+    { playerId: 'a', name: 'Alex', cap: 5 },
+    { playerId: 'g1', name: 'Keeper', cap: 1, goalie: true },
+  ],
+  events: [
+    ev('goal', 1, 'a', 1), ev('goal', 1, 'a', 2), ev('excl', 1, 'a', 3),
+    ev('save', 1, 'g1', 4), ev('oppGoal', 1, null, 5),
+  ],
+};
+
+test('seasonRow adds exact player and goalie lines using current names', () => {
+  const names = new Map([['a', 'Alexiou'], ['g1', 'Current keeper']]);
+  assert.deepEqual(m.seasonRow(leagueFinal, names), {
+    ...m.gameResult(leagueFinal),
+    players: {
+      a: { name: 'Alexiou', goals: 2, excl: 1, pens: 0 },
+      g1: { name: 'Current keeper', goals: 0, excl: 0, pens: 0 },
+    },
+    goalies: {
+      g1: { name: 'Current keeper', games: 1, saves: 1, penSaves: 0, goalsAgainst: 1 },
+    },
+  });
+  assert.deepEqual(m.seasonRow({ ...leagueFinal, lineup: [leagueFinal.lineup[0]] }, new Map()).goalies, {});
+});
+
+test('seasonRow counts gkIn stats with zero games for a player not marked as a goalie', () => {
+  const game = {
+    ...leagueFinal,
+    events: [ev('gkIn', 1, 'a', 1), ev('oppGoal', 1, null, 2)],
+  };
+  assert.deepEqual(m.seasonRow(game, new Map()).goalies.a,
+    { name: 'Alex', games: 0, saves: 0, penSaves: 0, goalsAgainst: 1 });
+});
+
+test('aggregateSeason totals equal the sum of counted result lines and the expected totals', () => {
+  const tournament = {
+    ...leagueFinal, id: 'tournament', date: '2026-11-14', competition: 'tournament',
+    competitionName: 'Splash - Volos', tournamentId: 't1',
+    lineup: [leagueFinal.lineup[0], { ...leagueFinal.lineup[1], name: 'Newer keeper' }],
+    events: [ev('goal', 1, 'a', 1), ev('pen', 1, 'a', 2), ev('penSave', 1, 'g1', 3)],
+  };
+  const friendly = {
+    ...leagueFinal, id: 'friendly', date: '2026-12-01', competition: 'friendly',
+  };
+  const { results, players, goalies } = m.aggregateSeason([leagueFinal, friendly, tournament], roster);
+  const expectedPlayers = {
+    a: { name: 'Alexiou', games: 2, goals: 3, excl: 1, pens: 1 },
+    g1: { name: 'Newer keeper', games: 2, goals: 0, excl: 0, pens: 0 },
+  };
+  const expectedGoalies = {
+    g1: { name: 'Newer keeper', games: 2, saves: 1, penSaves: 1, goalsAgainst: 1 },
+  };
+  const names = new Map(roster.map(({ id, name }) => [id, name]));
+  assert.deepEqual(results, [friendly, tournament, leagueFinal].map(game => m.seasonRow(game, names)));
+  assert.deepEqual(m.sumLines(m.countedRows(results)), { players, goalies });
+  assert.deepEqual(players, expectedPlayers);
+  assert.deepEqual(goalies, expectedGoalies);
+});
+
 test('aggregateSeason: final only, roster names, games played, no shootout goals', () => {
   const games = [
     { id:'g1', date:'2026-10-01', opponent:'A', status:'final', period:'SO',

@@ -41,6 +41,8 @@ import { goalieStats } from './goalies.js';
  * @property {boolean} [situations]
  * @property {'league'|'cup'|'tournament'|'friendly'} [competition]
  * @property {string} [competitionName]
+ * @property {string} [tournamentId]
+ * @property {string} [phaseId]
  */
 
 // remove in R4: read by the R2 viewer.js
@@ -53,22 +55,56 @@ export const DUPLICATE_TAP_MS = 1000;
 export const COMPETITIONS = Object.freeze(/** @type {const} */ (['league', 'cup', 'tournament', 'friendly']));
 export const MAX_COMPETITION_NAME = 40;
 
-export function competitionOf(source) {
-  const { competition, competitionName } = source ?? {};
-  if (!COMPETITIONS.includes(competition)) return { competition: 'league' };
-  if (competition === 'tournament' && typeof competitionName === 'string') {
-    const name = competitionName.trim();
-    if (name && name.length <= MAX_COMPETITION_NAME) return { competition, competitionName: name };
+function isPlainObject(value) {
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isListId(id) {
+  return typeof id === 'string' && id.length > 0 && id.length <= 64;
+}
+
+export function listName(raw) {
+  if (typeof raw !== 'string') return null;
+  const name = raw.trim();
+  return name && name.length <= MAX_COMPETITION_NAME ? name : null;
+}
+
+export function sameListName(a, b) {
+  return typeof a === 'string' && typeof b === 'string'
+    && a.trim().toLocaleLowerCase('el') === b.trim().toLocaleLowerCase('el');
+}
+
+export function listEntries(map) {
+  if (!isPlainObject(map)) return [];
+  const entries = [];
+  for (const [id, entry] of Object.entries(map)) {
+    if (!isListId(id) || !isPlainObject(entry)) continue;
+    const name = listName(entry.name);
+    if (name !== null) entries.push({ id, name });
   }
-  return { competition };
+  return entries.sort((a, b) => a.name.localeCompare(b.name, 'el'));
+}
+
+export function competitionOf(source) {
+  const { competition, competitionName, tournamentId, phaseId } = source ?? {};
+  const fields = { competition: COMPETITIONS.includes(competition) ? competition : 'league' };
+  if (fields.competition === 'tournament') {
+    const name = listName(competitionName);
+    if (name !== null) fields.competitionName = name;
+    if (isListId(tournamentId)) fields.tournamentId = tournamentId;
+  }
+  if (fields.competition === 'league' && isListId(phaseId)) fields.phaseId = phaseId;
+  return fields;
 }
 
 export function isFriendly(source) {
   return source?.competition === 'friendly';
 }
 
-export function competitionFields(competition, name) {
-  const fields = competitionOf({ competition, competitionName: name });
+export function competitionFields(competition, name, ids = {}) {
+  const fields = competitionOf({ competition, competitionName: name, tournamentId: ids?.tournamentId, phaseId: ids?.phaseId });
   if (fields.competition !== competition) return null;
   if (competition === 'tournament' && !fields.competitionName) return null;
   return fields;
@@ -293,7 +329,7 @@ export function gameResult(game) {
   if (hasShootout(game.period, game.events)) Object.assign(result, { soUs, soThem });
   if (isTracked(game)) Object.assign(result, situationCounts(game));
   const fields = competitionOf(game);
-  if (fields.competition !== 'league') Object.assign(result, fields);
+  if (fields.competition !== 'league' || fields.phaseId) Object.assign(result, fields);
   return result;
 }
 
@@ -306,53 +342,95 @@ export function resultOutcome(result) {
   return 'D';
 }
 
-export function aggregateSeason(games, roster) {
-  const names = new Map(roster.map(player => [player.id, player.name]));
+export function seasonRow(game, names) {
+  const lineup = game.lineup ?? [];
+  const players = playerLines(lineup, game.events).map(({ playerId, name, goals, excl, pens }) => [
+    playerId, { name: names.get(playerId) ?? name, goals, excl, pens },
+  ]);
+  const lineupGoalies = new Set(lineup.filter(player => player.goalie === true).map(player => player.playerId));
+  const goalieLines = goalieStats({ ...game, lineup })?.goalies ?? [];
+  const goalies = goalieLines.map(({ playerId, name, saves, penSaves, goalsAgainst }) => [
+    playerId, { name: names.get(playerId) ?? name, games: Number(lineupGoalies.has(playerId)), saves, penSaves, goalsAgainst },
+  ]);
+  return { ...gameResult(game), players: Object.fromEntries(players), goalies: Object.fromEntries(goalies) };
+}
+
+export function sumLines(rows) {
   const players = new Map();
   const goalies = new Map();
-  let situations = null;
-  const finals = games.filter(game => game.status === 'final');
-  for (const game of finals) {
-    if (isFriendly(game)) continue;
-    const stats = goalieStats(game);
-    if (stats) {
-      const lineupGoalies = new Set(game.lineup.filter(player => player.goalie === true)
-        .map(player => player.playerId));
-      for (const line of stats.goalies) {
-        const totals = goalies.get(line.playerId) ?? {
-          name: names.get(line.playerId) ?? line.name, games: 0, saves: 0, penSaves: 0, goalsAgainst: 0,
-        };
-        goalies.set(line.playerId, {
-          ...totals, games: totals.games + (lineupGoalies.has(line.playerId) ? 1 : 0),
-          saves: totals.saves + line.saves, penSaves: totals.penSaves + line.penSaves,
-          goalsAgainst: totals.goalsAgainst + line.goalsAgainst,
-        });
-      }
+  for (const row of rows) {
+    for (const [id, { name, goals, excl, pens }] of Object.entries(row.players ?? {})) {
+      const total = players.get(id) ?? { name, games: 0, goals: 0, excl: 0, pens: 0 };
+      total.games++;
+      total.goals += goals;
+      total.excl += excl;
+      total.pens += pens;
+      players.set(id, total);
     }
-    const counts = situationCounts(game);
-    if (counts) {
-      situations ??= { manUp: { played: 0, scored: 0 }, manDown: { played: 0, stopped: 0 } };
-      situations.manUp.played += counts.manUp.played;
-      situations.manUp.scored += counts.manUp.scored;
-      situations.manDown.played += counts.manDown.played;
-      situations.manDown.stopped += counts.manDown.stopped;
-    }
-    for (const line of playerLines(game.lineup, game.events)) {
-      const totals = players.get(line.playerId) ?? {
-        name: names.get(line.playerId) ?? line.name, games: 0, goals: 0, excl: 0, pens: 0,
-      };
-      players.set(line.playerId, {
-        ...totals, games: totals.games + 1, goals: totals.goals + line.goals, excl: totals.excl + line.excl,
-        pens: totals.pens + line.pens,
-      });
+    for (const [id, { name, games, saves, penSaves, goalsAgainst }] of Object.entries(row.goalies ?? {})) {
+      const total = goalies.get(id) ?? { name, games: 0, saves: 0, penSaves: 0, goalsAgainst: 0 };
+      total.games += games;
+      total.saves += saves;
+      total.penSaves += penSaves;
+      total.goalsAgainst += goalsAgainst;
+      goalies.set(id, total);
     }
   }
-  return {
-    players: Object.fromEntries(players),
-    goalies: Object.fromEntries(goalies),
-    situations,
-    results: finals.map(gameResult).sort((a, b) => b.date.localeCompare(a.date)),
-  };
+  return { players: Object.fromEntries(players), goalies: Object.fromEntries(goalies) };
+}
+
+export function countedRows(results) {
+  return Array.isArray(results) ? results.filter(row => row != null && !isFriendly(row)) : [];
+}
+
+export function hasLines(results) {
+  return countedRows(results).every(row => isPlainObject(row.players));
+}
+
+function rowScopes(row) {
+  const { competition, phaseId, tournamentId } = competitionOf(row);
+  if (competition === 'league') return phaseId ? ['league', `phase:${phaseId}`] : ['league'];
+  if (competition === 'tournament' && tournamentId) return [`tournament:${tournamentId}`];
+  return competition === 'cup' ? ['cup'] : [];
+}
+
+export function scopeRows(results, key) {
+  const rows = countedRows(results);
+  return key === 'season' ? rows : rows.filter(row => rowScopes(row).includes(key));
+}
+
+export function seasonScopes(results) {
+  const rows = countedRows(results);
+  if (!rows.length) return [];
+  // Visit the earliest date first so each phase and tournament enters the map in display order.
+  rows.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+  const counts = new Map();
+  for (const row of rows) {
+    for (const key of rowScopes(row)) {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  const keys = [...counts.keys()].filter(key => counts.get(key) < rows.length);
+  return ['season', ...['league', 'phase', 'tournament', 'cup'].flatMap(
+    kind => keys.filter(key => key === kind || key.startsWith(`${kind}:`)),
+  )];
+}
+
+export function aggregateSeason(games, roster) {
+  const names = new Map(roster.map(player => [player.id, player.name]));
+  const results = games.filter(game => game.status === 'final')
+    .map(game => seasonRow(game, names)).sort((a, b) => b.date.localeCompare(a.date));
+  const rows = countedRows(results);
+  let situations = null;
+  for (const { manUp, manDown } of rows) {
+    if (!manUp) continue;
+    situations ??= { manUp: { played: 0, scored: 0 }, manDown: { played: 0, stopped: 0 } };
+    situations.manUp.played += manUp.played;
+    situations.manUp.scored += manUp.scored;
+    situations.manDown.played += manDown.played;
+    situations.manDown.stopped += manDown.stopped;
+  }
+  return { ...sumLines(rows), situations, results };
 }
 
 export function formatDate(iso) {

@@ -30,6 +30,29 @@ test('competitionOf enforces the tournament name limit after trimming', () => {
     { competition: 'tournament' });
 });
 
+test('competitionOf keeps ids only for the applicable competition', () => {
+  assert.deepEqual(model.competitionOf({
+    competition: 'tournament', competitionName: 'Splash - Volos', tournamentId: 't1', phaseId: 'p1',
+  }), { competition: 'tournament', competitionName: 'Splash - Volos', tournamentId: 't1' });
+  assert.deepEqual(model.competitionOf({ competition: 'league', tournamentId: 't1' }),
+    { competition: 'league' });
+  assert.deepEqual(model.competitionOf({ competition: 'league', phaseId: 'p1' }),
+    { competition: 'league', phaseId: 'p1' });
+  assert.deepEqual(model.competitionOf({ competition: 'cup', phaseId: 'p1' }),
+    { competition: 'cup' });
+});
+
+test('competitionOf accepts only non-empty strings up to 64 characters as ids', () => {
+  const maxId = 'x'.repeat(64);
+  for (const [competition, field] of [['league', 'phaseId'], ['tournament', 'tournamentId']]) {
+    assert.deepEqual(model.competitionOf({ competition, [field]: maxId }),
+      { competition, [field]: maxId });
+    for (const id of ['', 42, 'x'.repeat(65)]) {
+      assert.deepEqual(model.competitionOf({ competition, [field]: id }), { competition });
+    }
+  }
+});
+
 test('isFriendly identifies only friendly games', () => {
   assert.equal(model.isFriendly({ competition: 'friendly' }), true);
   for (const competition of ['league', 'cup', 'tournament', 'bogus', 'Friendly']) {
@@ -49,6 +72,14 @@ test('competitionFields validates the competition and trimmed tournament name', 
     { competition: 'tournament', competitionName: maxName });
   assert.deepEqual(model.competitionFields('cup', 'ignored'), { competition: 'cup' });
   assert.equal(model.competitionFields('bogus', ''), null);
+});
+
+test('competitionFields retains valid ids while still requiring a tournament name', () => {
+  assert.deepEqual(model.competitionFields('tournament', 'X', { tournamentId: 't1' }),
+    { competition: 'tournament', competitionName: 'X', tournamentId: 't1' });
+  assert.deepEqual(model.competitionFields('league', '', { phaseId: 'p1' }),
+    { competition: 'league', phaseId: 'p1' });
+  assert.equal(model.competitionFields('tournament', '', { tournamentId: 't1' }), null);
 });
 
 const roster = [
@@ -101,6 +132,20 @@ test('gameResult preserves tournament metadata within the trimmed name limit', (
   const unnamed = model.gameResult({ ...game, competitionName: ` ${maxName}x ` });
   assert.equal(unnamed.competition, 'tournament');
   assert.equal('competitionName' in unnamed, false);
+});
+
+test('gameResult carries competition ids without per-game lines', () => {
+  const league = model.gameResult({ ...leagueFinal, phaseId: 'p1' });
+  const tournament = model.gameResult({
+    ...leagueFinal, competition: 'tournament', competitionName: 'Splash - Volos', tournamentId: 't1',
+  });
+  assert.equal(league.phaseId, 'p1');
+  assert.equal(tournament.tournamentId, 't1');
+  assert.equal('competition' in model.gameResult(leagueFinal), false);
+  for (const result of [league, tournament]) {
+    assert.equal('players' in result, false);
+    assert.equal('goalies' in result, false);
+  }
 });
 
 test('aggregateSeason keeps friendly results while excluding their players, goalies and situations', () => {
