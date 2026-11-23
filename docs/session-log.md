@@ -1,5 +1,22 @@
 # Session log
 
+## 23/11/2026 - Safari: Past games took ~30 s after a reload, fixed with long-polling (main 5373073)
+- **Symptom:** in desktop Safari 27, the tracker's Past games page sometimes showed "Loading games…" for about 30 s after a reload. Other pages draw from the cache first; Past games uses `getDocs`, which waits for the server.
+- **Cause (from the owner's HAR):**
+  - The Firestore Listen channel ran in streaming mode (`CI=0`, gzip, HTTP/2).
+  - The server sent the games query and its CURRENT marker about 1.9 s after the page started loading (readTime 10:24:59.66), but the app only acted on it at about 31.9 s, right after the server's 30 s "noop" keep-alive.
+  - So Safari's network layer held small streamed replies back from the page until more bytes arrived.
+  - Playwright WebKit and Chromium don't reproduce it. Firestore's own auto-detection didn't catch it either.
+- **Fix:** `experimentalForceLongPolling: true` in `initFirebase` (`js/firebase.js`), for the tracker and the viewer, production and emulator alike. Each server reply is now a complete HTTP response (`CI=1`).
+  - A read-only Codex check found nothing depending on streaming timing (offline detection, stale logic, takeover, unlock and end-lookup deadlines, multi-tab).
+  - Codex wrote the change plus `tests/e2e/transport.spec.js`, which checks that every Listen GET has `CI=1` in the viewer and the tracker. It fails on the old code in both browsers.
+- **Tests:** unit 328, emulator 35, full e2e 940 passed / 16 skipped.
+- **Deployed:** no game was live. Pages built 5373073 within ~30 s. Headless live check: Chromium and WebKit, `CI=1`, results shown, the tracker reaches unlock, no console errors.
+- **Where we left off:**
+  - the owner should reload Past games in Safari a few times; if it is still slow, capture another HAR;
+  - this likely also fixes live-viewer updates in Safari arriving late (not verified on a phone);
+  - optional: Past games could draw from the cache first, like the other pages.
+
 ## 23/11/2026 - Competition per game + timeline quarter divider deployed (main 6931a3a)
 - **Built:** every game has a competition: League / Cup / Tournament (with a name) / Friendly. It is set on the new-game details step (it defaults to the previous game's) and edited in game detail. Old games read as League. Friendlies stay in Results with a tag but are left out of player and goalie totals, man-up/man-down, the Team tab and the W–L record. The viewer shows a "Friendlies not counted (n)" note. Timeline quarter starts are now full-width divider lines; dark amber chips mean goals only. Cache `wp-shell-v5`.
 - **Who:**
