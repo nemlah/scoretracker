@@ -1,5 +1,20 @@
 # Session log
 
+## 23/11/2026 - Competition per game + timeline quarter divider (branch `competition`, built, awaiting merge)
+- **Built:** every game has a competition: League / Cup / Tournament (with a name) / Friendly. It is set on the new-game details step (it defaults to the previous game's) and edited in game detail. Old games read as League. Friendlies stay in Results with a tag but are left out of player and goalie totals, man-up/man-down, the Team tab and the W–L record. The viewer shows a "Friendlies not counted (n)" note. Timeline quarter starts are now full-width divider lines; dark amber chips mean goals only. Cache `wp-shell-v5`.
+- **Who:**
+  - Codex built Task 1 (model) and Task 4 (divider); sonnet built Tasks 2–3 (tracker, viewer) and the final fix wave.
+  - Per-task reviews were all Codex. The final reviews were Codex high ("ready with fixes") and sonnet ("ready to merge"), and every Important finding was fixed.
+  - Sonnet hit API 529 three times on Task 3; Task 3 round 3 and Task 4 were moved to Codex, and the controller ran their e2e.
+  - Routing is back to standard CLAUDE.md (the owner said Claude has reset).
+- **Tests:** unit 328, emulator 35, full e2e 936 passed / 16 skipped, no flakes.
+- **Known limits (mixed module cache, no code):** a phone still on the previous `viewer.js`/`teamStats.js` counts friendlies in Team and the record until it loads fresh files. A tracker on old `repo.js` + old `model.js` can rewrite stats with friendlies until the next new-tracker recount. A new `repo.js` with an old `model.js` refuses to recount and retries. Opening every phone once on Wi-Fi after deploy covers both.
+- **Parked:**
+  - a second quick Save during a pending competition write, followed by a write rejection (only on a takeover), can drop the draft. The failed-write banner shows it, and the owner re-picks.
+  - The capability gates and the stale-model guard have no automated test; they were checked statically by both final reviewers.
+- **Owner to do after deploy:** re-tag any past friendlies in tracker → game detail; each save recounts that season.
+- **Where we left off:** awaiting "merge and deploy". Optional later: update the canvas VGame board for the divider when the design system is re-synced to R3.
+
 ## 21/11/2026 - Release 3 (Direction B tracker) deployed (main 62bcd99)
 - **Built:** 8 tasks and the final-review fix wave, 17 commits on 720f124 (code head 146cdaa): viewer carry-overs and game flow in timeline order; tracker crest header and banners; live score row, situation band, board tiles, goalie sheet; events sheet by quarter with row editors; home live card, past-game chips, game detail scoreboard; new game in two steps; landscape split, 360 px worst case, cache `wp-shell-v4`.
 - **Who:** Codex (gpt-6.2-sol) built Tasks 1–7; sonnet did Task 4 fix rounds 2–3, Task 8 and the final fix wave. Sonnet reviewed Codex's tasks, and Codex reviewed sonnet's. The final whole-branch review (sonnet) said "ready with fixes". Both Importants were fixed and re-reviewed by Codex.
