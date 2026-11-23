@@ -1,5 +1,19 @@
 # Session log
 
+## 24/11/2026 - Competition lists + viewer "Showing" selector, merged to main locally (ff491f9), not pushed yet
+- **Built:**
+  - Tournaments and league phases are managed lists in `team/main` (`tournaments`, `phases`; random ids). The game forms pick from them, and "Add new…" writes the entry in the same batch as the game.
+  - A new Competitions screen (home, after Roster) adds, renames and removes entries. Remove stays disabled while any game uses the entry (checked against the server) or while offline.
+  - Result rows in `stats/<season>` now carry each game's player and goalie lines plus `tournamentId`/`phaseId`. Season totals are the sum of those lines.
+  - The viewer's Players and Team tabs have a "Showing" selector: Season, League, each phase, each tournament, Cup. It shows only once the rows have lines and at least two scopes differ from Season. Tags use the list names. Cache `wp-shell-v6`.
+- **Who:** Codex built Tasks 1–3 (model, repo, strings); sonnet built Tasks 4–6 (game forms, Competitions screen, viewer) and the final fix wave. Per-task reviews were Codex medium; the final reviews were Codex high and sonnet, followed by one fix wave and a scoped re-review.
+- **Tests:** unit 356, emulator 46, full e2e 1039 passed / 3 failed / 16 skipped. The 3 failures are WebKit unlock/snapshot timeouts under load (tracker-look, tracker-access, tracker-live, tracker-events); they pass alone, 158/158 on the branch and on main.
+- **Parked:** a Remove racing a link from a second tracker tab; the legacy relink recreating an entry another tab just removed; a list id equal to `__new` (unreachable).
+- **Where we left off:**
+  - push `main` to deploy (no game was live at merge time);
+  - after the deploy, the owner opens each of the 3 "Splash - Volos" games and presses Save once (the form preselects the tournament), then unlocks the tracker so the season recounts and the selector appears;
+  - follow-up: the WebKit e2e timeouts under load, possibly since the long-polling change.
+
 ## 23/11/2026 - Safari: Past games took ~30 s after a reload, fixed with long-polling (main 5373073)
 - **Symptom:** in desktop Safari 27, the tracker's Past games page sometimes showed "Loading games…" for about 30 s after a reload. Other pages draw from the cache first; Past games uses `getDocs`, which waits for the server.
 - **Cause (from the owner's HAR):**
