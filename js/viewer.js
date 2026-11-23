@@ -834,7 +834,9 @@ function renderSeason(plan, tabsShown) {
     if (results === 'failed') return teamUnavailable();
     if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
     const panel = teamPanel(() => state.teamView?.seasonPanel?.(stats ?? {}));
-    const note = state.teamViewStatus === 'ready' ? friendliesNote(stats?.results) : null;
+    // Past the loading and failed results above, the note follows whatever the panel shows: its figures, its
+    // loading state or its unavailable line.
+    const note = friendliesNote(stats?.results);
     return note ? [...panel, note] : panel;
   });
 }

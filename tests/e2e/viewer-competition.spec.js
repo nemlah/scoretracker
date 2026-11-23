@@ -1,11 +1,12 @@
 import { test, expect } from './fixtures.js';
 import { aggregateSeason, seasonFor, todayIso } from '../../js/model.js';
 import {
-  closeAll, get, open, resetAll, seed, tab, update,
+  closeAll, consoleProblems, get, open, resetAll, seed, tab, update,
 } from './helpers.js';
 import {
-  CODE, HOME_URL, collectProblems, dropNetworkNoise, unlockTracker,
+  CODE, HOME_URL, collectProblems, formatConsoleProblem, unlockTracker,
 } from './tracker-helpers.js';
+import { isFirestoreChannelLoss } from './network-noise.js';
 
 const roster = [
   { id: 'p2', name: 'Papadakis', cap: 2, archived: false },
@@ -34,8 +35,12 @@ const statsDoc = results => ({
 });
 
 let problems;
+let blocked;
 test.beforeEach(async ({ page }) => {
-  collectProblems(page, problems = []);
+  blocked = { url: null, errors: [] };
+  problems = consoleProblems(page, {
+    blocked, ignore: isFirestoreChannelLoss, format: formatConsoleProblem,
+  });
   await resetAll();
   await seed('team/main', { roster });
 });
@@ -49,6 +54,26 @@ const seedSeason = (results = [league, friendly, tournament]) => seed(`stats/${S
 const noSideScroll = page => page.evaluate(() => ({
   scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
 }));
+
+// The tag is fully visible: every line box of it lies inside the container's box, and the nearest block that
+// holds it does not clip or overflow it (an inline element has no scrollWidth of its own).
+async function expectTagFits(tag, container) {
+  await expect(tag).toBeVisible();
+  const fit = await tag.evaluate((el, containerEl) => {
+    const box = containerEl.getBoundingClientRect();
+    const lines = [...el.getClientRects()];
+    let block = el;
+    while (block && block.clientWidth === 0) block = block.parentElement;
+    return {
+      lines: lines.length,
+      inside: lines.every(r => r.left >= box.left - 0.5 && r.right <= box.right + 0.5),
+      holderFits: block.scrollWidth <= block.clientWidth,
+    };
+  }, await container.elementHandle());
+  expect(fit.lines).toBeGreaterThan(0);
+  expect(fit.inside).toBe(true);
+  expect(fit.holderFits).toBe(true);
+}
 
 test.describe('home', () => {
   test('results carry the competition tag and the link name includes it', async ({ page }) => {
@@ -122,14 +147,47 @@ test.describe('home', () => {
     await open(page);
     await expect(row(page, 'Tournament FC').getByTestId('result-competition')).toBeVisible();
     await expect(row(page, 'Tournament FC').getByTestId('result-competition')).toHaveText(LONG_NAME);
+    await expectTagFits(row(page, 'Tournament FC').getByTestId('result-competition'), row(page, 'Tournament FC'));
     const listWidths = await noSideScroll(page);
     expect(listWidths.scroll).toBeLessThanOrEqual(listWidths.client);
 
     await row(page, 'Tournament FC').getByTestId('result-link').click();
     await expect(page.getByTestId('game-competition')).toBeVisible();
     await expect(page.getByTestId('game-competition')).toHaveText(LONG_NAME);
+    await expectTagFits(page.getByTestId('game-competition'), page.locator('section.board'));
     const boardWidths = await noSideScroll(page);
     expect(boardWidths.scroll).toBeLessThanOrEqual(boardWidths.client);
+  });
+});
+
+test.describe('the Team module fails to load', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('the Team tab says so and still says how many friendlies are left out, once', async ({ page, baseURL, browserName }) => {
+    blocked.url = new URL('/js/teamStats.js', baseURL).href;
+    await page.route('**/js/teamStats.js', route => route.abort());
+    await seedSeason();
+    await open(page);
+    await expect(page.getByTestId('result-row')).toHaveCount(3);
+    await tab(page, 'team').click();
+    await expect(page.getByTestId('team-unavailable')).toBeVisible();
+    const note = page.getByTestId('panel-team').getByTestId('friendlies-note');
+    await expect(note).toBeVisible();
+    await expect(note).toHaveText('Friendlies not counted (1)');
+    await expect(page.getByTestId('panel-team').getByTestId('friendlies-note')).toHaveCount(1);
+    // The failure was the injected one: Chromium reports it as a console error (filtered), WebKit does not log it.
+    if (browserName === 'chromium') expect(blocked.errors.length).toBeGreaterThan(0);
+  });
+
+  test('with no friendly the unavailable Team tab has no note', async ({ page, baseURL }) => {
+    blocked.url = new URL('/js/teamStats.js', baseURL).href;
+    await page.route('**/js/teamStats.js', route => route.abort());
+    await seedSeason([league, tournament]);
+    await open(page);
+    await expect(page.getByTestId('result-row')).toHaveCount(2);
+    await tab(page, 'team').click();
+    await expect(page.getByTestId('team-unavailable')).toBeVisible();
+    await expect(page.getByTestId('friendlies-note')).toHaveCount(0);
   });
 });
 
@@ -177,7 +235,7 @@ test.describe('tracker to viewer', () => {
   test.beforeEach(async () => {
     await seed('secrets/editCode', { code: CODE });
   });
-  test('marking a counted game friendly in the tracker recounts the season the viewer shows', async ({ page }) => {
+  test('marking a counted game friendly in the tracker recounts the season the viewer shows', async ({ page, context }) => {
     const g1 = {
       id: 'g1', opponent: 'First FC', date: '2026-10-01', season: SEASON, status: 'final', period: 4, lineup,
       events: [goal('a1', 1000), goal('a2', 1010)],
@@ -201,14 +259,15 @@ test.describe('tracker to viewer', () => {
     await expect.poll(async () => (await get('games/g2')).competition).toBe('friendly');
     await expect.poll(async () => (await get(`stats/${SEASON}`)).players.p5?.goals).toBe(2);
 
-    // Leaving the tracker aborts its in-flight Firestore channels; WebKit reports that as page errors.
-    await open(page);
-    dropNetworkNoise(problems);
-    await expect(page.getByTestId('result-row')).toHaveCount(2);
-    await expect(row(page, 'Second FC').getByTestId('result-competition')).toBeVisible();
-    await expect(row(page, 'Second FC').getByTestId('result-competition')).toHaveText('Friendly');
-    await tab(page, 'players').click();
-    const p5 = page.getByTestId('season-row').filter({ hasText: 'Alexiou' });
+    // The viewer opens in a second page, so the tracker keeps its channels and nothing is filtered out of its run.
+    const viewer = await context.newPage();
+    collectProblems(viewer, problems);
+    await open(viewer);
+    await expect(viewer.getByTestId('result-row')).toHaveCount(2);
+    await expect(row(viewer, 'Second FC').getByTestId('result-competition')).toBeVisible();
+    await expect(row(viewer, 'Second FC').getByTestId('result-competition')).toHaveText('Friendly');
+    await tab(viewer, 'players').click();
+    const p5 = viewer.getByTestId('season-row').filter({ hasText: 'Alexiou' });
     await expect(p5).toBeVisible();
     await expect(p5.locator('td').nth(1)).toHaveText('1');
     await expect(p5.locator('td').nth(2)).toHaveText('2');
