@@ -1,6 +1,6 @@
 # Session log
 
-## 24/11/2026 - Competition lists + viewer "Showing" selector, merged to main locally (ff491f9), not pushed yet
+## 24/11/2026 - Competition lists + viewer "Showing" selector deployed (main ff491f9)
 - **Built:**
   - Tournaments and league phases are managed lists in `team/main` (`tournaments`, `phases`; random ids). The game forms pick from them, and "Add new…" writes the entry in the same batch as the game.
   - A new Competitions screen (home, after Roster) adds, renames and removes entries. Remove stays disabled while any game uses the entry (checked against the server) or while offline.
@@ -10,8 +10,8 @@
 - **Tests:** unit 356, emulator 46, full e2e 1039 passed / 3 failed / 16 skipped. The 3 failures are WebKit unlock/snapshot timeouts under load (tracker-look, tracker-access, tracker-live, tracker-events); they pass alone, 158/158 on the branch and on main.
 - **Parked:** a Remove racing a link from a second tracker tab; the legacy relink recreating an entry another tab just removed; a list id equal to `__new` (unreachable).
 - **Where we left off:**
-  - push `main` to deploy (no game was live at merge time);
-  - after the deploy, the owner opens each of the 3 "Splash - Volos" games and presses Save once (the form preselects the tournament), then unlocks the tracker so the season recounts and the selector appears;
+  - deployed: no game was live; Pages built 3c49d31 within ~45 s. Headless live check (Chromium and WebKit, 360 px): results and tags shown, Players lists 15 rows, the selector hidden, no horizontal scroll, the tracker reaches unlock, no console errors;
+  - the owner opens each of the 3 "Splash - Volos" games and presses Save once (the form preselects the tournament), then unlocks the tracker so the season recounts. The selector stays hidden until the season also has a counted game outside that tournament (for example a league game), because an option equal to Season is left out;
   - follow-up: the WebKit e2e timeouts under load, possibly since the long-polling change.
 
 ## 23/11/2026 - Safari: Past games took ~30 s after a reload, fixed with long-polling (main 5373073)
