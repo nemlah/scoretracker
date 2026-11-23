@@ -39,6 +39,8 @@ import { goalieStats } from './goalies.js';
  * @property {LineupEntry[]} lineup
  * @property {Event[]} events
  * @property {boolean} [situations]
+ * @property {'league'|'cup'|'tournament'|'friendly'} [competition]
+ * @property {string} [competitionName]
  */
 
 // remove in R4: read by the R2 viewer.js
@@ -48,6 +50,30 @@ export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...S
 export const PERIODS = Object.freeze([1, 2, 3, 4, 'SO']);
 export const EXCL_LIMIT = 3;
 export const DUPLICATE_TAP_MS = 1000;
+export const COMPETITIONS = Object.freeze(/** @type {const} */ (['league', 'cup', 'tournament', 'friendly']));
+export const MAX_COMPETITION_NAME = 40;
+
+export function competitionOf(source) {
+  const { competition, competitionName } = source ?? {};
+  if (!COMPETITIONS.includes(competition)) return { competition: 'league' };
+  if (competition === 'tournament' && typeof competitionName === 'string') {
+    const name = competitionName.trim();
+    if (name) return { competition, competitionName: name };
+  }
+  return { competition };
+}
+
+export function isFriendly(source) {
+  return source?.competition === 'friendly';
+}
+
+export function competitionFields(competition, name) {
+  const fields = competitionOf({ competition, competitionName: name });
+  if (fields.competition !== competition) return null;
+  if (competition === 'tournament' &&
+      (!fields.competitionName || fields.competitionName.length > MAX_COMPETITION_NAME)) return null;
+  return fields;
+}
 
 export function nextPeriod(p) {
   const index = PERIODS.indexOf(p);
@@ -267,6 +293,8 @@ export function gameResult(game) {
   const result = { gameId: game.id, date: game.date, opponent: game.opponent, us, them, excl, pens, quarters };
   if (hasShootout(game.period, game.events)) Object.assign(result, { soUs, soThem });
   if (isTracked(game)) Object.assign(result, situationCounts(game));
+  const fields = competitionOf(game);
+  if (fields.competition !== 'league') Object.assign(result, fields);
   return result;
 }
 
@@ -286,6 +314,7 @@ export function aggregateSeason(games, roster) {
   let situations = null;
   const finals = games.filter(game => game.status === 'final');
   for (const game of finals) {
+    if (isFriendly(game)) continue;
     const stats = goalieStats(game);
     if (stats) {
       const lineupGoalies = new Set(game.lineup.filter(player => player.goalie === true)

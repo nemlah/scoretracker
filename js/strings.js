@@ -54,6 +54,7 @@ const STRINGS = {
   seasonHeading: 'This season',
   resultsHeading: 'Results',
   totalsHeading: 'Player totals',
+  friendliesNotCounted: 'Friendlies not counted ({n})',
   connectionNote: 'Reconnecting. Showing the last score received.',
   // The scoreboard's goals-by-quarter table: read out as its caption, never shown.
   quarterGrid: 'Goals by quarter',
@@ -205,6 +206,13 @@ const STRINGS = {
   opponentDefault: 'Opponent',
   dateLabel: 'Date',
   seasonLabel: 'Season',
+  competitionField: 'Competition',
+  competitionLeague: 'League',
+  competitionCup: 'Cup',
+  competitionTournament: 'Tournament',
+  competitionFriendly: 'Friendly',
+  competitionNameLabel: 'Tournament name',
+  competitionNameRequired: 'Enter the tournament name',
   seasonInvalid: 'Season must look like 2026-27.',
   lineupHeading: 'Who is playing',
   capFor: 'Cap number for {name}',
@@ -344,6 +352,30 @@ export function t(key, params = {}) {
     (text, [name, value]) => text.split(`{${name}}`).join(String(value)),
     STRINGS[key],
   );
+}
+
+export function competitionLabel(competition) {
+  switch (competition) {
+    case 'cup': return t('competitionCup');
+    case 'tournament': return t('competitionTournament');
+    case 'friendly': return t('competitionFriendly');
+    default: return t('competitionLeague');
+  }
+}
+
+export function competitionTag(source) {
+  const { competition, competitionName } = source ?? {};
+  switch (competition) {
+    case 'tournament': {
+      const name = typeof competitionName === 'string' ? competitionName.trim() : '';
+      return name || competitionLabel(competition);
+    }
+    case 'cup':
+    case 'friendly':
+      return competitionLabel(competition);
+    default:
+      return null;
+  }
 }
 
 export function periodLabel(period) {

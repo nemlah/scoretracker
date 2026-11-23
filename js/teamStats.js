@@ -114,7 +114,9 @@ function validQuarters(quarters) {
 }
 
 export function seasonTeamStats(stats) {
-  const results = Array.isArray(stats?.results) ? stats.results : [];
+  const results = Array.isArray(stats?.results)
+    ? stats.results.filter(result => result?.competition !== 'friendly')
+    : [];
   const games = [];
   const total = {
     manUp: { played: 0, scored: 0 },

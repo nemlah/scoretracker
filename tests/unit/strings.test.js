@@ -189,3 +189,25 @@ test('the season header and result row strings', () => {
   assert.equal(t('resultLabel', { outcome: 'Win', score: '10 – 10, pen. 4–3', opponent: 'Rivals' }),
     'Win 10 – 10, pen. 4–3 against Rivals');
 });
+
+test('competition labels and form strings use the catalog wording', () => {
+  assert.deepEqual(['league', 'cup', 'tournament', 'friendly'].map(strings.competitionLabel),
+    ['League', 'Cup', 'Tournament', 'Friendly']);
+  assert.equal(t('competitionField'), 'Competition');
+  assert.equal(t('competitionNameLabel'), 'Tournament name');
+  assert.equal(t('competitionNameRequired'), 'Enter the tournament name');
+  assert.equal(t('friendliesNotCounted', { n: 2 }), 'Friendlies not counted (2)');
+});
+
+test('competition tags label non-league games and use the tournament name when present', () => {
+  for (const source of [{}, null, { competition: 'league' }, { competition: 'bogus' }]) {
+    assert.equal(strings.competitionTag(source), null);
+  }
+  assert.equal(strings.competitionTag({ competition: 'cup' }), 'Cup');
+  assert.equal(strings.competitionTag({ competition: 'friendly' }), 'Friendly');
+  assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: 'Κύπελλο Άνοιξης' }),
+    'Κύπελλο Άνοιξης');
+  assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: '  Summer Cup ' }), 'Summer Cup');
+  assert.equal(strings.competitionTag({ competition: 'tournament' }), 'Tournament');
+  assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: '  ' }), 'Tournament');
+});

@@ -158,6 +158,11 @@ test('the old season fixture has no exclusion or quarter coverage', () => {
   assert.equal(stats.total.exclGames, 0);
 });
 
+test('season team statistics exclude friendlies from totals and coverage', () => {
+  const friendly = { ...seasonStatsFull.results[0], gameId: 'fr', competition: 'friendly' };
+  assert.deepEqual(seasonTeamStats({ results: [...seasonStatsFull.results, friendly] }), seasonStatsFullExpected);
+});
+
 function assertDefinedStats(value) {
   assert.notEqual(value, undefined);
   assert.equal(Number.isNaN(value), false);
