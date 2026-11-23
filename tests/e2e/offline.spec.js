@@ -411,7 +411,7 @@ test('a slow successful response is stored and becomes the next offline response
   await expect(page.locator('#app')).not.toHaveAttribute('data-shell', 'refreshed');
   await expect.poll(() => page.evaluate(async () => {
     const { scope } = await navigator.serviceWorker.getRegistration();
-    const cached = await (await caches.open(`wp-shell-v4::${scope}`)).match('/index.html');
+    const cached = await (await caches.open(`wp-shell-v5::${scope}`)).match('/index.html');
     return (await cached.text()).includes('data-shell="refreshed"');
   }), { timeout: 10000 }).toBe(true);
   await context.unroute(`${ORIGIN}/index.html*`);

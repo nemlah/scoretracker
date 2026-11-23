@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect } from './fixtures.js';
-import { closeAll, consoleProblems, cssColour, open, remove, resetAll, seed, update } from './helpers.js';
+import { closeAll, consoleProblems, cssColour, hexOf, open, remove, resetAll, seed, update } from './helpers.js';
 import { dropNetworkNoise } from './tracker-helpers.js';
 
 const roster = [
@@ -96,18 +96,34 @@ test('live game', async ({ page }) => {
   await expect(page.getByTestId('tl-out')).toHaveText('· out');
   await expect(page.locator('[data-testid="timeline-item"][data-out="true"]')).toContainText('#2 Papadakis');
   await expect(page.locator('.tl-icon--excl')).toHaveCount(3);
-  // A quarter marker is a board chip with the quarter's goals; it is not the old 24 px sticky heading.
+  // Two rules flank the quarter heading and its score.
   const marker = page.getByTestId('tl-quarter').first();
   await expect(marker).toHaveText('Q2 1–1');
-  expect(await marker.locator('h3').evaluate(el => {
-    const style = getComputedStyle(el);
-    return [style.fontSize, style.position, style.backgroundColor];
-  })).toEqual(['17px', 'static', 'rgb(11, 19, 32)']);
-  // As the VGame board draws it: the quarter in amber, the digits white. Each span is sampled itself.
-  await expect(marker.locator('.tl-quarter-label')).toHaveText('Q2');
-  await expect(marker.locator('.tl-quarter-label')).toHaveCSS('color', 'rgb(255, 194, 61)');
-  await expect(marker.locator('.tl-quarter-score')).toHaveText('1–1');
-  await expect(marker.locator('.tl-quarter-score')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  const heading = marker.locator('h3');
+  await expect(heading).toHaveCSS('font-size', '15px');
+  await expect(heading).toHaveCSS('position', 'static');
+  await expect(heading).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  for (const [selector, label, token] of [
+    ['.tl-quarter-label', 'Q2', '--v-muted'],
+    ['.tl-quarter-score', '1–1', '--ink'],
+  ]) {
+    const part = marker.locator(selector);
+    await expect(part).toHaveText(label);
+    const actual = await hexOf(page, await cssColour(part, 'color'));
+    const expected = await hexOf(page, await cssColour(marker, token));
+    expect(actual, `${label} uses ${token}`).toBe(expected);
+  }
+  for (const pseudo of ['::before', '::after']) {
+    const rule = await marker.evaluate((el, side) => {
+      const { height, width } = getComputedStyle(el, side);
+      return { height, width: parseFloat(width) };
+    }, pseudo);
+    expect(rule.height, `${pseudo} rule height`).toBe('1px');
+    expect(rule.width, `${pseudo} rule width`).toBeGreaterThan(40);
+  }
+  const board = await cssColour(page.locator('.board'), 'backgroundColor');
+  await expect(us.getByTestId('tl-score')).toHaveCSS('background-color', board);
+  expect(await cssColour(heading, 'backgroundColor')).not.toBe(board);
 
   // The players are under their own tab.
   await page.getByTestId('tab-players').click();
@@ -923,7 +939,7 @@ test('the heading shows the date and the order, with or without events', async (
   await expect(page.getByTestId('timeline-heading')).toHaveText('08/11/2026 · newest first');
 });
 
-test('the pills and the card follow the dark scheme', async ({ page }) => {
+test('the pills, card and divider follow the dark scheme', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await seedLive([ev('goal', 1, 'p5'), ev('oppGoal', 1)]);
   await open(page, '#/game/g1');
@@ -940,7 +956,7 @@ test('the pills and the card follow the dark scheme', async ({ page }) => {
     ['rgb(5, 9, 15)', 'rgb(255, 194, 61)', 'rgb(31, 43, 61)'],
     ['rgb(19, 30, 46)', 'rgb(232, 238, 245)', 'rgb(93, 107, 125)'],
     'rgb(19, 30, 46)',
-    'rgb(5, 9, 15)',
+    'rgba(0, 0, 0, 0)',
   ]);
 });
 

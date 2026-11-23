@@ -99,6 +99,7 @@ for (const scheme of ['light', 'dark']) {
 
     for (const accent of ACCENTS) {
       test(`${accent}: the game's chips, board bar and Team bars meet their thresholds`, async ({ page }) => {
+        await page.setViewportSize({ width: 360, height: 844 });
         await open(page, '#/game/team-g1');
         await expect(page.getByTestId('score-us')).toHaveText('5');
         await paint(page, accent);
@@ -107,6 +108,10 @@ for (const scheme of ['light', 'dark']) {
         const bar = await opaque(page, '.board-bar', 'backgroundColor', 'board bar');
         const board = await opaque(page, '.board', 'backgroundColor', 'board');
         expect(contrastRatio(bar, board), `board bar ${bar} on ${board}`).toBeGreaterThanOrEqual(3);
+
+        await expect(page.locator('.tl-quarter h3').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        const goalPill = page.locator('.tl-goal[data-side="us"]').getByTestId('tl-score').first();
+        expect(await fillOf(goalPill, 'our goal pill')).toBe(board);
 
         // Players: the cap chip's number.
         await tab(page, 'players').click();
