@@ -4,7 +4,7 @@ import { aggregateSeason } from '../../js/model.js';
 import {
   closeAll, expectTagFits, get, instrumentRepo, noSideScroll, resetAll, seed, update,
 } from './helpers.js';
-import { CODE, HOME_URL, TRACKER_URL, collectProblems, unlockTracker } from './tracker-helpers.js';
+import { CODE, HOME_URL, SERVER_WAIT, TRACKER_URL, collectProblems, dropNetworkNoise, unlockTracker } from './tracker-helpers.js';
 
 const roster = [
   { id: 'p2', name: 'Papadakis', cap: 2, archived: false },
@@ -243,6 +243,46 @@ test('an entry removed after Next sends Start back to the details step with the 
   await expect(tournamentSelect(page)).toHaveValue('t1');
   await expect(page.getByTestId('newgame-next')).toBeDisabled();
   expect((await get('team/main')).currentGameId).toBeUndefined();
+});
+
+test('a new game whose previous tournament entry is gone shows it as removed and needs a fresh choice', async ({ page }) => {
+  await seed('team/main', { roster, tournaments: { t2: { name: 'Aegean Cup' } }, currentGameId: 'g1' });
+  await seedFinal('g1', { competition: 'tournament', competitionName: 'Splash - Volos', tournamentId: 't-gone' });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await page.getByTestId('opponent-input').fill('Opponent FC');
+  await expect(select(page)).toHaveValue('tournament');
+  // Not the first remaining entry: the missing id stays selected, marked as removed.
+  await expect(tournamentSelect(page)).toHaveValue('t-gone');
+  await expect(tournamentSelect(page).locator('option[value="t-gone"]')).toContainText('Splash - Volos (removed)');
+  await expect(page.getByTestId('competition-error')).toHaveText('That entry was removed. Pick again');
+  await expect(page.getByTestId('newgame-next')).toBeDisabled();
+
+  await tournamentSelect(page).selectOption('t2');
+  await expect(page.getByTestId('competition-error')).toBeHidden();
+  await expect(page.getByTestId('newgame-next')).toBeEnabled();
+  await page.getByTestId('newgame-next').click();
+  await page.getByTestId('start-game').click();
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  const id = await currentGameId();
+  expect(id).not.toBe('g1');
+  expect(await get(`games/${id}`)).toMatchObject({ competition: 'tournament', competitionName: 'Aegean Cup', tournamentId: 't2' });
+});
+
+test('a new game whose previous phase entry is gone shows it as removed and needs a fresh choice', async ({ page }) => {
+  await seed('team/main', { roster, phases: { p2: PHASES.p2 }, currentGameId: 'g1' });
+  await seedFinal('g1', { competition: 'league', phaseId: 'p-gone' });
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await expect(select(page)).toHaveValue('league');
+  await expect(phaseSelect(page)).toHaveValue('p-gone');
+  await expect(phaseSelect(page).locator('option[value="p-gone"]')).toContainText('(removed)');
+  await expect(page.getByTestId('competition-error')).toHaveText('That entry was removed. Pick again');
+  await expect(page.getByTestId('newgame-next')).toBeDisabled();
+  await phaseSelect(page).selectOption('p2');
+  await expect(page.getByTestId('newgame-next')).toBeEnabled();
 });
 
 test('pressing Start twice with a new entry writes one game and one entry', async ({ page }) => {
@@ -511,6 +551,32 @@ test('submitting the info form twice with a new entry writes one entry', async (
   expect(Object.values(tournaments)).toEqual([{ name: 'Splash - Volos' }]);
   expect((await get('games/g1')).tournamentId).toBe(Object.keys(tournaments)[0]);
   expect(await page.evaluate(() => window.__infoCalls)).toHaveLength(1);
+});
+
+test('a changed new name saved while the first save is unanswered is not dropped', async ({ page, context }) => {
+  await instrumentRepo(page);
+  await seedFinal('g1');
+  await openDetail(page);
+  await page.getByTestId('info-competition').selectOption('tournament');
+  await page.getByTestId('info-tournament-new-name').fill('Splash - Volos');
+  // Offline, the commit stays unanswered while the local write applies.
+  await context.setOffline(true);
+  await page.getByTestId('info-save').click();
+  await expect.poll(async () => page.evaluate(() => window.__infoCalls?.length ?? 0)).toBe(1);
+  await page.getByTestId('info-tournament-new-name').fill('Aegean Cup');
+  await page.getByTestId('info-save').click();
+  await expect.poll(async () => page.evaluate(() => window.__infoCalls?.length ?? 0)).toBe(2);
+  // The same name again, still unanswered, is a repeat and goes nowhere.
+  await page.getByTestId('info-save').click();
+  await expect.poll(async () => page.evaluate(() => window.__infoCalls?.length ?? 0)).toBe(2);
+  await context.setOffline(false);
+  await expect.poll(async () => (await get('games/g1')).competitionName, { timeout: SERVER_WAIT }).toBe('Aegean Cup');
+  const { tournaments } = await get('team/main');
+  expect(Object.values(tournaments).map(entry => entry.name).sort()).toEqual(['Aegean Cup', 'Splash - Volos']);
+  const aegean = Object.entries(tournaments).find(([, entry]) => entry.name === 'Aegean Cup')[0];
+  expect((await get('games/g1')).tournamentId).toBe(aegean);
+  expect(await page.evaluate(() => window.__infoCalls)).toHaveLength(2);
+  dropNetworkNoise(problems);
 });
 
 test('a phase-only edit writes the phaseId and the recount carries it; No phase clears it', async ({ page }) => {

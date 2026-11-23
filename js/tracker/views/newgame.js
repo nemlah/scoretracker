@@ -284,8 +284,10 @@ export function mount(root, ctx) {
         tournamentChoice = entries.tournaments[0]?.id ?? model.LIST_NEW;
         if (competition === 'tournament') {
           const byName = name === undefined ? undefined : entries.tournaments.find(entry => model.sameListName(entry.name, name));
+          // A linked id that left the list stays chosen and shows as "(removed)", so a new match needs a fresh choice.
           if (tournamentId !== undefined) {
-            if (entries.tournaments.some(entry => entry.id === tournamentId)) tournamentChoice = tournamentId;
+            tournamentChoice = tournamentId;
+            if (name !== undefined) names.set(tournamentId, name); // labels the "(removed)" option
           } else if (byName) {
             tournamentChoice = byName.id;
           } else if (name !== undefined) {
@@ -294,7 +296,7 @@ export function mount(root, ctx) {
             tournamentNew.value = name;
           }
         }
-        if (competition === 'league' && entries.phases.some(entry => entry.id === phaseId)) phaseChoice = phaseId;
+        if (competition === 'league' && phaseId !== undefined) phaseChoice = phaseId;
       } else {
         competitionName.value = name ?? '';
       }
