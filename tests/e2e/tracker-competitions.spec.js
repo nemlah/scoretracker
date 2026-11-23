@@ -155,6 +155,22 @@ test('a rename to another entry\'s name is refused; a case change of its own nam
   expect((await get('team/main')).phases.p1).toEqual({ name: 'REGULAR SEASON' });
 });
 
+test('saving the name the editor opened with still writes it after a snapshot changed the entry', async ({ page }) => {
+  await seed('team/main', { roster: [], phases: { p1: { name: 'Regular season' }, p2: { name: 'Play-offs' } } });
+  await openCompetitions(page);
+  const row = entry(phases(page), 'p1');
+  await row.getByTestId('list-rename').click();
+  await expect(row.getByTestId('list-rename-input')).toHaveValue('Regular season');
+  // Another device renames p1 and adds p3 in one write; the new row shows that the snapshot has arrived.
+  await update('team/main', { 'phases.p1': { name: 'League round' }, 'phases.p3': { name: 'Final round' } });
+  await expect(entries(phases(page))).toHaveCount(3);
+  // The editor keeps its draft; saving the original name is a change from the entry's current name.
+  await expect(row.getByTestId('list-rename-input')).toHaveValue('Regular season');
+  await row.getByTestId('list-rename-save').click();
+  await expect(row.getByTestId('list-rename-input')).toHaveCount(0);
+  await expect.poll(async () => (await get('team/main')).phases.p1).toEqual({ name: 'Regular season' });
+});
+
 test('a rename draft survives a snapshot caused by another change', async ({ page }) => {
   await seed('team/main', { roster: [], phases: { p1: { name: 'Regular season' }, p2: { name: 'Play-offs' } } });
   await openCompetitions(page);
@@ -248,6 +264,28 @@ test('Remove stays off while offline and comes back with the connection', async 
   dropNetworkNoise(problems);
 });
 
+test('a check that failed while online is retried without remounting', async ({ page }) => {
+  const repo = readFileSync('js/repo.js', 'utf8');
+  const head = 'async listGamesFromServer() {';
+  expect(repo).toContain(head);
+  // The first server read of the games fails once, as a read error would; later ones are the real thing.
+  await page.route('**/js/repo.js', route => route.fulfill({
+    contentType: 'text/javascript',
+    body: repo.replace(head, `${head} if (!window.__listFailed) { window.__listFailed = true; throw new Error('read failed'); }`),
+  }));
+  await seed('team/main', { roster: [], tournaments: { t1: { name: 'Free Cup' } } });
+  await openCompetitions(page);
+  const remove = entry(tournaments(page), 't1').getByTestId('list-remove');
+  await expect(page.getByTestId('list-check-note')).toBeVisible();
+  await expect(remove).toBeDisabled();
+  expect(await page.evaluate(() => window.__listFailed)).toBe(true);
+  // No remount, no offline round trip: the next check succeeds on its own.
+  await expect(remove).toBeEnabled({ timeout: SERVER_WAIT });
+  await expect(page.getByTestId('list-check-note')).toBeHidden();
+  await remove.click();
+  await expect.poll(async () => (await get('team/main')).tournaments).toEqual({});
+});
+
 test('at 360 px a 40-character Greek name with Rename and Remove does not scroll sideways', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await seed('team/main', { roster: [], tournaments: { t1: { name: LONG_NAME }, t2: { name: 'Free Cup' } }, phases: { p1: { name: LONG_NAME } } });
@@ -273,8 +311,10 @@ test('at 360 px a 40-character Greek name with Rename and Remove does not scroll
   await fits(row.getByTestId('list-rename-input'));
   await fits(row.getByTestId('list-rename-save'));
   await fits(row.getByTestId('list-rename-cancel'));
-  await addTo(phases(page), LONG_NAME.slice(0, 39));
-  await expect(entries(phases(page))).toHaveCount(2);
+  // Layout only: the write of an Add is checked in the Add test.
+  await phases(page).getByTestId('list-add-input').fill(LONG_NAME.slice(0, 39));
+  await fits(phases(page).getByTestId('list-add-input'));
+  await fits(phases(page).getByTestId('list-add'));
   scroll = await noSideScroll(page);
   expect(scroll.scroll).toBeLessThanOrEqual(scroll.client);
 });

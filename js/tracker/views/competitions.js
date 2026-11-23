@@ -23,17 +23,19 @@ const LISTS = [
   { list: 'phases', heading: 'phasesHeading', testid: 'competitions-phases' },
 ];
 
+const RETRY_MS = 3000;
+
 export function mount(root, ctx) {
   const maxLength = model.MAX_COMPETITION_NAME ?? 40;
   let state = ctx.getState();
   let unmounted = false;
-  let wasOnline = state.online;
   // Which entries a game uses, as the server last said. Remove stays off until it is known.
   let used = { tournaments: new Set(), phases: new Set() };
   let usedKnown = false;
   let checkFailed = false;
   let checking = false;
   let removing = false;
+  let retryTimer = null;
 
   const writable = () => state.active === true || state.writable === true;
   const removable = (list, id) => writable() && state.online !== false && usedKnown && !checkFailed && !removing
@@ -54,19 +56,28 @@ export function mount(root, ctx) {
     }
   }
 
-  async function refreshUse() {
-    if (checking) return;
-    checking = true;
-    const next = await readUse();
-    checking = false;
-    if (unmounted) return;
+  // Takes the result of a check (null when it could not be made). A check that failed while online is
+  // tried again after RETRY_MS, one at a time; offline, update() asks again when the connection returns.
+  function applyUse(next) {
     if (next) {
       used = next;
       usedKnown = true;
       checkFailed = false;
-    } else {
-      checkFailed = true;
+      return;
     }
+    checkFailed = true;
+    if (state.online !== false && retryTimer === null) {
+      retryTimer = setTimeout(() => { retryTimer = null; refreshUse(); }, RETRY_MS);
+    }
+  }
+
+  async function refreshUse() {
+    if (checking || removing || unmounted) return;
+    checking = true;
+    const next = await readUse();
+    checking = false;
+    if (unmounted) return;
+    applyUse(next);
     sync();
   }
 
@@ -78,13 +89,7 @@ export function mount(root, ctx) {
     const next = await readUse();
     removing = false;
     if (unmounted) return;
-    if (next) {
-      used = next;
-      usedKnown = true;
-      checkFailed = false;
-    } else {
-      checkFailed = true;
-    }
+    applyUse(next);
     if (next && !next[list].has(id) && writable()) {
       ctx.repo.removeListEntry(list, id).catch(err => ctx.onWriteError(err));
     }
@@ -179,7 +184,9 @@ export function mount(root, ctx) {
           return;
         }
         editingId = null;
-        if (result.name !== entry.name) {
+        // Against the entry as the latest snapshot has it, not as it was when the editor opened.
+        const current = entriesNow().find(item => item.id === entry.id);
+        if (current && result.name !== current.name) {
           ctx.repo.renameListEntry(list, entry.id, result.name).catch(err => ctx.onWriteError(err));
         }
         renderRows();
@@ -259,13 +266,13 @@ export function mount(root, ctx) {
   return {
     update(next) {
       state = next;
-      // The server could not be asked while offline; ask again once the connection is back.
-      if (!wasOnline && next.online && checkFailed) refreshUse();
-      wasOnline = next.online;
       sync();
+      // A failed check is asked again once the device is online, unless a retry is already waiting.
+      if (checkFailed && next.online !== false && retryTimer === null) refreshUse();
     },
     unmount() {
       unmounted = true;
+      clearTimeout(retryTimer);
       root.replaceChildren();
     },
   };
