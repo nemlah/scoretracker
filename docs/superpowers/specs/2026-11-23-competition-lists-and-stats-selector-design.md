@@ -78,7 +78,7 @@ Project-sized. Builds on the competition-per-game design (`2026-11-23-competitio
 - **Edit form:** the existing `competitionTouched` handling extends to the two new selects. A changed tournament or phase recounts the season through the existing `recountAfter` path.
 - **Legacy tournament game** (a `competitionName` with no `tournamentId`): the edit form preselects the entry with the same name, matched case-insensitively. Otherwise it preselects "Add new…" with the name filled in. Either way, re-linking is one Save.
 - **Competitions screen:** a new home nav row "Competitions", after Roster. It has two sections, Tournaments and Phases. Each entry can be renamed inline. Each section has an Add field.
-  - "Remove" is enabled only for entries no game uses, checked against `repo.listGames()`.
+  - "Remove" is enabled only for entries no game uses, checked against the server (`repo.listGamesFromServer()`, after this device's pending writes). It stays disabled while offline.
   - All writes follow the existing write gating (`data-write`, writable state).
 - **Renames:** a rename changes only the list entry. Games keep their ids, and new clients show the new name. Stored `competitionName` snapshots are not rewritten, so only older cached clients show the old name.
 
@@ -143,7 +143,7 @@ Project-sized. Builds on the competition-per-game design (`2026-11-23-competitio
   - At Save, the forms resolve the selected id against the current local list.
   - A renamed entry saves with its new name as the snapshot.
   - If the entry was removed while the form was open, the form refuses with a message and asks to pick again.
-  - Remove on the Competitions screen re-checks `listGames()` at the moment of the click. `getDocs` includes this device's pending writes.
+  - Remove on the Competitions screen re-checks the server at the moment of the click.
 - **Duplicate names:** only the active tracker writes, so duplicates are limited to edge races. They are harmless: two entries with the same name, which the Competitions screen can rename or remove. No conflict policy.
 - **An older tracker recounting after the upgrade:** it can rewrite a season's rows without lines. The viewer then falls back to the totals and hides the selector until a new tracker recounts, which happens on the owner's next unlock for the current season. Past seasons stay unfiltered until one of their games is edited. Accepted.
 - **Offline create with a new entry:** this is today's behaviour. The entry and the game are in one batch, so a rejection rolls both back. Nothing new is built.

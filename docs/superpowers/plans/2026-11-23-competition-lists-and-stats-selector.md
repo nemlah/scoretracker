@@ -166,6 +166,19 @@
     - `list` must be `'tournaments'` or `'phases'`, and the name must pass `listName`, otherwise they throw.
     - Uniqueness is checked by the callers (the forms and the Competitions screen).
   - **`recomputeSeason`** throws `'stale model'` when `typeof model.sumLines !== 'function'`. This joins the existing `competitionOf` check.
+  - **`listGamesFromServer() → games[]`**, for the Competitions screen's Remove check:
+    - It requires being online (as `recomputeSeason` does) and awaits `waitForPendingWrites(db)`.
+    - It then calls `getDocsFromServer` on all games.
+    - It throws when offline or when the read fails.
+  - **`updateGameInfo` keeps destructuring its arguments in the method body:** `updateGameInfo(gameId, info) { const { opponent, date, season, competition, competitionName, tournamentId, phaseId, newEntry } = info; … }`.
+    - Update `instrumentRepo` in `tests/e2e/helpers.js` (its `infoHead` matcher and replacement) to this declaration in this task.
+    - `instrumentRepo` must still record the full `info` in `window.__infoCalls`.
+
+**Ruling (plan review):**
+- **The residual:** a cached old repo or form that retags a game leaves the stale ids behind. For example League p1 → (old form) Cup → (new form) League would bring p1 back if the new form sent no `phaseId`.
+- **Why it is accepted:**
+  - New forms always send an explicit `tournamentId` or `newEntry` for a tournament, and an explicit `phaseId` (an id or `null`) for a league game (Task 4). So the only remaining path is an old form going back to Tournament over a stale `tournamentId`.
+  - That needs a cached old tracker twice in a row, so it is accepted. No Firestore rules change, as the spec says.
 
 - [ ] **Step 1: Write the failing emulator tests:**
   - `createGame` with `newEntry {list:'tournaments', name:'Splash - Volos'}` writes the game with a `tournamentId` equal to the new key in `team/main.tournaments`, whose name is 'Splash - Volos'. Both appear after one `done`.
@@ -177,6 +190,9 @@
   - `{competition:'cup'}` deletes both.
   - `updateGameInfo` with `newEntry` for phases writes the entry and the game's `phaseId` in one batch.
   - `recomputeSeason` writes rows with `players` maps, and its `players` totals exclude a friendly.
+  - **Atomicity:** `updateGameInfo` with a `newEntry` on a missing game id rejects, and the proposed entry is absent from `team/main`.
+  - **Arguments:** every `updateGameInfo` case passes the required `opponent`, `date` and `season`.
+  - `listGamesFromServer` returns a game written just before it (pending-write wait).
 - [ ] **Step 2: Run** `npm test` (unit, still green). The controller runs `npm run test:emu`. Expected: the new tests FAIL.
 - [ ] **Step 3: Implement the interfaces above in `js/repo.js`.**
 - [ ] **Step 4: The controller runs the emulator tests.** Expected: PASS. `npm test`: PASS.
@@ -194,6 +210,7 @@
   - **League with a phase:** `lists.phases?.[phaseId]?.name`, else `t('phaseField')`.
   - **League with no phase:** null.
   - **Cup and friendly:** as today.
+  - **A missing or unknown `competition` counts as league.** League rows carry no `competition` key, so `{ phaseId: 'p1' }` alone tags as the phase.
   - It stays self-contained: no import from `model.js`.
 - [ ] **Step 1: Write the failing tests:**
   - A tagged tournament with the list name 'Splash – Volos 2026' and a snapshot 'old' gives 'Splash – Volos 2026'.
@@ -223,9 +240,19 @@
   | Phase select | `phase-select` | `info-phase` |
   | Tournament new-name input | `tournament-new-name` | `info-tournament-new-name` |
   | Phase new-name input | `phase-new-name` | `info-phase-new-name` |
-  | Error | `competition-error` (existing) | `info-competition-error` (existing) |
+  | Error | `competition-error` (existing) | `info-error` (existing, `games.js:141`) |
 
   Option values: an entry id, `''` for "No phase", and `'__new'` for "Add new…".
+- **Team data:** views read it through `ctx.getState().team` and `update(state)`. When the lists change, the past-games list re-renders its loaded rows' tags without reloading the games.
+- **The info form's change check** (today it compares competition and snapshot name) also compares the ids and `newEntry`. "No phase" normalizes to `phaseId: null`.
+- **Explicit ids:** the info form always sends an explicit `tournamentId` (or `newEntry`) when saving a tournament, and an explicit `phaseId` (an id or `null`) when saving a league game. See the Task 2 ruling.
+- **A selected entry that vanished:**
+  - The form keeps the selected id even when a snapshot removes its option. The select shows the stale option as "(removed)" until changed.
+  - Save validates it, even on an opponent-only Save.
+  - In the new-game flow, if the entry vanishes after Next, Start returns to the Details step and shows `listEntryRemoved` there.
+- **Existing tests:**
+  - `tracker-competition.spec.js` drives the free-text controls today. Migrate those cases to the selects.
+  - Keep one mixed-cache case where the lists gate is off (for example, an instrumented repo without `competitionLists`). That case must still show the free-text field and save `competitionName`.
 
 - [ ] **Step 1: Write the failing e2e tests** (in `tracker-competition.spec.js`; check Firestore writes with the existing helpers):
   - **New game, Tournament + Add new… "Splash - Volos":**
@@ -237,6 +264,8 @@
   - **Legacy game** (a seeded tournament game with `competitionName:'Splash - Volos'` and no id, the entry seeded in `team/main`):
     - The info form preselects that entry.
     - Saving only the opponent writes the `tournamentId` (relink as a hand edit).
+  - After the recount, that game's stats row carries the `tournamentId`.
+- **Phase-only edit:** changing only the phase on a final league game writes `phaseId`, and the recounted row carries it.
   - **Entry removed while the form is open:**
     - After the form opens, remove the selected entry from `team/main` in Firestore.
     - Save shows `listEntryRemoved`, and no game write happens.
@@ -267,8 +296,18 @@
 
 **Interfaces:**
 - **Consumes:** `ctx.repo.addListEntry`, `renameListEntry`, `removeListEntry`, `listGames`; `model.listEntries`, `listName`, `sameListName`, `competitionOf`.
-- **Route:** `#/competitions`. `app.js` loads `./views/competitions.js` with `import()` when the route is entered. If the load fails, it shows a muted "unavailable" line in the view slot instead of throwing.
-- **Home nav row:** `home-competitions`, shown only with the Task 4 gate (`repo.competitionLists`, `model.listEntries`, `strings.hasString('homeCompetitions')`).
+- **Route:** `#/competitions`. `app.js` loads `./views/competitions.js` with `import()` when the route is entered.
+  - If the load fails, or the gate below is false on direct entry, it shows a muted "unavailable" line in the view slot instead of throwing.
+  - The new `app.js` sets `ctx.competitionsRoute = true`.
+- **Home nav row:** `home-competitions`. It shows only when `ctx.competitionsRoute === true` (an old cached `app.js` would bounce the route to Home) and the Task 4 gate holds (`repo.competitionLists`, `model.listEntries`, `strings.hasString('homeCompetitions')`).
+- **Remove buttons:**
+  - Remove buttons do **not** use `data-write`: the global handler at `app.js:587` would re-enable an in-use entry's button.
+  - The view sets `disabled = !writable || inUse` itself in `update(state)`.
+  - Add and Rename controls use `data-write` as usual.
+- **Remove's in-use check:**
+  - It uses `ctx.repo.listGamesFromServer()`, both to compute in-use on mount and to re-check on click.
+  - If the check fails (offline, a read error), Remove stays disabled and a muted line says why.
+- **Cache bump:** also update the hard-coded `v5` references in `tests/unit/sw-fetch.test.js` (lines 9 and 161) and `tests/e2e/offline.spec.js` (line 414).
 - **Test ids:**
   - Sections: `competitions-tournaments`, `competitions-phases`.
   - Rows: `list-entry`, each with a rename input or button and `list-remove`.
@@ -300,8 +339,15 @@
 - **Consumes:** `model.seasonScopes`, `scopeRows`, `sumLines`, `hasLines`, `countedRows`; `strings.competitionTag(source, lists)`; keys `showingLabel`, `scopeSeason`, `scopePhase`, `competitionLeague`, `competitionCup`.
 - **Selector** (testid `scope-select`):
   - **Element:** created once and reused across renders, so focus and the open state survive a snapshot.
-  - **Placement:** above the content of the Players and Team panels, visible on those two tabs only.
-  - **Shown only when all of these hold:** the home mode, results `'ready'`, `model.seasonScopes` exists, at least 2 scopes, `hasLines(results)`, and the team doc loaded.
+  - **Placement:** it lives outside the subtrees that `renderIfChanged` clears (for example, between the tab bar and the panels), and it is visible only while the Players or Team tab is selected.
+  - **Refresh:** a tab change and a select change both trigger the season render.
+  - **Shown only when all of these hold:**
+    - the home mode, with results `'ready'`;
+    - `model.seasonScopes`, `scopeRows`, `sumLines` and `hasLines` all exist;
+    - `strings.hasString?.('showingLabel') === true`;
+    - at least 2 scopes;
+    - `hasLines(results)`;
+    - the team doc is loaded.
   - **Option labels:**
 
     | Scope | Label |
@@ -322,7 +368,8 @@
   - No friendlies note.
   - The `renderIfChanged` signatures include the key and the lists.
 - **Unfiltered:** the W–L record and the Results tab.
-- **Tags:** result rows and the game board use `strings.competitionTag?.(x, { tournaments, phases })` from `state.team.data`.
+- **Tags:** result rows and the game board use `strings.competitionTag?.(x, { tournaments, phases })` from `state.team.data`. The Results and board render signatures include the lists, so a team-only rename updates an open tab.
+- **Season source:** Season keeps using the stored totals. With lines they equal `sumLines(countedRows(results))` by construction (the Task 1 test), and without lines they are the fallback.
 
 - [ ] **Step 1: Write the failing e2e tests:**
   - **Seeds:** a team doc with lists. A stats doc with rows (with lines) for league `p1`, league `p2`, tournament `t1`, cup and a friendly, using `aggregateSeason` from `js/model.js` as `viewer-competition.spec.js` does.
@@ -342,7 +389,8 @@
     - A result row shows the phase tag "Play-offs".
     - A tournament row shows the list name after a rename in `team/main`. The legacy row shows its snapshot name.
   - **360 px:** with 40-character Greek names in the options, no sideways page scroll and the select fits. Light and dark.
-  - **Focus:** the select keeps focus after a stats snapshot arrives.
+  - **Focus:** pick a scope, then re-seed the stats doc so a Players figure visibly changes. Wait for that change, then assert the select still has focus.
+  - **Mixed cache:** with strings lacking `showingLabel`, the selector is hidden. Simulate this by routing `js/strings.js` to the main version or a stub, as existing mixed-cache tests do.
 - [ ] **Step 2: Run the focused e2e.** Expected: FAIL.
 - [ ] **Step 3: Implement** as specified in the Interfaces.
 - [ ] **Step 4: Run the focused e2e, `npm test`, then the viewer specs** (`viewer*.spec.js`). Expected: PASS.
