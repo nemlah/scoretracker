@@ -35,9 +35,11 @@ const statsDoc = results => ({
 });
 
 let problems;
+let viewerProblems;
 let blocked;
 test.beforeEach(async ({ page }) => {
   blocked = { url: null, errors: [] };
+  viewerProblems = [];
   problems = consoleProblems(page, {
     blocked, ignore: isFirestoreChannelLoss, format: formatConsoleProblem,
   });
@@ -46,6 +48,7 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => {
   expect(problems).toEqual([]);
+  expect(viewerProblems).toEqual([]);
 });
 test.afterAll(closeAll);
 
@@ -55,18 +58,25 @@ const noSideScroll = page => page.evaluate(() => ({
   scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
 }));
 
-// The tag is fully visible: every line box of it lies inside the container's box, and the nearest block that
-// holds it does not clip or overflow it (an inline element has no scrollWidth of its own).
+// The tag is fully visible: every line rectangle of its text lies inside the container's rectangle on all four
+// sides, and inside the rectangle of every ancestor up to the container that clips (overflow-x or overflow-y not
+// visible). The nearest block holding it must also not overflow (an inline element has no scrollWidth of its own).
 async function expectTagFits(tag, container) {
   await expect(tag).toBeVisible();
   const fit = await tag.evaluate((el, containerEl) => {
-    const box = containerEl.getBoundingClientRect();
+    const within = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5
+      && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
     const lines = [...el.getClientRects()];
+    const boxes = [containerEl.getBoundingClientRect()];
+    for (let node = el.parentElement; node && node !== containerEl; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.overflowX !== 'visible' || style.overflowY !== 'visible') boxes.push(node.getBoundingClientRect());
+    }
     let block = el;
     while (block && block.clientWidth === 0) block = block.parentElement;
     return {
       lines: lines.length,
-      inside: lines.every(r => r.left >= box.left - 0.5 && r.right <= box.right + 0.5),
+      inside: lines.every(r => boxes.every(box => within(r, box))),
       holderFits: block.scrollWidth <= block.clientWidth,
     };
   }, await container.elementHandle());
@@ -261,7 +271,7 @@ test.describe('tracker to viewer', () => {
 
     // The viewer opens in a second page, so the tracker keeps its channels and nothing is filtered out of its run.
     const viewer = await context.newPage();
-    collectProblems(viewer, problems);
+    collectProblems(viewer, viewerProblems);
     await open(viewer);
     await expect(viewer.getByTestId('result-row')).toHaveCount(2);
     await expect(row(viewer, 'Second FC').getByTestId('result-competition')).toBeVisible();
