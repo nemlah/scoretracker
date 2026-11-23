@@ -342,23 +342,38 @@ test('the home row is absent when repo.js lacks competitionLists or app.js lacks
   dropNetworkNoise(problems); // the second page load aborts the first one's Firestore channels
 });
 
-test('entering the route directly shows a muted unavailable line when the gate is off or the module fails', async ({ page }) => {
-  const repo = readFileSync('js/repo.js', 'utf8');
-  await page.route('**/js/repo.js', route => route.fulfill({
-    contentType: 'text/javascript', body: repo.replace('competitionLists: true,', ''),
-  }));
+// A fresh page per scenario: a second goto to the same hash would only be a same-document navigation.
+async function enterCompetitionsRoute(page) {
   await page.goto(`${TRACKER_URL}#/competitions`);
   await page.getByTestId('code-input').fill(CODE);
   await page.getByTestId('unlock-btn').click();
+}
+
+test('entering the route directly shows a muted unavailable line when the gate is off', async ({ page }) => {
+  const repo = readFileSync('js/repo.js', 'utf8');
+  let served = 0;
+  await page.route('**/js/repo.js', route => {
+    served += 1;
+    return route.fulfill({ contentType: 'text/javascript', body: repo.replace('competitionLists: true,', '') });
+  });
+  await enterCompetitionsRoute(page);
   await expect(page.getByTestId('competitions-unavailable')).toBeVisible({ timeout: SERVER_WAIT });
   await expect(page.getByTestId('competitions-tournaments')).toHaveCount(0);
-  await page.unroute('**/js/repo.js');
+  expect(served).toBeGreaterThan(0);
+});
 
-  await page.route('**/js/tracker/views/competitions.js', route => route.fulfill({
-    contentType: 'text/javascript', body: 'throw new Error("module failed");',
-  }));
-  await page.goto(`${TRACKER_URL}#/competitions`);
+test('entering the route directly shows a muted unavailable line when the module fails to load', async ({ page }) => {
+  let failed = 0;
+  await page.route('**/js/tracker/views/competitions.js', route => {
+    failed += 1;
+    return route.fulfill({ contentType: 'text/javascript', body: 'throw new Error("module failed");' });
+  });
+  await enterCompetitionsRoute(page);
   await expect(page.getByTestId('competitions-unavailable')).toBeVisible({ timeout: SERVER_WAIT });
+  // The import really went through the failing module, not a cached or never-requested one.
+  expect(failed).toBeGreaterThan(0);
+  await expect(page.getByTestId('competitions-tournaments')).toHaveCount(0);
   await page.getByTestId('nav-home').click();
-  await expect(page.getByTestId('home-roster')).toBeVisible();  dropNetworkNoise(problems); // each page load aborts the previous one's Firestore channels
+  await expect(page.getByTestId('home-roster')).toBeVisible();
+  dropNetworkNoise(problems);
 });
