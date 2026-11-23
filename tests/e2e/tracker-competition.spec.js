@@ -221,7 +221,7 @@ test('a duplicate new tournament or phase name is refused and Next stays disable
   expect((await get('team/main')).currentGameId).toBeUndefined();
 });
 
-test('an entry removed after Next sends the form back to the details step with the message', async ({ page }) => {
+test('an entry removed after Next sends Start back to the details step with the message and writes no game', async ({ page }) => {
   await seed('team/main', { roster, tournaments: SPLASH });
   await page.goto(TRACKER_URL);
   await unlockTracker(page);
@@ -232,13 +232,33 @@ test('an entry removed after Next sends the form back to the details step with t
   await expect(page.getByTestId('start-game')).toBeVisible();
 
   await seed('team/main', { roster });
+  // The snapshot reached the form (the hidden select shows the id as removed), and the lineup step is still shown.
+  await expect(tournamentSelect(page).locator('option[value="t1"]')).toContainText('(removed)');
+  await expect(page.getByTestId('start-game')).toBeVisible();
+  await expect(page.getByTestId('start-game')).toBeEnabled();
+  await page.getByTestId('start-game').click();
   await expect(page.getByTestId('opponent-input')).toBeVisible();
   await expect(page.getByTestId('start-game')).toBeHidden();
   await expect(page.getByTestId('competition-error')).toHaveText('That entry was removed. Pick again');
   await expect(tournamentSelect(page)).toHaveValue('t1');
-  await expect(tournamentSelect(page).locator('option[value="t1"]')).toContainText('(removed)');
   await expect(page.getByTestId('newgame-next')).toBeDisabled();
   expect((await get('team/main')).currentGameId).toBeUndefined();
+});
+
+test('pressing Start twice with a new entry writes one game and one entry', async ({ page }) => {
+  await page.goto(TRACKER_URL);
+  await unlockTracker(page);
+  await page.getByTestId('home-new').click();
+  await select(page).selectOption('tournament');
+  await tournamentNew(page).fill('Splash - Volos');
+  await page.getByTestId('newgame-next').click();
+  // Two clicks in one task, before any snapshot arrives.
+  await page.getByTestId('start-game').evaluate(button => { button.click(); button.click(); });
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  const id = await currentGameId();
+  const { tournaments } = await get('team/main');
+  expect(Object.values(tournaments)).toEqual([{ name: 'Splash - Volos' }]);
+  expect((await get(`games/${id}`)).tournamentId).toBe(Object.keys(tournaments)[0]);
 });
 
 test('changing a counted game to friendly recounts the season without it and tags it', async ({ page }) => {
@@ -305,7 +325,9 @@ test('an untouched competition follows the game and is not sent by an opponent-o
   for (const key of ['tournamentId', 'phaseId', 'newEntry']) expect(Object.keys(calls[0].info)).not.toContain(key);
 });
 
-test('a 40-character Greek tournament name fits at 360 px in the list, the meta, the info form and the new-game form', async ({ page }) => {
+for (const scheme of ['light', 'dark']) {
+  test(`a 40-character Greek tournament name fits at 360 px in the list, the meta, the info form and the new-game form (${scheme})`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: scheme });
   await page.setViewportSize({ width: 360, height: 740 });
   await seed('team/main', { roster, tournaments: { t1: { name: LONG_NAME } }, phases: { p1: { name: LONG_NAME } } });
   await seedFinal('g1', { competition: 'tournament', competitionName: LONG_NAME, tournamentId: 't1' });
@@ -342,6 +364,7 @@ test('a 40-character Greek tournament name fits at 360 px in the list, the meta,
   const newWidths = await noSideScroll(page);
   expect(newWidths.scroll).toBeLessThanOrEqual(newWidths.client);
 });
+}
 
 test('saving a competition change releases the form, so a remote re-tag shows and an opponent-only save keeps it', async ({ page }) => {
   await instrumentRepo(page);
@@ -438,6 +461,56 @@ test('a legacy tournament game with no matching entry preselects Add new with it
   const id = (await get('games/g1')).tournamentId;
   expect(await get('games/g1')).toMatchObject({ competition: 'tournament', competitionName: 'Unlisted Cup' });
   expect((await get('team/main')).tournaments).toEqual({ ...SPLASH, [id]: { name: 'Unlisted Cup' } });
+});
+
+test('a legacy game opened before its entry arrives follows the entry when it shows up, and one Save relinks without a new entry', async ({ page }) => {
+  await instrumentRepo(page);
+  await seed('team/main', { roster });
+  await seedFinal('g1', { competition: 'tournament', competitionName: 'Splash - Volos' });
+  await openDetail(page);
+  // No entry yet: Add new is preselected with the name.
+  await expect(page.getByTestId('info-tournament')).toHaveValue(NEW);
+  await expect(page.getByTestId('info-tournament-new-name')).toHaveValue('Splash - Volos');
+
+  await seed('team/main', { roster, tournaments: SPLASH });
+  await expect(page.getByTestId('info-tournament')).toHaveValue('t1');
+  await expect(page.getByTestId('info-tournament-new-name')).toBeHidden();
+  await page.getByTestId('info-opponent').fill('Harbour WPC');
+  await page.getByTestId('info-save').click();
+  await expect(page.getByTestId('info-error')).toBeHidden();
+  await expect.poll(async () => (await get('games/g1')).tournamentId).toBe('t1');
+  expect((await get('games/g1')).opponent).toBe('Harbour WPC');
+  expect((await get('team/main')).tournaments).toEqual(SPLASH);
+  const calls = await page.evaluate(() => window.__infoCalls);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].info.newEntry).toBeUndefined();
+});
+
+test('a hand edit stops the legacy preselect from following the lists', async ({ page }) => {
+  await seed('team/main', { roster });
+  await seedFinal('g1', { competition: 'tournament', competitionName: 'Splash - Volos' });
+  await openDetail(page);
+  await expect(page.getByTestId('info-tournament')).toHaveValue(NEW);
+  await page.getByTestId('info-tournament-new-name').fill('Splash - Patras');
+  await seed('team/main', { roster, tournaments: SPLASH });
+  await expect(page.getByTestId('info-tournament').locator('option[value="t1"]')).toHaveCount(1);
+  await expect(page.getByTestId('info-tournament')).toHaveValue(NEW);
+  await expect(page.getByTestId('info-tournament-new-name')).toHaveValue('Splash - Patras');
+});
+
+test('submitting the info form twice with a new entry writes one entry', async ({ page }) => {
+  await instrumentRepo(page);
+  await seedFinal('g1');
+  await openDetail(page);
+  await page.getByTestId('info-competition').selectOption('tournament');
+  await page.getByTestId('info-tournament-new-name').fill('Splash - Volos');
+  // Two submits in one task, before any snapshot or acknowledgement arrives.
+  await page.locator('form.info-form').evaluate(form => { form.requestSubmit(); form.requestSubmit(); });
+  await expect.poll(async () => (await get('games/g1')).tournamentId).toBeTruthy();
+  const { tournaments } = await get('team/main');
+  expect(Object.values(tournaments)).toEqual([{ name: 'Splash - Volos' }]);
+  expect((await get('games/g1')).tournamentId).toBe(Object.keys(tournaments)[0]);
+  expect(await page.evaluate(() => window.__infoCalls)).toHaveLength(1);
 });
 
 test('a phase-only edit writes the phaseId and the recount carries it; No phase clears it', async ({ page }) => {

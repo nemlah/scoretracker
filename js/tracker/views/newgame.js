@@ -7,7 +7,6 @@ import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
 const MAX_OPPONENT = 40;
-const NEW = '__new'; // option value of "Add new…"
 const REASONS = { missingCap: 'selMissingCap', badCap: 'selBadCap', duplicateCap: 'selDuplicateCap' };
 
 export function mount(root, ctx) {
@@ -49,9 +48,10 @@ export function mount(root, ctx) {
   }, ...model.COMPETITIONS.map(value => h('option', { value }, strings.competitionLabel(value)))) : null;
   // The tournament and phase lists need this release's repo, model and strings together; otherwise the free-text form stays.
   const listsOn = competitionsOn && ctx.repo?.competitionLists === true && typeof model.listEntries === 'function'
+    && typeof model.listOptions === 'function' && typeof model.listChoice === 'function' && model.LIST_NEW !== undefined
     && strings.hasString?.('phaseField') === true;
-  let tournamentChoice = NEW; // an entry id or NEW; kept even when a snapshot removes the entry
-  let phaseChoice = ''; // '', an entry id or NEW
+  let tournamentChoice = model.LIST_NEW; // an entry id or model.LIST_NEW; kept even when a snapshot removes the entry
+  let phaseChoice = ''; // '', an entry id or model.LIST_NEW
   const names = new Map(); // entry id -> last name seen, for the "(removed)" option
   const tournamentSelect = listsOn ? h('select', {
     id: 'game-tournament', class: 'input', 'data-testid': 'tournament-select', 'aria-describedby': 'game-competition-error',
@@ -150,13 +150,12 @@ export function mount(root, ctx) {
   // Rebuilds a select's options when they changed. A chosen id that is no longer in the list stays, marked "(removed)".
   function fillSelect(select, entries, choice, withNone) {
     for (const entry of entries) names.set(entry.id, entry.name);
-    const options = [];
-    if (withNone) options.push({ value: '', text: t('noPhase') });
-    for (const entry of entries) options.push({ value: entry.id, text: entry.name });
-    if (choice !== '' && choice !== NEW && !entries.some(entry => entry.id === choice)) {
-      options.push({ value: choice, text: `${names.get(choice) ?? ''} ${t('listOptionRemoved')}`.trim() });
-    }
-    options.push({ value: NEW, text: t('addNewEntry') });
+    const labels = { none: () => t('noPhase'), new: () => t('addNewEntry') };
+    const options = model.listOptions(entries, choice, { withNone }).map(option => ({
+      value: option.value,
+      text: option.kind === 'entry' ? option.name
+        : option.kind === 'removed' ? `${names.get(option.value) ?? ''} ${t('listOptionRemoved')}`.trim() : labels[option.kind](),
+    }));
     const key = JSON.stringify(options);
     if (select.dataset.options !== key) {
       select.dataset.options = key;
@@ -166,32 +165,13 @@ export function mount(root, ctx) {
   }
 
   // What the list fields say: { error, payload }. The payload is what createGame takes.
-  function listsState(entries) {
-    const competition = competitionSelect.value;
-    const pick = (list, choice, typed, found) => {
-      if (choice === NEW) {
-        const name = model.listName(typed);
-        if (name === null) return { error: 'listNameRequired' };
-        if (list.some(entry => model.sameListName(entry.name, name))) return { error: 'listNameDuplicate' };
-        return { name, newEntry: { list: found, name } };
-      }
-      const entry = list.find(candidate => candidate.id === choice);
-      return entry ? { name: entry.name, id: entry.id } : { error: 'listEntryRemoved' };
-    };
-    if (competition === 'tournament') {
-      const picked = pick(entries.tournaments, tournamentChoice, tournamentNew.value, 'tournaments');
-      if (picked.error) return { error: picked.error };
-      const ids = picked.id ? { tournamentId: picked.id } : {};
-      return { error: null, payload: { ...model.competitionFields('tournament', picked.name, ids), ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
-    }
-    if (competition === 'league' && phaseChoice !== '') {
-      const picked = pick(entries.phases, phaseChoice, phaseNew.value, 'phases');
-      if (picked.error) return { error: picked.error };
-      const ids = picked.id ? { phaseId: picked.id } : {};
-      return { error: null, payload: { ...model.competitionFields('league', '', ids), ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
-    }
-    const fields = model.competitionFields(competition, '');
-    return { error: fields === null ? 'listNameRequired' : null, payload: fields };
+  function listsState() {
+    const team = ctx.getState().team;
+    return model.listChoice({
+      competition: competitionSelect.value,
+      tournamentChoice, tournamentNew: tournamentNew.value, phaseChoice, phaseNew: phaseNew.value,
+      lists: { tournaments: team?.tournaments, phases: team?.phases },
+    });
   }
 
   // Shows the fields the competition needs and the error while they are not valid; true when valid.
@@ -203,10 +183,10 @@ export function mount(root, ctx) {
       fillSelect(tournamentSelect, entries.tournaments, tournamentChoice, false);
       fillSelect(phaseSelect, entries.phases, phaseChoice, true);
       tournamentField.hidden = competition !== 'tournament';
-      tournamentNewField.hidden = competition !== 'tournament' || tournamentChoice !== NEW;
+      tournamentNewField.hidden = competition !== 'tournament' || tournamentChoice !== model.LIST_NEW;
       phaseField.hidden = competition !== 'league';
-      phaseNewField.hidden = competition !== 'league' || phaseChoice !== NEW;
-      const { error } = listsState(entries);
+      phaseNewField.hidden = competition !== 'league' || phaseChoice !== model.LIST_NEW;
+      const { error } = listsState();
       competitionError.hidden = error === null;
       competitionError.textContent = error === null ? '' : t(error);
       return error === null;
@@ -225,7 +205,7 @@ export function mount(root, ctx) {
 
   // The fields createGame takes; nothing when this device does not offer them.
   function competitionPayload() {
-    if (listsOn) return listsState(currentEntries()).payload;
+    if (listsOn) return listsState().payload;
     return competitionsOn ? model.competitionFields(competitionSelect.value, competitionName.value) : {};
   }
 
@@ -290,7 +270,8 @@ export function mount(root, ctx) {
     seasonError.hidden = seasonOk;
     const competitionOk = renderCompetition();
     next.disabled = !seasonOk || !competitionOk;
-    start.disabled = starting || errors.length > 0 || !seasonOk || !competitionOk || !writable;
+    // With the lists, Start re-checks the competition itself and returns to the details step when it no longer holds.
+    start.disabled = starting || errors.length > 0 || !seasonOk || (!competitionOk && !listsOn) || !writable;
   }
 
   function init(state) {
@@ -300,7 +281,7 @@ export function mount(root, ctx) {
       competitionSelect.value = competition;
       if (listsOn) {
         const entries = currentEntries();
-        tournamentChoice = entries.tournaments[0]?.id ?? NEW;
+        tournamentChoice = entries.tournaments[0]?.id ?? model.LIST_NEW;
         if (competition === 'tournament') {
           const byName = name === undefined ? undefined : entries.tournaments.find(entry => model.sameListName(entry.name, name));
           if (tournamentId !== undefined) {
@@ -309,7 +290,7 @@ export function mount(root, ctx) {
             tournamentChoice = byName.id;
           } else if (name !== undefined) {
             // A legacy game whose name is not in the list: offer it as a new entry.
-            tournamentChoice = NEW;
+            tournamentChoice = model.LIST_NEW;
             tournamentNew.value = name;
           }
         }
@@ -368,11 +349,7 @@ export function mount(root, ctx) {
     blocked.hidden = !(ready && isLive);
     renderStep(state);
     if (ready && !isLive && selection === null) init(state);
-    if (selection !== null) {
-      renderRows();
-      // An entry removed while the lineup is open: back to the details step, where the message shows.
-      if (choosingLineup && !renderCompetition()) showDetails();
-    }
+    if (selection !== null) renderRows();
     // Go to the live screen once the new game is the team's current game.
     if (startedId !== null && state.team?.currentGameId === startedId) {
       const id = startedId;

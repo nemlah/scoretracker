@@ -10,8 +10,6 @@ import { h } from '../../ui/dom.js';
 import { recountAfter } from '../recount.js';
 import { createEventsPanel } from './events.js';
 
-const NEW = '__new'; // option value of "Add new…"
-
 function parseRoute(route) {
   const [, , id] = route.split('/');
   if (id === undefined || id === '') return null;
@@ -57,6 +55,8 @@ export function mount(root, ctx) {
   let infoFor = null; // id of the game the details form was last filled from
   let seasonTouched = false;
   let competitionTouched = false; // set once either competition field has been edited by hand
+  let entryInFlight = null; // id of the game whose save that adds a list entry is not yet answered
+  let autoRelink = false; // the competition fields hold the automatic legacy prefill, which follows the lists until a hand edit
   let competitionEdits = 0; // counts hand edits, so an acknowledged save can tell whether a newer edit started
 
   // The team document's lists, which name the tournaments and phases the games point at.
@@ -152,9 +152,10 @@ export function mount(root, ctx) {
   }, ...model.COMPETITIONS.map(value => h('option', { value }, strings.competitionLabel(value)))) : null;
   // The tournament and phase lists need this release's repo, model and strings together; otherwise the free-text form stays.
   const listsOn = competitionsOn && ctx.repo?.competitionLists === true && typeof model.listEntries === 'function'
+    && typeof model.listOptions === 'function' && typeof model.listChoice === 'function' && model.LIST_NEW !== undefined
     && strings.hasString?.('phaseField') === true;
-  let tournamentChoice = NEW; // an entry id or NEW; kept even when a snapshot removes the entry
-  let phaseChoice = ''; // '', an entry id or NEW
+  let tournamentChoice = model.LIST_NEW; // an entry id or model.LIST_NEW; kept even when a snapshot removes the entry
+  let phaseChoice = ''; // '', an entry id or model.LIST_NEW
   const names = new Map(); // entry id -> last name seen, for the "(removed)" option
   const infoTournament = listsOn ? h('select', {
     id: 'info-tournament', class: 'input', 'data-testid': 'info-tournament',
@@ -215,13 +216,12 @@ export function mount(root, ctx) {
   // Rebuilds a select's options when they changed. A chosen id that is no longer in the list stays, marked "(removed)".
   function fillSelect(select, entries, choice, withNone) {
     for (const entry of entries) names.set(entry.id, entry.name);
-    const options = [];
-    if (withNone) options.push({ value: '', text: t('noPhase') });
-    for (const entry of entries) options.push({ value: entry.id, text: entry.name });
-    if (choice !== '' && choice !== NEW && !entries.some(entry => entry.id === choice)) {
-      options.push({ value: choice, text: `${names.get(choice) ?? ''} ${t('listOptionRemoved')}`.trim() });
-    }
-    options.push({ value: NEW, text: t('addNewEntry') });
+    const labels = { none: () => t('noPhase'), new: () => t('addNewEntry') };
+    const options = model.listOptions(entries, choice, { withNone }).map(option => ({
+      value: option.value,
+      text: option.kind === 'entry' ? option.name
+        : option.kind === 'removed' ? `${names.get(option.value) ?? ''} ${t('listOptionRemoved')}`.trim() : labels[option.kind](),
+    }));
     const key = JSON.stringify(options);
     if (select.dataset.options !== key) {
       select.dataset.options = key;
@@ -237,39 +237,19 @@ export function mount(root, ctx) {
     fillSelect(infoTournament, entries.tournaments, tournamentChoice, false);
     fillSelect(infoPhase, entries.phases, phaseChoice, true);
     infoTournamentField.hidden = competition !== 'tournament';
-    infoTournamentNewField.hidden = competition !== 'tournament' || tournamentChoice !== NEW;
+    infoTournamentNewField.hidden = competition !== 'tournament' || tournamentChoice !== model.LIST_NEW;
     infoPhaseField.hidden = competition !== 'league';
-    infoPhaseNewField.hidden = competition !== 'league' || phaseChoice !== NEW;
+    infoPhaseNewField.hidden = competition !== 'league' || phaseChoice !== model.LIST_NEW;
   }
 
-  // What the list fields say: { error, payload }. The payload is what updateGameInfo takes; ids are always explicit.
+  // What the list fields say: { error, payload }. The payload is what updateGameInfo takes; "No phase" is an explicit null.
   function listsState() {
-    const entries = currentEntries();
-    const competition = infoCompetition.value;
-    const pick = (list, choice, typed, found) => {
-      if (choice === NEW) {
-        const name = model.listName(typed);
-        if (name === null) return { error: 'listNameRequired' };
-        if (list.some(entry => model.sameListName(entry.name, name))) return { error: 'listNameDuplicate' };
-        return { name, newEntry: { list: found, name } };
-      }
-      const entry = list.find(candidate => candidate.id === choice);
-      return entry ? { name: entry.name, id: entry.id } : { error: 'listEntryRemoved' };
-    };
-    if (competition === 'tournament') {
-      const picked = pick(entries.tournaments, tournamentChoice, infoTournamentNew.value, 'tournaments');
-      if (picked.error) return { error: picked.error };
-      const fields = model.competitionFields('tournament', picked.name, picked.id ? { tournamentId: picked.id } : {});
-      return { error: null, payload: { ...fields, ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
-    }
-    if (competition === 'league') {
-      if (phaseChoice === '') return { error: null, payload: { ...model.competitionFields('league', ''), phaseId: null } };
-      const picked = pick(entries.phases, phaseChoice, infoPhaseNew.value, 'phases');
-      if (picked.error) return { error: picked.error };
-      const fields = model.competitionFields('league', '', picked.id ? { phaseId: picked.id } : {});
-      return { error: null, payload: { ...fields, ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
-    }
-    return { error: null, payload: model.competitionFields(competition, '') };
+    const team = ctx.getState().team;
+    return model.listChoice({
+      competition: infoCompetition.value,
+      tournamentChoice, tournamentNew: infoTournamentNew.value, phaseChoice, phaseNew: infoPhaseNew.value,
+      lists: { tournaments: team?.tournaments, phases: team?.phases }, nullPhase: true,
+    });
   }
 
   // Follows the stored game. Returns true when it preselected a link the game does not have yet.
@@ -283,7 +263,7 @@ export function mount(root, ctx) {
     }
     const entries = currentEntries();
     let relink = false;
-    tournamentChoice = entries.tournaments[0]?.id ?? NEW;
+    tournamentChoice = entries.tournaments[0]?.id ?? model.LIST_NEW;
     infoTournamentNew.value = '';
     phaseChoice = fields.phaseId ?? '';
     infoPhaseNew.value = '';
@@ -293,7 +273,7 @@ export function mount(root, ctx) {
     } else if (fields.competitionName !== undefined) {
       // A legacy game: its name picks the same-named entry, else "Add new…" with the name filled in.
       const match = entries.tournaments.find(entry => model.sameListName(entry.name, fields.competitionName));
-      tournamentChoice = match ? match.id : NEW;
+      tournamentChoice = match ? match.id : model.LIST_NEW;
       if (!match) infoTournamentNew.value = fields.competitionName;
       relink = true;
     }
@@ -303,6 +283,7 @@ export function mount(root, ctx) {
 
   function onCompetitionInput() {
     competitionTouched = true;
+    autoRelink = false;
     competitionEdits += 1;
     if (listsOn) renderListFields();
     else infoCompetitionNameField.hidden = infoCompetition.value !== 'tournament';
@@ -350,15 +331,18 @@ export function mount(root, ctx) {
       infoFor = game.id;
       seasonTouched = false;
       competitionTouched = false;
+      autoRelink = false;
       infoOpponent.value = game.opponent;
       infoDate.value = game.date;
       infoSeason.value = game.season;
       infoError.hidden = true;
     }
     // Until a competition field is edited, the form follows the stored game.
-    if (competitionsOn && !competitionTouched) {
-      // A legacy tournament link is preselected as a hand edit, so any Save writes it.
-      if (showCompetition(game)) competitionTouched = true;
+    if (competitionsOn && (!competitionTouched || autoRelink)) {
+      // A legacy tournament link is preselected as a pending edit, so any Save writes it. It is resolved
+      // again as the lists change (the team snapshot can arrive after the game) until a hand edit.
+      autoRelink = showCompetition(game);
+      competitionTouched = autoRelink;
     } else if (listsOn) {
       renderListFields();
     }
@@ -393,6 +377,7 @@ export function mount(root, ctx) {
   function releaseCompetition(id, edits) {
     if (unmounted || mode !== id || infoFor !== id || competitionEdits !== edits) return;
     competitionTouched = false;
+    autoRelink = false;
     renderDetail(ctx.getState());
   }
 
@@ -424,13 +409,19 @@ export function mount(root, ctx) {
       if (competitionTouched) releaseCompetition(game.id, competitionEdits);
       return;
     }
+    // A second submit before the first one is answered would send the same new entry again, under another id.
+    const newEntry = competitionChanged && edited.newEntry !== undefined;
+    if (newEntry && entryInFlight === game.id) return;
     const sentEdits = competitionEdits;
+    if (newEntry) entryInFlight = game.id;
     try {
       // Both the old and the new season change when a game moves between them; the same season
       // still lists the game's opponent and date in its results.
       recountAfter(ctx, [game.season, season], ctx.repo.updateGameInfo(game.id, { opponent, date, season, ...(competitionChanged ? edited : {}) }))
-        .then(() => { if (competitionTouched) releaseCompetition(game.id, sentEdits); }, ctx.onWriteError);
+        .then(() => { if (entryInFlight === game.id) entryInFlight = null; if (competitionTouched) releaseCompetition(game.id, sentEdits); },
+          err => { if (entryInFlight === game.id) entryInFlight = null; ctx.onWriteError(err); });
     } catch (err) {
+      if (entryInFlight === game.id) entryInFlight = null;
       ctx.onWriteError(err);
     }
   }

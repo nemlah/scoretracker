@@ -110,6 +110,67 @@ export function competitionFields(competition, name, ids = {}) {
   return fields;
 }
 
+/** The "Add new…" choice of a tournament or phase select. */
+export const LIST_NEW = '__new';
+
+/**
+ * The options of a tournament or phase select: the entries (already sorted), then the chosen id when it is no
+ * longer in the list (kind 'removed', so the form can show it until changed), then "Add new…". `withNone` puts
+ * the empty "No phase" choice first.
+ * @param {{ id: string, name: string }[]} entries
+ * @param {string} choice an entry id, '' or LIST_NEW
+ * @param {{ withNone?: boolean }} [options]
+ * @returns {{ value: string, kind: 'none'|'entry'|'removed'|'new', name?: string }[]}
+ */
+export function listOptions(entries, choice, { withNone = false } = {}) {
+  const options = [];
+  if (withNone) options.push({ value: '', kind: 'none' });
+  for (const entry of entries) options.push({ value: entry.id, kind: 'entry', name: entry.name });
+  if (choice !== '' && choice !== LIST_NEW && !entries.some(entry => entry.id === choice)) {
+    options.push({ value: choice, kind: 'removed' });
+  }
+  options.push({ value: LIST_NEW, kind: 'new' });
+  return options;
+}
+
+/**
+ * What a game form's tournament and phase fields say, resolved against the team's lists. `error` is a strings key
+ * (listNameRequired, listNameDuplicate, listEntryRemoved) or null; `payload` is the competition fields plus the
+ * entry's id or a `newEntry`. With `nullPhase`, a league game with "No phase" sends phaseId: null (the info form, to
+ * clear a stored phase); the new-game form omits it.
+ * @param {{ competition: string, tournamentChoice?: string, tournamentNew?: string, phaseChoice?: string, phaseNew?: string,
+ *   lists?: { tournaments?: object, phases?: object }, nullPhase?: boolean }} form
+ */
+export function listChoice({
+  competition, tournamentChoice = LIST_NEW, tournamentNew = '', phaseChoice = '', phaseNew = '', lists = {}, nullPhase = false,
+}) {
+  const pick = (map, choice, typed, list) => {
+    const entries = listEntries(map);
+    if (choice === LIST_NEW) {
+      const name = listName(typed);
+      if (name === null) return { error: 'listNameRequired' };
+      if (entries.some(entry => sameListName(entry.name, name))) return { error: 'listNameDuplicate' };
+      return { name, newEntry: { list, name } };
+    }
+    const entry = entries.find(candidate => candidate.id === choice);
+    return entry ? { name: entry.name, id: entry.id } : { error: 'listEntryRemoved' };
+  };
+  const withEntry = (fields, picked) => ({ ...fields, ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) });
+  if (competition === 'tournament') {
+    const picked = pick(lists.tournaments, tournamentChoice, tournamentNew, 'tournaments');
+    if (picked.error) return { error: picked.error };
+    return { error: null, payload: withEntry(competitionFields('tournament', picked.name, picked.id ? { tournamentId: picked.id } : {}), picked) };
+  }
+  if (competition === 'league' && phaseChoice !== '') {
+    const picked = pick(lists.phases, phaseChoice, phaseNew, 'phases');
+    if (picked.error) return { error: picked.error };
+    return { error: null, payload: withEntry(competitionFields('league', '', picked.id ? { phaseId: picked.id } : {}), picked) };
+  }
+  const fields = competitionFields(competition, '');
+  if (fields === null) return { error: 'listNameRequired' };
+  return { error: null, payload: competition === 'league' && nullPhase ? { ...fields, phaseId: null } : fields };
+}
+
 export function nextPeriod(p) {
   const index = PERIODS.indexOf(p);
   return index >= 0 && index < PERIODS.length - 1 ? PERIODS[index + 1] : null;
