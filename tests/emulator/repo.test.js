@@ -548,8 +548,15 @@ test('listGamesFromServer waits for this client’s pending game creation', asyn
   const { db, repo } = await activeClient();
   await disableNetwork(db);
   const { id, done } = repo.createGame(gameInput);
+  // The server read starts while the write is still queued and the client is offline: it has to wait for the
+  // write; a read that did not wait would fail offline, or answer without the game.
+  let settled = false;
+  const listing = repo.listGamesFromServer();
+  listing.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise(resolve => setTimeout(resolve, 100)); // nothing can settle it while the write is queued
+  assert.equal(settled, false);
   await enableNetwork(db);
-  const games = await repo.listGamesFromServer();
+  const games = await listing;
   await done;
   assert.deepEqual(games.map(game => game.id), [id]);
 });
