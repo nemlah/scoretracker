@@ -2,6 +2,8 @@ import { team } from '../../config.js';
 import {
   deriveScore, formatDate, gameResult, hasShootout, isValidSeason, resultOutcome, seasonFor,
 } from '../../model.js';
+import * as model from '../../model.js';
+import * as strings from '../../strings.js';
 import { scoreText, t } from '../../strings.js';
 import { createConfirmButton } from '../../ui/confirm.js';
 import { h } from '../../ui/dom.js';
@@ -24,6 +26,8 @@ function gameRow(game) {
   const outcome = resultOutcome(result);
   const score = result ?? deriveScore(events);
   const penalty = hasShootout(game.period, events) ? ` · ${t('resultPen', { us: score.soUs, them: score.soThem })}` : '';
+  // strings.js may be the previous release's: no tag then.
+  const tag = strings.competitionTag?.(game) ?? null;
   const chip = game.status === 'live'
     ? h('span', { class: 'game-chip game-live', 'data-testid': 'game-chip' }, t('gameLiveBadge').toUpperCase())
     : outcome && h('span', {
@@ -35,7 +39,7 @@ function gameRow(game) {
     'aria-label': t('gameOpenFor', { opponent: game.opponent }),
   }, chip, h('span', { class: 'game-row-label' },
     h('span', { class: 'game-opponent' }, game.opponent),
-    h('span', { class: 'game-date' }, formatDate(game.date) + penalty)),
+    h('span', { class: 'game-date' }, formatDate(game.date) + (tag ? ` · ${tag}` : '') + penalty)),
   h('span', { class: 'game-score' }, scoreText(score, false).main),
   h('span', { class: 'tracker-chevron', 'aria-hidden': 'true' })));
 }
@@ -50,6 +54,7 @@ export function mount(root, ctx) {
   let reopening = null; // id of a game we asked to reopen and are waiting to see live
   let infoFor = null; // id of the game the details form was last filled from
   let seasonTouched = false;
+  let competitionTouched = false; // set once either competition field has been edited by hand
 
   // ---- list ----
   const listStatus = h('p', { class: 'status-line', role: 'status' }, t('gamesLoading'));
@@ -119,6 +124,19 @@ export function mount(root, ctx) {
   infoDate.addEventListener('input', () => {
     if (!seasonTouched && infoDate.value) infoSeason.value = seasonFor(infoDate.value);
   });
+  // The competition fields exist only when repo, model and strings are all from this release.
+  const competitionsOn = ctx.repo?.competitions === true && typeof model.competitionFields === 'function'
+    && strings.hasString?.('competitionField') === true;
+  const infoCompetition = competitionsOn ? h('select', {
+    id: 'info-competition', class: 'input', 'data-testid': 'info-competition', onchange: onCompetitionInput,
+  }, ...model.COMPETITIONS.map(value => h('option', { value }, strings.competitionLabel(value)))) : null;
+  const infoCompetitionName = competitionsOn ? h('input', {
+    id: 'info-competition-name', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
+    'data-testid': 'info-competition-name', oninput: onCompetitionInput,
+  }) : null;
+  const infoCompetitionNameField = competitionsOn ? h('div', {
+    class: 'field', 'data-testid': 'info-competition-name-field', hidden: true,
+  }, h('label', { for: 'info-competition-name' }, t('competitionNameLabel')), infoCompetitionName) : null;
   const infoError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'info-error', hidden: true });
   const infoSave = h('button', { type: 'submit', class: 'btn', 'data-testid': 'info-save' }, t('infoSave'));
   const infoForm = h('form', { class: 'info-form stack', novalidate: true, onsubmit: onSaveInfo },
@@ -126,6 +144,8 @@ export function mount(root, ctx) {
     h('div', { class: 'field' }, h('label', { for: 'info-opponent' }, t('opponentLabel')), infoOpponent),
     h('div', { class: 'field' }, h('label', { for: 'info-date' }, t('dateLabel')), infoDate),
     h('div', { class: 'field' }, h('label', { for: 'info-season' }, t('seasonLabel')), infoSeason),
+    competitionsOn ? h('div', { class: 'field' }, h('label', { for: 'info-competition' }, t('competitionField')), infoCompetition) : null,
+    infoCompetitionNameField,
     infoError, infoSave);
   const panel = createEventsPanel(ctx, root, { onEnded: () => ctx.navigate('/') });
   const detailBody = h('div', { class: 'stack detail-body', hidden: true },
@@ -136,6 +156,17 @@ export function mount(root, ctx) {
   const detailView = h('section', { class: 'game-detail game-detail--board' }, back, detailStatus, detailBody);
 
   root.append(listView, detailView);
+
+  function showCompetition(fields) {
+    infoCompetition.value = fields.competition;
+    infoCompetitionName.value = fields.competitionName ?? '';
+    infoCompetitionNameField.hidden = fields.competition !== 'tournament';
+  }
+
+  function onCompetitionInput() {
+    competitionTouched = true;
+    infoCompetitionNameField.hidden = infoCompetition.value !== 'tournament';
+  }
 
   function startDetail(id) {
     unwatch?.();
@@ -171,19 +202,26 @@ export function mount(root, ctx) {
     title.textContent = game.opponent;
     const dateText = formatDate(game.date);
     date.textContent = dateText;
-    meta.textContent = `${dateText} · ${game.season}`;
+    const tag = strings.competitionTag?.(game)
+      ?? (strings.hasString?.('competitionLeague') ? t('competitionLeague') : null);
+    meta.textContent = `${dateText} · ${game.season}${tag ? ` · ${tag}` : ''}`;
     // Filled once per game; later snapshots must not overwrite what is being typed.
     if (infoFor !== game.id) {
       infoFor = game.id;
       seasonTouched = false;
+      competitionTouched = false;
       infoOpponent.value = game.opponent;
       infoDate.value = game.date;
       infoSeason.value = game.season;
       infoError.hidden = true;
     }
+    // Until a competition field is edited, the form follows the stored game.
+    if (competitionsOn && !competitionTouched) showCompetition(model.competitionOf(game));
     // state.writable is newer than state.active: a cached app.js from the previous release lacks it.
     const writable = state.writable ?? state.active;
-    for (const field of [infoOpponent, infoDate, infoSeason, infoSave]) field.disabled = !writable;
+    for (const field of [infoOpponent, infoDate, infoSeason, infoCompetition, infoCompetitionName, infoSave]) {
+      if (field) field.disabled = !writable;
+    }
     const events = game.events ?? [];
     const figures = deriveScore(events);
     ours.textContent = figures.us;
@@ -211,16 +249,22 @@ export function mount(root, ctx) {
     const opponent = infoOpponent.value.trim();
     const date = infoDate.value;
     const season = infoSeason.value.trim();
+    const stored = competitionsOn ? model.competitionOf(game) : null;
+    const edited = competitionsOn && competitionTouched
+      ? model.competitionFields(infoCompetition.value, infoCompetitionName.value) : undefined;
     const problem = opponent === '' ? t('opponentRequired') : date === '' ? t('dateRequired')
-      : !isValidSeason(season) ? t('seasonInvalid') : null;
+      : !isValidSeason(season) ? t('seasonInvalid') : edited === null ? t('competitionNameRequired') : null;
     infoError.hidden = problem === null;
     infoError.textContent = problem ?? '';
     if (problem !== null) return;
-    if (opponent === game.opponent && date === game.date && season === game.season) return;
+    // Only an edited competition that differs from the stored one is sent.
+    const competitionChanged = edited !== undefined && edited !== null
+      && (edited.competition !== stored.competition || edited.competitionName !== stored.competitionName);
+    if (opponent === game.opponent && date === game.date && season === game.season && !competitionChanged) return;
     try {
       // Both the old and the new season change when a game moves between them; the same season
       // still lists the game's opponent and date in its results.
-      recountAfter(ctx, [game.season, season], ctx.repo.updateGameInfo(game.id, { opponent, date, season }))
+      recountAfter(ctx, [game.season, season], ctx.repo.updateGameInfo(game.id, { opponent, date, season, ...(competitionChanged ? edited : {}) }))
         .catch(ctx.onWriteError);
     } catch (err) {
       ctx.onWriteError(err);

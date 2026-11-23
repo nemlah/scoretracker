@@ -1,6 +1,8 @@
 import {
   assignCap, defaultSelection, isValidSeason, lineupFrom, seasonFor, todayIso, toggleSelected, validateLineup,
 } from '../../model.js';
+import * as model from '../../model.js';
+import * as strings from '../../strings.js';
 import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
@@ -38,6 +40,22 @@ export function mount(root, ctx) {
   });
   const seasonError = h('p', { id: 'game-season-error', class: 'form-error', role: 'alert', 'data-testid': 'season-error', hidden: true },
     t('seasonInvalid'));
+  // The competition fields exist only when repo, model and strings are all from this release.
+  const competitionsOn = ctx.repo?.competitions === true && typeof model.competitionFields === 'function'
+    && strings.hasString?.('competitionField') === true;
+  const competitionSelect = competitionsOn ? h('select', {
+    id: 'game-competition', class: 'input', 'data-testid': 'competition-select', onchange: onCompetitionChange,
+  }, ...model.COMPETITIONS.map(value => h('option', { value }, strings.competitionLabel(value)))) : null;
+  const competitionName = competitionsOn ? h('input', {
+    id: 'game-competition-name', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
+    'aria-describedby': 'game-competition-error', 'data-testid': 'competition-name-input', oninput: onCompetitionChange,
+  }) : null;
+  const competitionError = competitionsOn ? h('p', {
+    id: 'game-competition-error', class: 'form-error', role: 'alert', 'data-testid': 'competition-error', hidden: true,
+  }, t('competitionNameRequired')) : null;
+  const competitionNameField = competitionsOn ? h('div', {
+    class: 'field', 'data-testid': 'competition-name-field', hidden: true,
+  }, h('label', { for: 'game-competition-name' }, t('competitionNameLabel')), competitionName, competitionError) : null;
   const list = h('ul', { class: 'sel-list', 'data-testid': 'sel-list' });
   const lineupError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'lineup-error', hidden: true });
   const empty = h('div', { class: 'stack', hidden: true },
@@ -59,6 +77,8 @@ export function mount(root, ctx) {
       h('div', { class: 'field' }, h('label', { for: 'opponent' }, t('opponentLabel')), opponent),
       h('div', { class: 'field' }, h('label', { for: 'game-date' }, t('dateLabel')), date),
       h('div', { class: 'field' }, h('label', { for: 'game-season' }, t('seasonLabel')), season, seasonError),
+      competitionsOn ? h('div', { class: 'field' }, h('label', { for: 'game-competition' }, t('competitionField')), competitionSelect) : null,
+      competitionNameField,
       next));
   const lineupStep = h('section', { class: 'new-form', hidden: true },
     lineupHeading, back, empty, list, lineupError, start);
@@ -76,7 +96,7 @@ export function mount(root, ctx) {
 
   function showLineup(event) {
     event.preventDefault();
-    if (detailsStep.hidden || !isValidSeason(season.value.trim())) return;
+    if (detailsStep.hidden || !isValidSeason(season.value.trim()) || !renderCompetition()) return;
     choosingLineup = true;
     renderStep(ctx.getState());
     lineupHeading.focus();
@@ -86,6 +106,26 @@ export function mount(root, ctx) {
     choosingLineup = false;
     renderStep(ctx.getState());
     next.focus();
+  }
+
+  // Shows the name field for a tournament and its error while the name is missing; true when valid.
+  function renderCompetition() {
+    if (!competitionsOn) return true;
+    const tournament = competitionSelect.value === 'tournament';
+    const valid = model.competitionFields(competitionSelect.value, competitionName.value) !== null;
+    competitionNameField.hidden = !tournament;
+    competitionError.hidden = valid;
+    return valid;
+  }
+
+  function onCompetitionChange() {
+    renderCompetition();
+    if (selection !== null) renderRows();
+  }
+
+  // The fields createGame takes; nothing when this device does not offer them.
+  function competitionPayload() {
+    return competitionsOn ? model.competitionFields(competitionSelect.value, competitionName.value) : {};
   }
 
   function capValue(text) {
@@ -147,12 +187,18 @@ export function mount(root, ctx) {
     lineupError.textContent = noPlayers ? t('selNoPlayers') : '';
     const seasonOk = isValidSeason(season.value.trim());
     seasonError.hidden = seasonOk;
-    next.disabled = !seasonOk;
-    start.disabled = starting || errors.length > 0 || !seasonOk || !writable;
+    const competitionOk = renderCompetition();
+    next.disabled = !seasonOk || !competitionOk;
+    start.disabled = starting || errors.length > 0 || !seasonOk || !competitionOk || !writable;
   }
 
   function init(state) {
     const previous = state.game ?? null;
+    if (competitionsOn) {
+      const { competition, competitionName: name } = model.competitionOf?.(previous) ?? { competition: 'league' };
+      competitionSelect.value = competition;
+      competitionName.value = name ?? '';
+    }
     selection = defaultSelection(state.team?.roster ?? [], previous);
     for (const player of selection) {
       const parts = buildRow(player);
@@ -166,7 +212,7 @@ export function mount(root, ctx) {
 
   function startGame() {
     const state = ctx.getState();
-    if (lineupStep.hidden || starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim())) return;
+    if (lineupStep.hidden || starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim()) || !renderCompetition()) return;
     starting = true;
     renderRows();
     try {
@@ -176,6 +222,7 @@ export function mount(root, ctx) {
         season: season.value.trim(),
         lineup: lineupFrom(selection),
         roster: state.team?.roster ?? [],
+        ...competitionPayload(),
       });
       startedId = created.id;
       Promise.resolve(created.done).catch(err => {

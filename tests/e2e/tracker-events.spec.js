@@ -538,7 +538,7 @@ test('a past game\'s opponent, date and season can be corrected, and both season
   await expect.poll(async () => (await get('stats/2026-27'))?.results?.map(result => result.gameId)).toEqual(['g1']);
   await page.getByTestId('home-games').click();
   await page.getByTestId('game-row').filter({ hasText: 'Old FC' }).click();
-  await expect(page.getByTestId('game-meta')).toHaveText('01/10/2026 · 2026-27');
+  await expect(page.getByTestId('game-meta')).toHaveText('01/10/2026 · 2026-27 · League');
   await expect(page.getByTestId('info-opponent')).toHaveValue('Old FC');
   await expect(page.getByTestId('info-date')).toHaveValue('2026-10-01');
   await expect(page.getByTestId('info-season')).toHaveValue('2026-27');
@@ -554,7 +554,7 @@ test('a past game\'s opponent, date and season can be corrected, and both season
   // The season follows the date until it has been edited by hand; here it was, so set it explicitly.
   await page.getByTestId('info-season').fill('2025-26');
   await page.getByTestId('info-save').click();
-  await expect(page.getByTestId('game-meta')).toHaveText('01/07/2026 · 2025-26');
+  await expect(page.getByTestId('game-meta')).toHaveText('01/07/2026 · 2025-26 · League');
   await expect(page.getByTestId('info-error')).toBeHidden();
   await expect.poll(async () => (await get('games/g1')).opponent).toBe('Harbour WPC');
   expect(await get('games/g1')).toMatchObject({ date: '2026-07-01', season: '2025-26', status: 'final' });
