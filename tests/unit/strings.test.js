@@ -217,3 +217,56 @@ test('competitionTag enforces the tournament name limit after trimming', () => {
   assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: ` ${maxName} ` }), maxName);
   assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: ` ${maxName}x ` }), 'Tournament');
 });
+
+test('competitionTag looks up a tournament by ID before using its saved name', () => {
+  const source = { competition: 'tournament', tournamentId: 't1', competitionName: 'old' };
+  const lists = { tournaments: { t1: { name: 'Splash – Volos 2026' } } };
+  assert.equal(strings.competitionTag(source, lists), 'Splash – Volos 2026');
+  assert.equal(strings.competitionTag(source), 'old');
+  assert.equal(strings.competitionTag({ ...source, tournamentId: 'removed' }, lists), 'old');
+  assert.equal(strings.competitionTag({ ...source, tournamentId: 'constructor' }, lists), 'old');
+  assert.equal(strings.competitionTag({ ...source, tournamentId: 'removed', competitionName: 12 }, lists), 'Tournament');
+});
+
+test('competitionTag handles phases on explicit and implicit league games', () => {
+  const lists = { phases: { p1: { name: 'Play-offs' } } };
+  for (const source of [{ competition: 'league' }, {}, { competition: 'bogus' }]) {
+    assert.equal(strings.competitionTag({ ...source, phaseId: 'p1' }, lists), 'Play-offs');
+    assert.equal(strings.competitionTag(source, lists), null);
+  }
+  assert.equal(strings.competitionTag({ phaseId: 'p1' }), 'Phase');
+  assert.equal(strings.competitionTag({ phaseId: 'removed' }, lists), 'Phase');
+  for (const phaseId of ['', 12, 'x'.repeat(65)]) {
+    assert.equal(strings.competitionTag({ phaseId }, lists), null);
+  }
+  assert.equal(strings.competitionTag({ competition: 'cup', phaseId: 'p1' }, lists), 'Cup');
+  assert.equal(strings.competitionTag({ competition: 'friendly', phaseId: 'p1' }, lists), 'Friendly');
+});
+
+test('competition lists and stats selector use the exact catalog wording', () => {
+  const expected = {
+    showingLabel: 'Showing',
+    scopeSeason: 'Season',
+    scopePhase: 'League – {name}',
+    tournamentField: 'Tournament',
+    phaseField: 'Phase',
+    noPhase: 'No phase',
+    addNewEntry: 'Add new…',
+    newTournamentName: 'New tournament name',
+    newPhaseName: 'New phase name',
+    listNameRequired: 'Enter a name (up to 40 characters)',
+    listNameDuplicate: 'That name is already in the list',
+    listEntryRemoved: 'That entry was removed. Pick again',
+    homeCompetitions: 'Competitions',
+    tournamentsHeading: 'Tournaments',
+    phasesHeading: 'Phases',
+    listAdd: 'Add',
+    listRename: 'Rename',
+    listRemove: 'Remove',
+    listInUse: 'Used by games',
+  };
+  const actual = Object.fromEntries(Object.keys(expected).map(key => [key, t(key)]));
+  assert.deepEqual(actual, expected);
+  assert.equal(t('scopePhase', { name: 'Play-offs' }), 'League – Play-offs');
+  assert.equal(strings.hasString('phaseField'), true);
+});

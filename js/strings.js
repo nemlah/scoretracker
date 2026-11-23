@@ -162,11 +162,23 @@ const STRINGS = {
   homeNew: 'New game',
   homeRoster: 'Roster',
   homeGames: 'Past games',
+  homeCompetitions: 'Competitions',
   homeNav: 'Scorekeeper',
   homeLive: 'Live game',
   homeLiveScore: '{us} : {them}',
   homeRosterCountOne: '{count} player',
   homeRosterCount: '{count} players',
+
+  // Competition lists
+  tournamentsHeading: 'Tournaments',
+  phasesHeading: 'Phases',
+  listAdd: 'Add',
+  listRename: 'Rename',
+  listRemove: 'Remove',
+  listInUse: 'Used by games',
+  listNameRequired: 'Enter a name (up to 40 characters)',
+  listNameDuplicate: 'That name is already in the list',
+  listEntryRemoved: 'That entry was removed. Pick again',
 
   // Roster
   rosterHeading: 'Roster',
@@ -213,6 +225,12 @@ const STRINGS = {
   competitionFriendly: 'Friendly',
   competitionNameLabel: 'Tournament name',
   competitionNameRequired: 'Enter the tournament name',
+  tournamentField: 'Tournament',
+  phaseField: 'Phase',
+  noPhase: 'No phase',
+  addNewEntry: 'Add new…',
+  newTournamentName: 'New tournament name',
+  newPhaseName: 'New phase name',
   seasonInvalid: 'Season must look like 2026-27.',
   lineupHeading: 'Who is playing',
   capFor: 'Cap number for {name}',
@@ -321,6 +339,9 @@ const STRINGS = {
   gameUnavailable: 'That game isn\'t available.',
   openGameFor: 'Open the game against {opponent} on {date}',
   // Season header and result rows
+  showingLabel: 'Showing',
+  scopeSeason: 'Season',
+  scopePhase: 'League – {name}',
   seasonRecord: '{w} W · {l} L',
   seasonRecordDraws: '{w} W · {l} L · {d} D',
   resultW: 'W',
@@ -367,10 +388,21 @@ export function competitionLabel(competition) {
 // Keep this limit in sync with model.js without importing it across cache versions.
 const MAX_COMPETITION_NAME = 40;
 
-export function competitionTag(source) {
-  const { competition, competitionName } = source ?? {};
+// Match model.js ID validation without a dependency on the cached model module.
+function isListId(id) {
+  return typeof id === 'string' && id.length > 0 && id.length <= 64;
+}
+
+function listEntryName(entries, id) {
+  return entries && Object.hasOwn(entries, id) ? entries[id]?.name : undefined;
+}
+
+export function competitionTag(source, lists = {}) {
+  const { competition, competitionName, tournamentId, phaseId } = source ?? {};
   switch (competition) {
     case 'tournament': {
+      const listName = isListId(tournamentId) ? listEntryName(lists.tournaments, tournamentId) : undefined;
+      if (listName != null) return listName;
       const name = typeof competitionName === 'string' ? competitionName.trim() : '';
       return name && name.length <= MAX_COMPETITION_NAME ? name : competitionLabel(competition);
     }
@@ -378,7 +410,7 @@ export function competitionTag(source) {
     case 'friendly':
       return competitionLabel(competition);
     default:
-      return null;
+      return isListId(phaseId) ? listEntryName(lists.phases, phaseId) ?? t('phaseField') : null;
   }
 }
 
