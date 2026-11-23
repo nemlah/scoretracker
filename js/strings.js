@@ -179,6 +179,7 @@ const STRINGS = {
   listNameRequired: 'Enter a name (up to 40 characters)',
   listNameDuplicate: 'That name is already in the list',
   listEntryRemoved: 'That entry was removed. Pick again',
+  listOptionRemoved: '(removed)',
 
   // Roster
   rosterHeading: 'Roster',

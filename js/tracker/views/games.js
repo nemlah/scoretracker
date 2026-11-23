@@ -10,6 +10,8 @@ import { h } from '../../ui/dom.js';
 import { recountAfter } from '../recount.js';
 import { createEventsPanel } from './events.js';
 
+const NEW = '__new'; // option value of "Add new…"
+
 function parseRoute(route) {
   const [, , id] = route.split('/');
   if (id === undefined || id === '') return null;
@@ -20,14 +22,14 @@ function parseRoute(route) {
   }
 }
 
-function gameRow(game) {
+function gameRow(game, lists) {
   const events = game.events ?? [];
   const result = game.status === 'final' ? gameResult({ ...game, events }) : null;
   const outcome = resultOutcome(result);
   const score = result ?? deriveScore(events);
   const penalty = hasShootout(game.period, events) ? ` · ${t('resultPen', { us: score.soUs, them: score.soThem })}` : '';
   // strings.js may be the previous release's: no tag then.
-  const tag = strings.competitionTag?.(game) ?? null;
+  const tag = strings.competitionTag?.(game, lists) ?? null;
   const chip = game.status === 'live'
     ? h('span', { class: 'game-chip game-live', 'data-testid': 'game-chip' }, t('gameLiveBadge').toUpperCase())
     : outcome && h('span', {
@@ -57,6 +59,15 @@ export function mount(root, ctx) {
   let competitionTouched = false; // set once either competition field has been edited by hand
   let competitionEdits = 0; // counts hand edits, so an acknowledged save can tell whether a newer edit started
 
+  // The team document's lists, which name the tournaments and phases the games point at.
+  const listsNow = () => {
+    const team = ctx.getState().team;
+    return { tournaments: team?.tournaments, phases: team?.phases };
+  };
+  const listsKey = () => JSON.stringify(listsNow());
+  let loadedGames = null; // the past games shown in the list, kept to re-tag them when the lists change
+  let shownListsKey = null;
+
   // ---- list ----
   const listStatus = h('p', { class: 'status-line', role: 'status' }, t('gamesLoading'));
   const listEmpty = h('p', { 'data-testid': 'games-empty', hidden: true }, t('gamesEmpty'));
@@ -69,15 +80,23 @@ export function mount(root, ctx) {
     listStatus.textContent = t('gamesLoading');
     listEmpty.hidden = true;
     listRows.replaceChildren();
+    loadedGames = null;
     Promise.resolve(ctx.repo.listGames()).then(games => {
       if (unmounted || token !== listToken) return;
       listStatus.hidden = true;
       listEmpty.hidden = games.length > 0;
-      listRows.replaceChildren(...games.map(gameRow));
+      loadedGames = games;
+      renderRowsFromGames();
     }, () => {
       if (unmounted || token !== listToken) return;
       listStatus.textContent = t('gamesLoadFailed');
     });
+  }
+
+  function renderRowsFromGames() {
+    shownListsKey = listsKey();
+    const lists = listsNow();
+    listRows.replaceChildren(...loadedGames.map(game => gameRow(game, lists)));
   }
 
   // ---- detail ----
@@ -131,11 +150,41 @@ export function mount(root, ctx) {
   const infoCompetition = competitionsOn ? h('select', {
     id: 'info-competition', class: 'input', 'data-testid': 'info-competition', onchange: onCompetitionInput,
   }, ...model.COMPETITIONS.map(value => h('option', { value }, strings.competitionLabel(value)))) : null;
-  const infoCompetitionName = competitionsOn ? h('input', {
+  // The tournament and phase lists need this release's repo, model and strings together; otherwise the free-text form stays.
+  const listsOn = competitionsOn && ctx.repo?.competitionLists === true && typeof model.listEntries === 'function'
+    && strings.hasString?.('phaseField') === true;
+  let tournamentChoice = NEW; // an entry id or NEW; kept even when a snapshot removes the entry
+  let phaseChoice = ''; // '', an entry id or NEW
+  const names = new Map(); // entry id -> last name seen, for the "(removed)" option
+  const infoTournament = listsOn ? h('select', {
+    id: 'info-tournament', class: 'input', 'data-testid': 'info-tournament',
+    onchange: () => { tournamentChoice = infoTournament.value; onCompetitionInput(); },
+  }) : null;
+  const infoTournamentNew = listsOn ? h('input', {
+    id: 'info-tournament-new', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
+    'data-testid': 'info-tournament-new-name', oninput: onCompetitionInput,
+  }) : null;
+  const infoTournamentNewField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'info-tournament-new' }, t('newTournamentName')), infoTournamentNew) : null;
+  const infoTournamentField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'info-tournament' }, t('tournamentField')), infoTournament) : null;
+  const infoPhase = listsOn ? h('select', {
+    id: 'info-phase', class: 'input', 'data-testid': 'info-phase',
+    onchange: () => { phaseChoice = infoPhase.value; onCompetitionInput(); },
+  }) : null;
+  const infoPhaseNew = listsOn ? h('input', {
+    id: 'info-phase-new', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
+    'data-testid': 'info-phase-new-name', oninput: onCompetitionInput,
+  }) : null;
+  const infoPhaseNewField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'info-phase-new' }, t('newPhaseName')), infoPhaseNew) : null;
+  const infoPhaseField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'info-phase' }, t('phaseField')), infoPhase) : null;
+  const infoCompetitionName = competitionsOn && !listsOn ? h('input', {
     id: 'info-competition-name', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
     'data-testid': 'info-competition-name', oninput: onCompetitionInput,
   }) : null;
-  const infoCompetitionNameField = competitionsOn ? h('div', {
+  const infoCompetitionNameField = competitionsOn && !listsOn ? h('div', {
     class: 'field', 'data-testid': 'info-competition-name-field', hidden: true,
   }, h('label', { for: 'info-competition-name' }, t('competitionNameLabel')), infoCompetitionName) : null;
   const infoError = h('p', { class: 'form-error', role: 'alert', 'data-testid': 'info-error', hidden: true });
@@ -146,7 +195,7 @@ export function mount(root, ctx) {
     h('div', { class: 'field' }, h('label', { for: 'info-date' }, t('dateLabel')), infoDate),
     h('div', { class: 'field' }, h('label', { for: 'info-season' }, t('seasonLabel')), infoSeason),
     competitionsOn ? h('div', { class: 'field' }, h('label', { for: 'info-competition' }, t('competitionField')), infoCompetition) : null,
-    infoCompetitionNameField,
+    infoCompetitionNameField, infoTournamentField, infoTournamentNewField, infoPhaseField, infoPhaseNewField,
     infoError, infoSave);
   const panel = createEventsPanel(ctx, root, { onEnded: () => ctx.navigate('/') });
   const detailBody = h('div', { class: 'stack detail-body', hidden: true },
@@ -158,16 +207,105 @@ export function mount(root, ctx) {
 
   root.append(listView, detailView);
 
-  function showCompetition(fields) {
+  function currentEntries() {
+    const team = ctx.getState().team;
+    return { tournaments: model.listEntries(team?.tournaments), phases: model.listEntries(team?.phases) };
+  }
+
+  // Rebuilds a select's options when they changed. A chosen id that is no longer in the list stays, marked "(removed)".
+  function fillSelect(select, entries, choice, withNone) {
+    for (const entry of entries) names.set(entry.id, entry.name);
+    const options = [];
+    if (withNone) options.push({ value: '', text: t('noPhase') });
+    for (const entry of entries) options.push({ value: entry.id, text: entry.name });
+    if (choice !== '' && choice !== NEW && !entries.some(entry => entry.id === choice)) {
+      options.push({ value: choice, text: `${names.get(choice) ?? ''} ${t('listOptionRemoved')}`.trim() });
+    }
+    options.push({ value: NEW, text: t('addNewEntry') });
+    const key = JSON.stringify(options);
+    if (select.dataset.options !== key) {
+      select.dataset.options = key;
+      select.replaceChildren(...options.map(({ value, text }) => h('option', { value }, text)));
+    }
+    select.value = choice;
+  }
+
+  // Shows the fields the selected competition needs, with the options of the current lists.
+  function renderListFields() {
+    const entries = currentEntries();
+    const competition = infoCompetition.value;
+    fillSelect(infoTournament, entries.tournaments, tournamentChoice, false);
+    fillSelect(infoPhase, entries.phases, phaseChoice, true);
+    infoTournamentField.hidden = competition !== 'tournament';
+    infoTournamentNewField.hidden = competition !== 'tournament' || tournamentChoice !== NEW;
+    infoPhaseField.hidden = competition !== 'league';
+    infoPhaseNewField.hidden = competition !== 'league' || phaseChoice !== NEW;
+  }
+
+  // What the list fields say: { error, payload }. The payload is what updateGameInfo takes; ids are always explicit.
+  function listsState() {
+    const entries = currentEntries();
+    const competition = infoCompetition.value;
+    const pick = (list, choice, typed, found) => {
+      if (choice === NEW) {
+        const name = model.listName(typed);
+        if (name === null) return { error: 'listNameRequired' };
+        if (list.some(entry => model.sameListName(entry.name, name))) return { error: 'listNameDuplicate' };
+        return { name, newEntry: { list: found, name } };
+      }
+      const entry = list.find(candidate => candidate.id === choice);
+      return entry ? { name: entry.name, id: entry.id } : { error: 'listEntryRemoved' };
+    };
+    if (competition === 'tournament') {
+      const picked = pick(entries.tournaments, tournamentChoice, infoTournamentNew.value, 'tournaments');
+      if (picked.error) return { error: picked.error };
+      const fields = model.competitionFields('tournament', picked.name, picked.id ? { tournamentId: picked.id } : {});
+      return { error: null, payload: { ...fields, ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
+    }
+    if (competition === 'league') {
+      if (phaseChoice === '') return { error: null, payload: { ...model.competitionFields('league', ''), phaseId: null } };
+      const picked = pick(entries.phases, phaseChoice, infoPhaseNew.value, 'phases');
+      if (picked.error) return { error: picked.error };
+      const fields = model.competitionFields('league', '', picked.id ? { phaseId: picked.id } : {});
+      return { error: null, payload: { ...fields, ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
+    }
+    return { error: null, payload: model.competitionFields(competition, '') };
+  }
+
+  // Follows the stored game. Returns true when it preselected a link the game does not have yet.
+  function showCompetition(game) {
+    const fields = model.competitionOf(game);
     infoCompetition.value = fields.competition;
-    infoCompetitionName.value = fields.competitionName ?? '';
-    infoCompetitionNameField.hidden = fields.competition !== 'tournament';
+    if (!listsOn) {
+      infoCompetitionName.value = fields.competitionName ?? '';
+      infoCompetitionNameField.hidden = fields.competition !== 'tournament';
+      return false;
+    }
+    const entries = currentEntries();
+    let relink = false;
+    tournamentChoice = entries.tournaments[0]?.id ?? NEW;
+    infoTournamentNew.value = '';
+    phaseChoice = fields.phaseId ?? '';
+    infoPhaseNew.value = '';
+    if (fields.tournamentId !== undefined) {
+      tournamentChoice = fields.tournamentId;
+      if (fields.competitionName !== undefined) names.set(fields.tournamentId, fields.competitionName);
+    } else if (fields.competitionName !== undefined) {
+      // A legacy game: its name picks the same-named entry, else "Add new…" with the name filled in.
+      const match = entries.tournaments.find(entry => model.sameListName(entry.name, fields.competitionName));
+      tournamentChoice = match ? match.id : NEW;
+      if (!match) infoTournamentNew.value = fields.competitionName;
+      relink = true;
+    }
+    renderListFields();
+    return relink;
   }
 
   function onCompetitionInput() {
     competitionTouched = true;
     competitionEdits += 1;
-    infoCompetitionNameField.hidden = infoCompetition.value !== 'tournament';
+    if (listsOn) renderListFields();
+    else infoCompetitionNameField.hidden = infoCompetition.value !== 'tournament';
   }
 
   function startDetail(id) {
@@ -204,7 +342,7 @@ export function mount(root, ctx) {
     title.textContent = game.opponent;
     const dateText = formatDate(game.date);
     date.textContent = dateText;
-    const tag = strings.competitionTag?.(game)
+    const tag = strings.competitionTag?.(game, listsNow())
       ?? (strings.hasString?.('competitionLeague') ? t('competitionLeague') : null);
     meta.textContent = `${dateText} · ${game.season}${tag ? ` · ${tag}` : ''}`;
     // Filled once per game; later snapshots must not overwrite what is being typed.
@@ -218,10 +356,16 @@ export function mount(root, ctx) {
       infoError.hidden = true;
     }
     // Until a competition field is edited, the form follows the stored game.
-    if (competitionsOn && !competitionTouched) showCompetition(model.competitionOf(game));
+    if (competitionsOn && !competitionTouched) {
+      // A legacy tournament link is preselected as a hand edit, so any Save writes it.
+      if (showCompetition(game)) competitionTouched = true;
+    } else if (listsOn) {
+      renderListFields();
+    }
     // state.writable is newer than state.active: a cached app.js from the previous release lacks it.
     const writable = state.writable ?? state.active;
-    for (const field of [infoOpponent, infoDate, infoSeason, infoCompetition, infoCompetitionName, infoSave]) {
+    for (const field of [infoOpponent, infoDate, infoSeason, infoCompetition, infoCompetitionName, infoTournament, infoTournamentNew,
+      infoPhase, infoPhaseNew, infoSave]) {
       if (field) field.disabled = !writable;
     }
     const events = game.events ?? [];
@@ -260,16 +404,21 @@ export function mount(root, ctx) {
     const date = infoDate.value;
     const season = infoSeason.value.trim();
     const stored = competitionsOn ? model.competitionOf(game) : null;
-    const edited = competitionsOn && competitionTouched
-      ? model.competitionFields(infoCompetition.value, infoCompetitionName.value) : undefined;
+    // With the lists, the form's selection is always resolved against the current lists, edited or not.
+    const listed = listsOn ? listsState() : null;
+    const edited = !competitionsOn || !competitionTouched ? undefined
+      : listsOn ? listed.payload : model.competitionFields(infoCompetition.value, infoCompetitionName.value);
     const problem = opponent === '' ? t('opponentRequired') : date === '' ? t('dateRequired')
-      : !isValidSeason(season) ? t('seasonInvalid') : edited === null ? t('competitionNameRequired') : null;
+      : !isValidSeason(season) ? t('seasonInvalid') : listed?.error ? t(listed.error)
+        : edited === null ? t('competitionNameRequired') : null;
     infoError.hidden = problem === null;
     infoError.textContent = problem ?? '';
     if (problem !== null) return;
     // Only an edited competition that differs from the stored one is sent.
     const competitionChanged = edited !== undefined && edited !== null
-      && (edited.competition !== stored.competition || edited.competitionName !== stored.competitionName);
+      && (edited.competition !== stored.competition || edited.competitionName !== stored.competitionName
+        || (listsOn && (edited.newEntry !== undefined || edited.tournamentId !== stored.tournamentId
+          || (edited.phaseId ?? null) !== (stored.phaseId ?? null))));
     if (opponent === game.opponent && date === game.date && season === game.season && !competitionChanged) {
       // Nothing to send: a competition edited back to the stored value must not keep the form from following the game.
       if (competitionTouched) releaseCompetition(game.id, competitionEdits);
@@ -326,7 +475,11 @@ export function mount(root, ctx) {
     }
     listView.hidden = mode !== 'list';
     detailView.hidden = mode === 'list';
-    if (mode === 'list') return;
+    if (mode === 'list') {
+      // A rename or a new entry re-tags the loaded rows without reloading the games.
+      if (loadedGames !== null && listsKey() !== shownListsKey) renderRowsFromGames();
+      return;
+    }
     // Once the reopened game is the team's current game, the live screen can show it.
     if (reopening !== null && state.team?.currentGameId === reopening
       && state.game?.id === reopening && state.game.status === 'live') {

@@ -7,6 +7,7 @@ import { t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
 const MAX_OPPONENT = 40;
+const NEW = '__new'; // option value of "Add new…"
 const REASONS = { missingCap: 'selMissingCap', badCap: 'selBadCap', duplicateCap: 'selDuplicateCap' };
 
 export function mount(root, ctx) {
@@ -46,14 +47,44 @@ export function mount(root, ctx) {
   const competitionSelect = competitionsOn ? h('select', {
     id: 'game-competition', class: 'input', 'data-testid': 'competition-select', onchange: onCompetitionChange,
   }, ...model.COMPETITIONS.map(value => h('option', { value }, strings.competitionLabel(value)))) : null;
-  const competitionName = competitionsOn ? h('input', {
+  // The tournament and phase lists need this release's repo, model and strings together; otherwise the free-text form stays.
+  const listsOn = competitionsOn && ctx.repo?.competitionLists === true && typeof model.listEntries === 'function'
+    && strings.hasString?.('phaseField') === true;
+  let tournamentChoice = NEW; // an entry id or NEW; kept even when a snapshot removes the entry
+  let phaseChoice = ''; // '', an entry id or NEW
+  const names = new Map(); // entry id -> last name seen, for the "(removed)" option
+  const tournamentSelect = listsOn ? h('select', {
+    id: 'game-tournament', class: 'input', 'data-testid': 'tournament-select', 'aria-describedby': 'game-competition-error',
+    onchange: () => { tournamentChoice = tournamentSelect.value; onCompetitionChange(); },
+  }) : null;
+  const tournamentNew = listsOn ? h('input', {
+    id: 'game-tournament-new', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
+    'aria-describedby': 'game-competition-error', 'data-testid': 'tournament-new-name', oninput: onCompetitionChange,
+  }) : null;
+  const tournamentNewField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'game-tournament-new' }, t('newTournamentName')), tournamentNew) : null;
+  const tournamentField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'game-tournament' }, t('tournamentField')), tournamentSelect) : null;
+  const phaseSelect = listsOn ? h('select', {
+    id: 'game-phase', class: 'input', 'data-testid': 'phase-select', 'aria-describedby': 'game-competition-error',
+    onchange: () => { phaseChoice = phaseSelect.value; onCompetitionChange(); },
+  }) : null;
+  const phaseNew = listsOn ? h('input', {
+    id: 'game-phase-new', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
+    'aria-describedby': 'game-competition-error', 'data-testid': 'phase-new-name', oninput: onCompetitionChange,
+  }) : null;
+  const phaseNewField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'game-phase-new' }, t('newPhaseName')), phaseNew) : null;
+  const phaseField = listsOn ? h('div', { class: 'field', hidden: true },
+    h('label', { for: 'game-phase' }, t('phaseField')), phaseSelect) : null;
+  const competitionName = competitionsOn && !listsOn ? h('input', {
     id: 'game-competition-name', class: 'input', type: 'text', maxlength: model.MAX_COMPETITION_NAME, autocomplete: 'off',
     'aria-describedby': 'game-competition-error', 'data-testid': 'competition-name-input', oninput: onCompetitionChange,
   }) : null;
   const competitionError = competitionsOn ? h('p', {
     id: 'game-competition-error', class: 'form-error', role: 'alert', 'data-testid': 'competition-error', hidden: true,
   }, t('competitionNameRequired')) : null;
-  const competitionNameField = competitionsOn ? h('div', {
+  const competitionNameField = competitionsOn && !listsOn ? h('div', {
     class: 'field', 'data-testid': 'competition-name-field', hidden: true,
   }, h('label', { for: 'game-competition-name' }, t('competitionNameLabel')), competitionName, competitionError) : null;
   const list = h('ul', { class: 'sel-list', 'data-testid': 'sel-list' });
@@ -79,6 +110,8 @@ export function mount(root, ctx) {
       h('div', { class: 'field' }, h('label', { for: 'game-season' }, t('seasonLabel')), season, seasonError),
       competitionsOn ? h('div', { class: 'field' }, h('label', { for: 'game-competition' }, t('competitionField')), competitionSelect) : null,
       competitionNameField,
+      tournamentField, tournamentNewField, phaseField, phaseNewField,
+      listsOn ? competitionError : null,
       next));
   const lineupStep = h('section', { class: 'new-form', hidden: true },
     lineupHeading, back, empty, list, lineupError, start);
@@ -108,9 +141,76 @@ export function mount(root, ctx) {
     next.focus();
   }
 
-  // Shows the name field for a tournament and its error while the name is missing; true when valid.
+  // Lists as the team document has them now.
+  function currentEntries() {
+    const team = ctx.getState().team;
+    return { tournaments: model.listEntries(team?.tournaments), phases: model.listEntries(team?.phases) };
+  }
+
+  // Rebuilds a select's options when they changed. A chosen id that is no longer in the list stays, marked "(removed)".
+  function fillSelect(select, entries, choice, withNone) {
+    for (const entry of entries) names.set(entry.id, entry.name);
+    const options = [];
+    if (withNone) options.push({ value: '', text: t('noPhase') });
+    for (const entry of entries) options.push({ value: entry.id, text: entry.name });
+    if (choice !== '' && choice !== NEW && !entries.some(entry => entry.id === choice)) {
+      options.push({ value: choice, text: `${names.get(choice) ?? ''} ${t('listOptionRemoved')}`.trim() });
+    }
+    options.push({ value: NEW, text: t('addNewEntry') });
+    const key = JSON.stringify(options);
+    if (select.dataset.options !== key) {
+      select.dataset.options = key;
+      select.replaceChildren(...options.map(({ value, text }) => h('option', { value }, text)));
+    }
+    select.value = choice;
+  }
+
+  // What the list fields say: { error, payload }. The payload is what createGame takes.
+  function listsState(entries) {
+    const competition = competitionSelect.value;
+    const pick = (list, choice, typed, found) => {
+      if (choice === NEW) {
+        const name = model.listName(typed);
+        if (name === null) return { error: 'listNameRequired' };
+        if (list.some(entry => model.sameListName(entry.name, name))) return { error: 'listNameDuplicate' };
+        return { name, newEntry: { list: found, name } };
+      }
+      const entry = list.find(candidate => candidate.id === choice);
+      return entry ? { name: entry.name, id: entry.id } : { error: 'listEntryRemoved' };
+    };
+    if (competition === 'tournament') {
+      const picked = pick(entries.tournaments, tournamentChoice, tournamentNew.value, 'tournaments');
+      if (picked.error) return { error: picked.error };
+      const ids = picked.id ? { tournamentId: picked.id } : {};
+      return { error: null, payload: { ...model.competitionFields('tournament', picked.name, ids), ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
+    }
+    if (competition === 'league' && phaseChoice !== '') {
+      const picked = pick(entries.phases, phaseChoice, phaseNew.value, 'phases');
+      if (picked.error) return { error: picked.error };
+      const ids = picked.id ? { phaseId: picked.id } : {};
+      return { error: null, payload: { ...model.competitionFields('league', '', ids), ...(picked.newEntry ? { newEntry: picked.newEntry } : {}) } };
+    }
+    const fields = model.competitionFields(competition, '');
+    return { error: fields === null ? 'listNameRequired' : null, payload: fields };
+  }
+
+  // Shows the fields the competition needs and the error while they are not valid; true when valid.
   function renderCompetition() {
     if (!competitionsOn) return true;
+    if (listsOn) {
+      const entries = currentEntries();
+      const competition = competitionSelect.value;
+      fillSelect(tournamentSelect, entries.tournaments, tournamentChoice, false);
+      fillSelect(phaseSelect, entries.phases, phaseChoice, true);
+      tournamentField.hidden = competition !== 'tournament';
+      tournamentNewField.hidden = competition !== 'tournament' || tournamentChoice !== NEW;
+      phaseField.hidden = competition !== 'league';
+      phaseNewField.hidden = competition !== 'league' || phaseChoice !== NEW;
+      const { error } = listsState(entries);
+      competitionError.hidden = error === null;
+      competitionError.textContent = error === null ? '' : t(error);
+      return error === null;
+    }
     const tournament = competitionSelect.value === 'tournament';
     const valid = model.competitionFields(competitionSelect.value, competitionName.value) !== null;
     competitionNameField.hidden = !tournament;
@@ -125,6 +225,7 @@ export function mount(root, ctx) {
 
   // The fields createGame takes; nothing when this device does not offer them.
   function competitionPayload() {
+    if (listsOn) return listsState(currentEntries()).payload;
     return competitionsOn ? model.competitionFields(competitionSelect.value, competitionName.value) : {};
   }
 
@@ -195,9 +296,27 @@ export function mount(root, ctx) {
   function init(state) {
     const previous = state.game ?? null;
     if (competitionsOn) {
-      const { competition, competitionName: name } = model.competitionOf?.(previous) ?? { competition: 'league' };
+      const { competition, competitionName: name, tournamentId, phaseId } = model.competitionOf?.(previous) ?? { competition: 'league' };
       competitionSelect.value = competition;
-      competitionName.value = name ?? '';
+      if (listsOn) {
+        const entries = currentEntries();
+        tournamentChoice = entries.tournaments[0]?.id ?? NEW;
+        if (competition === 'tournament') {
+          const byName = name === undefined ? undefined : entries.tournaments.find(entry => model.sameListName(entry.name, name));
+          if (tournamentId !== undefined) {
+            if (entries.tournaments.some(entry => entry.id === tournamentId)) tournamentChoice = tournamentId;
+          } else if (byName) {
+            tournamentChoice = byName.id;
+          } else if (name !== undefined) {
+            // A legacy game whose name is not in the list: offer it as a new entry.
+            tournamentChoice = NEW;
+            tournamentNew.value = name;
+          }
+        }
+        if (competition === 'league' && entries.phases.some(entry => entry.id === phaseId)) phaseChoice = phaseId;
+      } else {
+        competitionName.value = name ?? '';
+      }
     }
     selection = defaultSelection(state.team?.roster ?? [], previous);
     for (const player of selection) {
@@ -212,7 +331,12 @@ export function mount(root, ctx) {
 
   function startGame() {
     const state = ctx.getState();
-    if (lineupStep.hidden || starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim()) || !renderCompetition()) return;
+    if (lineupStep.hidden || starting || !state.active || validateLineup(selection).length > 0 || !isValidSeason(season.value.trim())) return;
+    if (!renderCompetition()) {
+      // The entry was removed after Next: show the details step, where the message is.
+      showDetails();
+      return;
+    }
     starting = true;
     renderRows();
     try {
@@ -244,7 +368,11 @@ export function mount(root, ctx) {
     blocked.hidden = !(ready && isLive);
     renderStep(state);
     if (ready && !isLive && selection === null) init(state);
-    if (selection !== null) renderRows();
+    if (selection !== null) {
+      renderRows();
+      // An entry removed while the lineup is open: back to the details step, where the message shows.
+      if (choosingLineup && !renderCompetition()) showDetails();
+    }
     // Go to the live screen once the new game is the team's current game.
     if (startedId !== null && state.team?.currentGameId === startedId) {
       const id = startedId;
