@@ -338,7 +338,8 @@ const STRINGS = {
 // remove in R4: read by the R2 viewer.js
 export const TIMELINE_SAVES = true;
 
-// remove in R4: read by the R2 viewer.js
+// Keep: gates the competition fields (new-game and game-detail forms, the detail meta) for the mixed-cache window, when a cached
+// module can come from the previous release and lacks the new strings. Not an R4 leftover.
 export function hasString(key) {
   return Object.hasOwn(STRINGS, key);
 }

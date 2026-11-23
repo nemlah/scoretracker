@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.js';
 import { aggregateSeason, seasonFor, todayIso } from '../../js/model.js';
 import {
-  closeAll, consoleProblems, get, open, resetAll, seed, tab, update,
+  closeAll, consoleProblems, expectTagFits, get, noSideScroll, open, resetAll, seed, tab, update,
 } from './helpers.js';
 import {
   CODE, HOME_URL, collectProblems, formatConsoleProblem, unlockTracker,
@@ -15,8 +15,8 @@ const roster = [
 const lineup = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
 const SEASON = seasonFor(todayIso());
 const TOURNAMENT = 'Κύπελλο Άνοιξης';
-// 40 characters, no break opportunity, Greek.
-const LONG_NAME = 'Τουρνουά'.repeat(5);
+// 40 characters, no break opportunity, Greek, the widest glyph (about 453 px at 14 px).
+const LONG_NAME = 'Φ'.repeat(40);
 
 const goal = (id, ts) => ({ id, type: 'goal', period: 1, ts, playerId: 'p5' });
 const oppGoal = (id, ts) => ({ id, type: 'oppGoal', period: 1, ts });
@@ -54,38 +54,6 @@ test.afterAll(closeAll);
 
 const row = (page, opponent) => page.getByTestId('result-row').filter({ hasText: opponent });
 const seedSeason = (results = [league, friendly, tournament]) => seed(`stats/${SEASON}`, statsDoc(results));
-const noSideScroll = page => page.evaluate(() => ({
-  scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
-}));
-
-// The tag is fully visible: every line rectangle of its text lies inside the container's rectangle on all four
-// sides, and inside the rectangle of the tag and any ancestors up to the container if they clip (overflow-x or
-// overflow-y not visible). The nearest block holding it must also not overflow (an inline element has no scrollWidth of its own).
-async function expectTagFits(tag, container) {
-  await expect(tag).toBeVisible();
-  const fit = await tag.evaluate((el, containerEl) => {
-    const within = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5
-      && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const lines = [...range.getClientRects()];
-    const boxes = [containerEl.getBoundingClientRect()];
-    for (let node = el; node && node !== containerEl; node = node.parentElement) {
-      const style = getComputedStyle(node);
-      if (style.overflowX !== 'visible' || style.overflowY !== 'visible') boxes.push(node.getBoundingClientRect());
-    }
-    let block = el;
-    while (block && block.clientWidth === 0) block = block.parentElement;
-    return {
-      lines: lines.length,
-      inside: lines.every(r => boxes.every(box => within(r, box))),
-      holderFits: block.scrollWidth <= block.clientWidth,
-    };
-  }, await container.elementHandle());
-  expect(fit.lines).toBeGreaterThan(0);
-  expect(fit.inside).toBe(true);
-  expect(fit.holderFits).toBe(true);
-}
 
 test.describe('home', () => {
   test('results carry the competition tag and the link name includes it', async ({ page }) => {
@@ -98,7 +66,7 @@ test.describe('home', () => {
     await expect(row(page, 'Tournament FC').getByTestId('result-competition')).toBeVisible();
     await expect(row(page, 'Tournament FC').getByTestId('result-competition')).toHaveText(TOURNAMENT);
     await expect(row(page, 'League FC').getByTestId('result-competition')).toHaveCount(0);
-    await expect(friendlyRow.getByTestId('result-link')).toHaveAttribute('aria-label', /Friendly/);
+    await expect(friendlyRow.getByTestId('result-link')).toHaveAttribute('aria-label', 'Loss 4 – 9 against Friendly FC, 10/10/2026, Friendly');
     await expect(row(page, 'Tournament FC').getByTestId('result-link')).toHaveAttribute('aria-label', new RegExp(TOURNAMENT));
     await expect(row(page, 'League FC').getByTestId('result-link')).toHaveAttribute('aria-label', 'Win 10 – 5 against League FC, 03/10/2026');
   });

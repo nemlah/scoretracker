@@ -218,3 +218,37 @@ export const delivered = (page, path, field, value) => page.waitForFunction(
   ([p, f, v]) => window.__snaps?.some(snap => snap.path === p && snap[f] === v && snap.fromCache === false),
   [path, field, value],
 );
+
+// True width of the page: a side scroll shows as scrollWidth above clientWidth.
+export const noSideScroll = page => page.evaluate(() => ({
+  scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+}));
+
+// The tag is fully visible: every line rectangle of its text lies inside the container's rectangle on all four
+// sides, and inside the rectangle of the tag and any ancestors up to the container if they clip (overflow-x or
+// overflow-y not visible). The nearest block holding it must also not overflow (an inline element has no scrollWidth of its own).
+export async function expectTagFits(tag, container) {
+  await expect(tag).toBeVisible();
+  const fit = await tag.evaluate((el, containerEl) => {
+    const within = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5
+      && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const lines = [...range.getClientRects()];
+    const boxes = [containerEl.getBoundingClientRect()];
+    for (let node = el; node && node !== containerEl; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.overflowX !== 'visible' || style.overflowY !== 'visible') boxes.push(node.getBoundingClientRect());
+    }
+    let block = el;
+    while (block && block.clientWidth === 0) block = block.parentElement;
+    return {
+      lines: lines.length,
+      inside: lines.every(r => boxes.every(box => within(r, box))),
+      holderFits: block.scrollWidth <= block.clientWidth,
+    };
+  }, await container.elementHandle());
+  expect(fit.lines).toBeGreaterThan(0);
+  expect(fit.inside).toBe(true);
+  expect(fit.holderFits).toBe(true);
+}

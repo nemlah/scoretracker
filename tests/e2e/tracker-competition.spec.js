@@ -1,6 +1,8 @@
 import { test, expect } from './fixtures.js';
 import { aggregateSeason } from '../../js/model.js';
-import { closeAll, get, instrumentRepo, resetAll, seed, update } from './helpers.js';
+import {
+  closeAll, expectTagFits, get, instrumentRepo, noSideScroll, resetAll, seed, update,
+} from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, unlockTracker } from './tracker-helpers.js';
 
 const roster = [
@@ -9,8 +11,8 @@ const roster = [
 ];
 const lineupP5 = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
 const goal = id => ({ id, type: 'goal', period: 1, ts: 1000, playerId: 'p5' });
-// 40 characters, no break opportunity, Greek.
-const LONG_NAME = 'Τουρνουά'.repeat(5);
+// 40 characters, no break opportunity, Greek, the widest glyph (about 453 px at 14 px).
+const LONG_NAME = 'Φ'.repeat(40);
 
 // instrumentRepo serves its own copy of repo.js, which the service worker must not replace.
 test.use({ serviceWorkers: 'block' });
@@ -72,6 +74,7 @@ test('a new game defaults to league and a tournament needs its name', async ({ p
   await select(page).selectOption('tournament');
   await expect(page.getByTestId('competition-name-field')).toBeVisible();
   await expect(page.getByTestId('newgame-next')).toBeDisabled();
+  await expect(page.getByTestId('competition-error')).toBeVisible();
   await expect(page.getByTestId('competition-error')).toHaveText('Enter the tournament name');
   await nameInput(page).fill('   ');
   await expect(page.getByTestId('newgame-next')).toBeDisabled();
@@ -173,24 +176,69 @@ test('an untouched competition follows the game and is not sent by an opponent-o
   expect(Object.keys(calls[0].info)).not.toContain('competitionName');
 });
 
-test('a 40-character Greek tournament name fits at 360 px in the list and the form', async ({ page }) => {
+test('a 40-character Greek tournament name fits at 360 px in the list, the meta and the form', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await seedFinal('g1', { competition: 'tournament', competitionName: LONG_NAME });
   await page.goto(HOME_URL);
   await unlockTracker(page);
   await page.getByTestId('home-games').click();
-  await expect(page.getByTestId('game-row')).toContainText(LONG_NAME);
-  await page.getByTestId('game-row').click();
+  const row = page.getByTestId('game-row');
+  await expect(row).toContainText(LONG_NAME);
+  await expectTagFits(row.locator('.game-date'), row);
+  const listWidths = await noSideScroll(page);
+  expect(listWidths.scroll).toBeLessThanOrEqual(listWidths.client);
+
+  await row.click();
+  await expect(page.getByTestId('info-competition-name')).toBeVisible();
   await expect(page.getByTestId('info-competition-name')).toHaveValue(LONG_NAME);
   await expect(page.getByTestId('game-meta')).toContainText(LONG_NAME);
-  const widths = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
-  }));
-  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
-  await page.getByTestId('games-back').click();
-  await expect(page.getByTestId('game-row')).toContainText(LONG_NAME);
-  const listWidths = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
-  }));
-  expect(listWidths.scroll).toBeLessThanOrEqual(listWidths.client);
+  await expectTagFits(page.getByTestId('game-meta'), page.locator('form.info-form'));
+  const detailWidths = await noSideScroll(page);
+  expect(detailWidths.scroll).toBeLessThanOrEqual(detailWidths.client);
+});
+
+test('saving a competition change releases the form, so a remote re-tag shows and an opponent-only save keeps it', async ({ page }) => {
+  await instrumentRepo(page);
+  await seedFinal('g1');
+  await openDetail(page);
+  await page.getByTestId('info-competition').selectOption('friendly');
+  await page.getByTestId('info-save').click();
+  await expect.poll(async () => (await get('games/g1')).competition).toBe('friendly');
+  await expect(page.getByTestId('game-meta')).toHaveText('01/10/2026 · 2026-27 · Friendly');
+
+  // An admin re-tags the game elsewhere: the form is no longer holding an edit, so the select follows.
+  await update('games/g1', { competition: 'cup' });
+  await expect(page.getByTestId('info-competition')).toHaveValue('cup');
+  await expect(page.getByTestId('game-meta')).toHaveText('01/10/2026 · 2026-27 · Cup');
+
+  await page.getByTestId('info-opponent').fill('Harbour WPC');
+  await page.getByTestId('info-save').click();
+  await expect.poll(async () => (await get('games/g1')).opponent).toBe('Harbour WPC');
+  expect((await get('games/g1')).competition).toBe('cup');
+  const calls = await page.evaluate(() => window.__infoCalls);
+  // The first call carried the competition change, the second the opponent only.
+  expect(calls).toHaveLength(2);
+  expect(calls[0].info.competition).toBe('friendly');
+  expect(Object.keys(calls[1].info)).not.toContain('competition');
+  expect(Object.keys(calls[1].info)).not.toContain('competitionName');
+});
+
+test('a tournament with no name is refused in the details form and nothing is written', async ({ page }) => {
+  await instrumentRepo(page);
+  await seedFinal('g1');
+  await openDetail(page);
+  await page.getByTestId('info-competition').selectOption('tournament');
+  await expect(page.getByTestId('info-competition-name')).toBeVisible();
+  await page.getByTestId('info-save').click();
+  await expect(page.getByTestId('info-error')).toBeVisible();
+  await expect(page.getByTestId('info-error')).toHaveText('Enter the tournament name');
+  await page.getByTestId('info-competition-name').fill('   ');
+  await page.getByTestId('info-save').click();
+  await expect(page.getByTestId('info-error')).toHaveText('Enter the tournament name');
+  // The refusal happens before any repo call, so the recorded calls are the proof; the document is checked too.
+  expect(await page.evaluate(() => window.__infoCalls ?? [])).toEqual([]);
+  const game = await get('games/g1');
+  expect(game.competition).toBeUndefined();
+  expect('competitionName' in game).toBe(false);
+  expect(game.opponent).toBe('Old FC');
 });

@@ -55,6 +55,7 @@ export function mount(root, ctx) {
   let infoFor = null; // id of the game the details form was last filled from
   let seasonTouched = false;
   let competitionTouched = false; // set once either competition field has been edited by hand
+  let competitionEdits = 0; // counts hand edits, so an acknowledged save can tell whether a newer edit started
 
   // ---- list ----
   const listStatus = h('p', { class: 'status-line', role: 'status' }, t('gamesLoading'));
@@ -85,7 +86,7 @@ export function mount(root, ctx) {
   }, t('gamesBack'));
   const detailStatus = h('p', { class: 'status-line', role: 'status' }, t('trackerLoading'));
   const title = h('h2', { class: 'detail-team game-opponent', lang: 'el' });
-  const meta = h('p', { class: 'help', 'data-testid': 'game-meta' });
+  const meta = h('p', { class: 'help game-meta', 'data-testid': 'game-meta' });
   const badge = h('span', { class: 'tracker-badge' });
   const date = h('span', { class: 'tracker-board-date' });
   const ours = h('span', { class: 'detail-figure' });
@@ -165,6 +166,7 @@ export function mount(root, ctx) {
 
   function onCompetitionInput() {
     competitionTouched = true;
+    competitionEdits += 1;
     infoCompetitionNameField.hidden = infoCompetition.value !== 'tournament';
   }
 
@@ -242,6 +244,14 @@ export function mount(root, ctx) {
     panel.update(game, state);
   }
 
+  // Once a competition edit is saved the form follows the stored game again, so a later remote re-tag shows up
+  // and an opponent-only save cannot send the stale value back. Not when another game is open or a newer edit started.
+  function releaseCompetition(id, edits) {
+    if (unmounted || mode !== id || infoFor !== id || competitionEdits !== edits) return;
+    competitionTouched = false;
+    renderDetail(ctx.getState());
+  }
+
   function onSaveInfo(event) {
     event.preventDefault();
     const game = detailGame;
@@ -260,12 +270,17 @@ export function mount(root, ctx) {
     // Only an edited competition that differs from the stored one is sent.
     const competitionChanged = edited !== undefined && edited !== null
       && (edited.competition !== stored.competition || edited.competitionName !== stored.competitionName);
-    if (opponent === game.opponent && date === game.date && season === game.season && !competitionChanged) return;
+    if (opponent === game.opponent && date === game.date && season === game.season && !competitionChanged) {
+      // Nothing to send: a competition edited back to the stored value must not keep the form from following the game.
+      if (competitionTouched) releaseCompetition(game.id, competitionEdits);
+      return;
+    }
+    const sentEdits = competitionEdits;
     try {
       // Both the old and the new season change when a game moves between them; the same season
       // still lists the game's opponent and date in its results.
       recountAfter(ctx, [game.season, season], ctx.repo.updateGameInfo(game.id, { opponent, date, season, ...(competitionChanged ? edited : {}) }))
-        .catch(ctx.onWriteError);
+        .then(() => { if (competitionTouched) releaseCompetition(game.id, sentEdits); }, ctx.onWriteError);
     } catch (err) {
       ctx.onWriteError(err);
     }
