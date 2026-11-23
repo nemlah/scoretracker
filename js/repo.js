@@ -45,14 +45,38 @@ function requireOnline() {
   }
 }
 
-// Validated and normalised competition fields. Callers that pass no competition (an old form) get
-// null and write nothing; an invalid one is refused before anything is written.
-function checkedCompetition(competition, competitionName) {
-  if (competition === undefined) return null;
+function checkedListName(raw, message = 'invalid name') {
+  if (typeof model.listName !== 'function') throw new Error('stale model');
+  const name = model.listName(raw);
+  if (name === null) throw new Error(message);
+  return name;
+}
+
+const listEntryData = (list, id, value) => ({ [list]: { [id]: value } });
+
+// Callers that omit competition leave the stored competition fields alone.
+function checkedCompetition(competition, competitionName, { tournamentId, phaseId, newEntry }) {
+  let entry;
+  if (newEntry != null) {
+    const { list } = newEntry;
+    const matches = (list === 'tournaments' && competition === 'tournament')
+      || (list === 'phases' && competition === 'league');
+    if (!matches) throw new Error('invalid competition');
+    const name = checkedListName(newEntry.name, 'invalid competition');
+    const id = crypto.randomUUID();
+    entry = listEntryData(list, id, { name });
+    if (list === 'tournaments') {
+      tournamentId = id;
+      competitionName = name;
+    } else {
+      phaseId = id;
+    }
+  }
+  if (competition === undefined) return { fields: null };
   if (typeof model.competitionFields !== 'function') throw new Error('stale model');
-  const fields = model.competitionFields(competition, competitionName ?? '');
+  const fields = model.competitionFields(competition, competitionName ?? '', { tournamentId, phaseId });
   if (fields === null) throw new Error('invalid competition');
-  return fields;
+  return { fields, entry };
 }
 
 export function createRepo(db) {
@@ -79,6 +103,11 @@ export function createRepo(db) {
     return setDoc(controlRef, { activeUid: uid, claimedAt: serverTimestamp() });
   }
 
+  function setListEntry(list, id, value) {
+    if (list !== 'tournaments' && list !== 'phases') throw new Error('invalid list');
+    return setDoc(teamRef, updated(listEntryData(list, id, value)), { merge: true });
+  }
+
   // The id of the newest game when it is newer than this one; null otherwise or when unreachable.
   async function newerGameId(gameId) {
     try {
@@ -96,6 +125,7 @@ export function createRepo(db) {
   return {
     /** The forms show the competition fields only when this is true; an older repo.js lacks it. */
     competitions: true,
+    competitionLists: true,
 
     watchTeam: (cb, onError) => watch(teamRef, cb, false, onError),
     watchGame: (gameId, cb, onError) => watch(gameRef(gameId), cb, true, onError),
@@ -141,6 +171,14 @@ export function createRepo(db) {
       return snapshot.docs.map(gameData);
     },
 
+    /** All server games after this client's pending writes, for checking list entry use. */
+    async listGamesFromServer() {
+      requireOnline();
+      await waitForPendingWrites(db);
+      const snapshot = await getDocsFromServer(gamesRef);
+      return snapshot.docs.map(gameData);
+    },
+
     async unlock(uid, code) {
       requireOnline();
       // Editor documents accept only code and claimedAt under the rules.
@@ -154,8 +192,23 @@ export function createRepo(db) {
       return setDoc(teamRef, updated({ roster }), { merge: true });
     },
 
-    createGame({ opponent, date, season = seasonFor(date), lineup, roster, competition, competitionName }) {
-      const fields = checkedCompetition(competition, competitionName);
+    addListEntry(list, name) {
+      const id = crypto.randomUUID();
+      return { id, done: setListEntry(list, id, { name: checkedListName(name) }) };
+    },
+
+    renameListEntry(list, id, name) {
+      return setListEntry(list, id, { name: checkedListName(name) });
+    },
+
+    removeListEntry(list, id) {
+      return setListEntry(list, id, deleteField());
+    },
+
+    createGame({
+      opponent, date, season = seasonFor(date), lineup, roster, competition, competitionName, tournamentId, phaseId, newEntry,
+    }) {
+      const { fields, entry } = checkedCompetition(competition, competitionName, { tournamentId, phaseId, newEntry });
       const ref = doc(gamesRef);
       const batch = writeBatch(db);
       batch.set(ref, updated({
@@ -173,6 +226,7 @@ export function createRepo(db) {
       batch.set(teamRef, updated({
         currentGameId: ref.id,
         roster: rosterWithCaps(roster, lineup),
+        ...entry,
       }), { merge: true });
       return { id: ref.id, done: batch.commit() };
     },
@@ -206,17 +260,24 @@ export function createRepo(db) {
     },
 
     /**
-     * Opponent, date and season are editable after the game has started. A given competition is
-     * written with its name (removed when it is not a tournament); without one the stored
-     * competition stays as it is.
+     * A competition edit clears fields that no longer apply. Omitting the applicable id keeps
+     * the existing link for older forms, and a league form can explicitly clear its phase.
      */
-    updateGameInfo(gameId, { opponent, date, season, competition, competitionName }) {
-      const fields = checkedCompetition(competition, competitionName);
-      const competitionData = fields === null ? {} : {
-        competition: fields.competition,
-        competitionName: fields.competitionName ?? deleteField(),
-      };
-      return updateDoc(gameRef(gameId), updated({ opponent, date, season, ...competitionData }));
+    updateGameInfo(gameId, info) {
+      const { opponent, date, season, competition, competitionName, tournamentId, phaseId, newEntry } = info;
+      const { fields, entry } = checkedCompetition(competition, competitionName, { tournamentId, phaseId, newEntry });
+      const changes = { opponent, date, season, ...fields };
+      if (fields !== null) {
+        changes.competitionName ??= deleteField();
+        if (competition !== 'tournament') changes.tournamentId = deleteField();
+        if (competition !== 'league' || (phaseId === null && fields.phaseId === undefined)) {
+          changes.phaseId = deleteField();
+        }
+      }
+      const batch = writeBatch(db);
+      batch.update(gameRef(gameId), updated(changes));
+      if (entry) batch.set(teamRef, updated(entry), { merge: true });
+      return batch.commit();
     },
 
     async endGame(gameId) {
@@ -252,9 +313,11 @@ export function createRepo(db) {
     },
 
     async recomputeSeason(season) {
-      // Totals written by an old model.js would count friendlies; the stats queue keeps the season
-      // dirty and retries on the next drain.
-      if (typeof model.competitionOf !== 'function') throw new Error('stale model');
+      // An old model might count friendlies or omit per-game lines. The stats queue keeps the
+      // season dirty and retries on the next drain.
+      if (typeof model.competitionOf !== 'function' || typeof model.sumLines !== 'function') {
+        throw new Error('stale model');
+      }
       requireOnline();
       // Our own queued writes (an offline end or edit) must reach the server first, or the
       // server read below would aggregate games as they were before them.

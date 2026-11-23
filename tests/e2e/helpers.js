@@ -167,12 +167,11 @@ export async function instrumentRepo(page, slow = {}) {
   const real = readFileSync('js/repo.js', 'utf8');
   const call = 'cb(data, { fromCache, hasPendingWrites });';
   if (!real.includes(call)) throw new Error('repo.js changed: update instrumentRepo');
-  const infoHead = 'updateGameInfo(gameId, { opponent, date, season, competition, competitionName }) {';
+  const infoHead = 'updateGameInfo(gameId, info) {';
   if (!real.includes(infoHead)) throw new Error('repo.js changed: update instrumentRepo');
   // Records what each updateGameInfo call was given (window.__infoCalls: { gameId, info }), before it is destructured.
-  const recorded = real.replace(infoHead, `updateGameInfo(gameId, info) {
-      (window.__infoCalls ??= []).push({ gameId, info: { ...info } });
-      const { opponent, date, season, competition, competitionName } = info;`);
+  const recorded = real.replace(infoHead, `${infoHead}
+      (window.__infoCalls ??= []).push({ gameId, info: { ...info } });`);
   const body = recorded.replace(call, `{
       const record = () => (window.__snaps ??= []).push({
         path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache,

@@ -12,6 +12,7 @@ const roster = [
 ];
 const lineup = [{ playerId: 'a', name: 'Alexiou', cap: 11 }];
 const gameInput = { opponent: 'Rivals', date: '2026-11-08', lineup, roster };
+const gameInfo = { opponent: 'Rivals', date: '2026-11-08', season: '2026-27' };
 let clientNumber = 0;
 const client = () => makeClient(`repo-${++clientNumber}`);
 const read = async (db, path) => (await getDocFromServer(doc(db, path))).data();
@@ -183,6 +184,24 @@ test('recomputeSeason stores four quarter score maps in each result', async () =
   assert.deepEqual(results[0].quarters, [
     { us: 1, them: 0 }, { us: 0, them: 1 }, { us: 0, them: 0 }, { us: 0, them: 0 },
   ]);
+});
+
+test('recomputeSeason stores per-game player lines and excludes friendlies from totals', async () => {
+  const { db, repo } = await activeClient();
+  const league = await createGame(repo, { ...gameInput, competition: 'league', phaseId: 'p1' });
+  await repo.addEvent(league, makeEvent('goal', 1, 'a', 1000, 'goal-1'));
+  await repo.endGame(league);
+  const friendly = await createGame(repo, { ...gameInput, date: '2026-11-09', competition: 'friendly' });
+  await repo.addEvent(friendly, makeEvent('excl', 1, 'a', 2000, 'excl-1'));
+  await repo.endGame(friendly);
+  await repo.recomputeSeason('2026-27');
+
+  const { players, results } = await read(db, 'stats/2026-27');
+  assert.deepEqual(results.map(row => row.gameId), [friendly, league]);
+  assert.deepEqual(results[0].players, { a: { name: 'Alexiou', goals: 0, excl: 1, pens: 0 } });
+  assert.deepEqual(results[1].players, { a: { name: 'Alexiou', goals: 1, excl: 0, pens: 0 } });
+  assert.equal(results[1].phaseId, 'p1');
+  assert.deepEqual(players, { a: { name: 'Alexiou', games: 1, goals: 1, excl: 0, pens: 0 } });
 });
 
 test('recomputeSeason includes this client\'s queued writes', async () => {
@@ -367,6 +386,66 @@ test('createGame without a competition stores no competition key', async () => {
   assert.equal('competitionName' in game, false);
 });
 
+test('createGame commits the game and its new tournament entry together', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo, {
+    ...gameInput,
+    competition: 'tournament',
+    competitionName: 'Splash - Volos',
+    newEntry: { list: 'tournaments', name: 'Splash - Volos' },
+  });
+  const game = await read(db, `games/${id}`);
+  const { tournaments } = await read(db, 'team/main');
+  assert.equal(typeof game.tournamentId, 'string');
+  assert.equal(game.competitionName, 'Splash - Volos');
+  assert.deepEqual(tournaments, { [game.tournamentId]: { name: 'Splash - Volos' } });
+});
+
+test('createGame omits null and undefined list ids', async () => {
+  const { db, repo } = await activeClient();
+  const tournament = await createGame(repo, {
+    ...gameInput, competition: 'tournament', competitionName: 'Summer Cup', tournamentId: null,
+  });
+  const league = await createGame(repo, { ...gameInput, competition: 'league', phaseId: undefined });
+  assert.equal('tournamentId' in (await read(db, `games/${tournament}`)), false);
+  assert.equal('phaseId' in (await read(db, `games/${league}`)), false);
+});
+
+test('list entry writes preserve other entries and the roster', async () => {
+  const { db, repo } = await activeClient();
+  await repo.saveRoster(roster);
+  const first = repo.addListEntry('phases', '  Round 1  ');
+  const second = repo.addListEntry('phases', 'Round 2');
+  assert.equal(typeof first.id, 'string');
+  assert.equal(typeof second.id, 'string');
+  assert.notEqual(first.id, second.id);
+  assert.ok(first.done instanceof Promise);
+  assert.ok(second.done instanceof Promise);
+  await Promise.all([first.done, second.done]);
+
+  let team = await read(db, 'team/main');
+  assert.deepEqual(team.phases, { [first.id]: { name: 'Round 1' }, [second.id]: { name: 'Round 2' } });
+  await repo.renameListEntry('phases', first.id, '  Group stage  ');
+  team = await read(db, 'team/main');
+  assert.deepEqual(team.phases, { [first.id]: { name: 'Group stage' }, [second.id]: { name: 'Round 2' } });
+  assert.deepEqual(team.roster, roster);
+
+  await repo.removeListEntry('phases', first.id);
+  team = await read(db, 'team/main');
+  assert.deepEqual(team.phases, { [second.id]: { name: 'Round 2' } });
+  assert.deepEqual(team.roster, roster);
+});
+
+test('list entry methods reject invalid lists and names before writing', async () => {
+  const { db, repo } = await activeClient();
+  assert.throws(() => repo.addListEntry('roster', 'Round 1'));
+  assert.throws(() => repo.renameListEntry('roster', 'p1', 'Round 1'));
+  assert.throws(() => repo.removeListEntry('roster', 'p1'));
+  assert.throws(() => repo.addListEntry('phases', '   '));
+  assert.throws(() => repo.renameListEntry('phases', 'p1', 'x'.repeat(41)));
+  assert.equal(await read(db, 'team/main'), undefined);
+});
+
 test('updateGameInfo moves a tournament game to friendly and removes the name', async () => {
   const { db, repo } = await activeClient();
   const id = await createGame(repo, { ...gameInput, competition: 'tournament', competitionName: 'Summer Cup' });
@@ -378,12 +457,92 @@ test('updateGameInfo moves a tournament game to friendly and removes the name', 
 
 test('updateGameInfo called without a competition leaves the stored one untouched', async () => {
   const { db, repo } = await activeClient();
-  const id = await createGame(repo, { ...gameInput, competition: 'tournament', competitionName: 'Summer Cup' });
-  await repo.updateGameInfo(id, { opponent: 'Harbour WPC', date: '2026-11-08', season: '2026-27' });
+  const id = await createGame(repo, {
+    ...gameInput, competition: 'tournament', competitionName: 'Summer Cup', tournamentId: 't1',
+  });
+  await repo.updateGameInfo(id, { ...gameInfo, opponent: 'Harbour WPC', tournamentId: 't2', phaseId: 'p1' });
   const game = await read(db, `games/${id}`);
   assert.equal(game.opponent, 'Harbour WPC');
   assert.equal(game.competition, 'tournament');
   assert.equal(game.competitionName, 'Summer Cup');
+  assert.equal(game.tournamentId, 't1');
+  assert.equal('phaseId' in game, false);
+});
+
+test('updateGameInfo keeps a tournament link on a free-text edit and accepts an explicit replacement', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo, {
+    ...gameInput, competition: 'tournament', competitionName: 'Summer Cup', tournamentId: 't1',
+  });
+  await setDoc(doc(db, 'games', id), { phaseId: 'p1' }, { merge: true });
+  const info = { ...gameInfo, competition: 'tournament', competitionName: 'New text' };
+  await repo.updateGameInfo(id, info);
+  let game = await read(db, `games/${id}`);
+  assert.equal(game.competitionName, 'New text');
+  assert.equal(game.tournamentId, 't1');
+  assert.equal('phaseId' in game, false);
+
+  await repo.updateGameInfo(id, { ...info, tournamentId: 't2' });
+  game = await read(db, `games/${id}`);
+  assert.equal(game.tournamentId, 't2');
+});
+
+test('updateGameInfo keeps an omitted league phase and removes an explicit null phase', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo, { ...gameInput, competition: 'league', phaseId: 'p1' });
+  await repo.updateGameInfo(id, { ...gameInfo, competition: 'league' });
+  assert.equal((await read(db, `games/${id}`)).phaseId, 'p1');
+
+  await setDoc(doc(db, 'games', id), { tournamentId: 't1' }, { merge: true });
+  await repo.updateGameInfo(id, { ...gameInfo, competition: 'league', phaseId: null });
+  const game = await read(db, `games/${id}`);
+  assert.equal(game.competition, 'league');
+  assert.equal('phaseId' in game, false);
+  assert.equal('tournamentId' in game, false);
+});
+
+test('updateGameInfo removes both list ids when switching to cup', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo, { ...gameInput, competition: 'league', phaseId: 'p1' });
+  await setDoc(doc(db, 'games', id), { tournamentId: 't1' }, { merge: true });
+  await repo.updateGameInfo(id, { ...gameInfo, competition: 'cup' });
+  const game = await read(db, `games/${id}`);
+  assert.equal(game.competition, 'cup');
+  assert.equal('phaseId' in game, false);
+  assert.equal('tournamentId' in game, false);
+});
+
+test('updateGameInfo commits the league game update and its new phase together', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo);
+  await repo.updateGameInfo(id, {
+    ...gameInfo, competition: 'league', phaseId: null, newEntry: { list: 'phases', name: '  Round 1  ' },
+  });
+  const game = await read(db, `games/${id}`);
+  const { phases } = await read(db, 'team/main');
+  assert.equal(game.competition, 'league');
+  assert.equal(typeof game.phaseId, 'string');
+  assert.deepEqual(phases, { [game.phaseId]: { name: 'Round 1' } });
+});
+
+test('updateGameInfo on a missing game leaves the team unchanged', async () => {
+  const { db, repo } = await activeClient();
+  await createGame(repo);
+  const team = await read(db, 'team/main');
+  await assert.rejects(repo.updateGameInfo('missing', {
+    ...gameInfo, competition: 'league', newEntry: { list: 'phases', name: 'Round 1' },
+  }), { code: 'not-found' });
+  assert.deepEqual(await read(db, 'team/main'), team);
+});
+
+test('listGamesFromServer waits for this client’s pending game creation', async () => {
+  const { db, repo } = await activeClient();
+  await disableNetwork(db);
+  const { id, done } = repo.createGame(gameInput);
+  await enableNetwork(db);
+  const games = await repo.listGamesFromServer();
+  await done;
+  assert.deepEqual(games.map(game => game.id), [id]);
 });
 
 test('createGame and updateGameInfo refuse an invalid competition synchronously and write nothing', async () => {
@@ -396,6 +555,8 @@ test('createGame and updateGameInfo refuse an invalid competition synchronously 
     { competition: 'tournament', competitionName: '   ' },
     { competition: 'tournament', competitionName: 'x'.repeat(41) },
     { competition: 'bogus' },
+    { competition: 'league', newEntry: { list: 'tournaments', name: 'Splash - Volos' } },
+    { competition: 'league', newEntry: { list: 'phases', name: '   ' } },
   ];
   for (const fields of bad) {
     assert.throws(() => repo.createGame({ ...gameInput, ...fields }), { message: 'invalid competition' });
@@ -409,4 +570,5 @@ test('createGame and updateGameInfo refuse an invalid competition synchronously 
 test('the repo reports that it knows competitions', async () => {
   const { repo } = await client();
   assert.equal(repo.competitions, true);
+  assert.equal(repo.competitionLists, true);
 });
