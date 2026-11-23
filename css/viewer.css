@@ -234,6 +234,8 @@ body.viewer {
   color: var(--v-led);
 }
 .board-date { font-size: 0.875rem; color: var(--v-board-muted); }
+/* A long tournament name wraps inside the board instead of widening the page. */
+.board-competition { min-width: 0; overflow-wrap: anywhere; }
 
 /* Two score rows: a 6 px club-colour bar, the name (and the crest, on the first row), the score. */
 .board-teams {

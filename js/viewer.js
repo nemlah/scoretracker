@@ -11,6 +11,8 @@ import { manUpGoalIds, replaySituations } from './situations.js';
 import {
   periodLabel, scoreText, t, timelineEntry,
 } from './strings.js';
+// A namespace import: the previous strings.js (a phone can mix releases) lacks competitionTag.
+import * as strings from './strings.js';
 import { clear, h } from './ui/dom.js';
 
 const STALE_MS = 6000;
@@ -309,6 +311,7 @@ const period = h('span', { class: 'board-period', 'data-testid': 'period', hidde
 const situationBadge = h('span', { class: 'board-chip', 'data-testid': 'situation-badge', hidden: true });
 const opponent = h('p', { class: 'board-name board-opp' });
 const gameDate = h('span', { class: 'board-date', 'data-testid': 'game-date', hidden: true });
+const gameCompetition = h('span', { class: 'board-date board-competition', 'data-testid': 'game-competition', hidden: true });
 // The one crest element: home shows it in the season header, the game screen after the team name.
 const crestSrc = teamConfig.crest ?? null;
 const crest = crestSrc ? h('img', {
@@ -319,7 +322,7 @@ const boardTeam = h('div', { class: 'board-team' }, h('h1', { class: 'board-name
 const scoreboard = h('section', { class: 'board', hidden: true },
   h('div', { class: 'board-top' },
     h('span', { class: 'board-tags' }, liveBadge, finalBadge),
-    h('span', { class: 'board-meta' }, situationBadge, period, gameDate)),
+    h('span', { class: 'board-meta' }, situationBadge, period, gameDate, gameCompetition)),
   h('div', { class: 'board-teams', 'aria-live': 'polite', 'aria-atomic': 'true' },
     h('span', { class: 'board-bar', 'aria-hidden': 'true' }), boardTeam, scoreUs,
     h('span', { 'aria-hidden': 'true' }), opponent, scoreThem),
@@ -605,6 +608,9 @@ function renderGame(game, tabsShown) {
   // The date is for a finished game; a live one is today's.
   gameDate.hidden = live;
   gameDate.textContent = live ? '' : formatDate(game.date);
+  const competition = competitionTag(game);
+  gameCompetition.hidden = competition === null;
+  gameCompetition.textContent = competition ?? '';
   const open = live ? replaySituations(game).open : null;
   situationBadge.hidden = open === null;
   situationBadge.textContent = open === null ? '' : t(open.kind === 'manUp' ? 'situationManUp' : 'situationManDown');
@@ -798,6 +804,17 @@ function timelineItem(event, game, manUpGoals, out) {
     h('div', { class: 'tl-side tl-side--them' }, theirs ? lines : null));
 }
 
+// The competition tag of a game or result row: null for a league game, and null when this strings.js predates it.
+const competitionTag = source => strings.competitionTag?.(source) ?? null;
+const countFriendlies = results => (Array.isArray(results)
+  ? results.filter(result => result?.competition === 'friendly').length : 0);
+// The Players and Team panels leave friendlies out; this says how many. Only with a strings.js that knows them.
+const friendliesNote = results => {
+  const n = typeof strings.competitionTag === 'function' ? countFriendlies(results) : 0;
+  return n > 0 ? h('p', { class: 'muted friendlies-note', 'data-testid': 'friendlies-note' },
+    t('friendliesNotCounted', { n })) : null;
+};
+
 // Home: the season in the state the plan names, one panel for each tab. Anything but home shows no season.
 function renderSeason(plan, tabsShown) {
   const results = plan.mode === 'home' ? plan.results : null;
@@ -808,12 +825,17 @@ function renderSeason(plan, tabsShown) {
   renderIfChanged(panelEls.results, [results, stats], () => resultsPanel(results, stats));
   // The season's totals carry no cap: it comes from the current roster, by player id.
   const caps = rosterCaps();
-  renderIfChanged(panelEls.players, [results, stats, [...caps]], () => seasonPlayersPanel(results, stats, caps));
+  renderIfChanged(panelEls.players, [results, stats, [...caps]], () => {
+    const note = results === 'ready' ? friendliesNote(stats?.results) : null;
+    return [...seasonPlayersPanel(results, stats, caps), ...(note ? [note] : [])];
+  });
   // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
   renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus], () => {
     if (results === 'failed') return teamUnavailable();
     if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
-    return teamPanel(() => state.teamView?.seasonPanel?.(stats ?? {}));
+    const panel = teamPanel(() => state.teamView?.seasonPanel?.(stats ?? {}));
+    const note = state.teamViewStatus === 'ready' ? friendliesNote(stats?.results) : null;
+    return note ? [...panel, note] : panel;
   });
 }
 
@@ -857,6 +879,7 @@ function seasonPlayersPanel(results, stats, caps) {
 function renderRecord(results) {
   const tally = { W: 0, L: 0, D: 0 };
   for (const result of Array.isArray(results) ? results : []) {
+    if (result?.competition === 'friendly') continue;
     const outcome = resultOutcome(result);
     if (outcome in tally) tally[outcome] += 1;
   }
@@ -880,13 +903,16 @@ function resultItem(result) {
   const date = typeof result.date === 'string' ? formatDate(result.date) : '';
   const pen = shootedOut
     ? t('resultPen', { us: result.soUs, them: result.soThem }) : null;
+  const tag = competitionTag(result);
   const body = [
     outcome ? h('span', { class: `result-chip result-chip-${outcome}`, 'data-testid': 'result-chip' },
       t(`result${outcome}`)) : null,
     h('span', { class: 'result-main' },
       h('span', { class: 'result-opp' }, result.opponent),
       h('span', { class: 'result-meta' },
-        h('span', { class: 'result-date' }, date), pen ? [' · ', h('span', { class: 'result-pen' }, pen)] : null)),
+        h('span', { class: 'result-date' }, date),
+        tag ? [' · ', h('span', { class: 'result-competition', 'data-testid': 'result-competition' }, tag)] : null,
+        pen ? [' · ', h('span', { class: 'result-pen' }, pen)] : null)),
     h('span', { class: 'result-tally' }, scored ? scoreText(result, false).main : t('resultNoScore')),
   ];
   // The link's name has what the row shows: the outcome as a word (the chip's "W" alone is not one), the score
@@ -894,9 +920,9 @@ function resultItem(result) {
   const score = pen ? `${scoreText(result, false).main}, ${pen}` : scoreText(result, false).main;
   const word = outcome ? t(`resultName${outcome}`) : null;
   const label = outcome
-    ? [t('resultLabel', { outcome: word, score, opponent: result.opponent }), date]
+    ? [t('resultLabel', { outcome: word, score, opponent: result.opponent }), date, tag]
       .filter(Boolean).join(', ')
-    : t('openGameFor', { opponent: result.opponent, date });
+    : [t('openGameFor', { opponent: result.opponent, date }), tag].filter(Boolean).join(', ');
   // A row with no game to open (data from before results kept the id) is not a link, so it has no chevron.
   const link = result.gameId == null ? h('div', { class: 'result-open' }, body) : h('a', {
     class: 'result-open',
