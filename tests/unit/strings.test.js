@@ -211,3 +211,9 @@ test('competition tags label non-league games and use the tournament name when p
   assert.equal(strings.competitionTag({ competition: 'tournament' }), 'Tournament');
   assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: '  ' }), 'Tournament');
 });
+
+test('competitionTag enforces the tournament name limit after trimming', () => {
+  const maxName = 'x'.repeat(40);
+  assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: ` ${maxName} ` }), maxName);
+  assert.equal(strings.competitionTag({ competition: 'tournament', competitionName: ` ${maxName}x ` }), 'Tournament');
+});

@@ -363,12 +363,15 @@ export function competitionLabel(competition) {
   }
 }
 
+// Keep this limit in sync with model.js without importing it across cache versions.
+const MAX_COMPETITION_NAME = 40;
+
 export function competitionTag(source) {
   const { competition, competitionName } = source ?? {};
   switch (competition) {
     case 'tournament': {
       const name = typeof competitionName === 'string' ? competitionName.trim() : '';
-      return name || competitionLabel(competition);
+      return name && name.length <= MAX_COMPETITION_NAME ? name : competitionLabel(competition);
     }
     case 'cup':
     case 'friendly':

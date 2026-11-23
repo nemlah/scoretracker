@@ -58,7 +58,7 @@ export function competitionOf(source) {
   if (!COMPETITIONS.includes(competition)) return { competition: 'league' };
   if (competition === 'tournament' && typeof competitionName === 'string') {
     const name = competitionName.trim();
-    if (name) return { competition, competitionName: name };
+    if (name && name.length <= MAX_COMPETITION_NAME) return { competition, competitionName: name };
   }
   return { competition };
 }
@@ -70,8 +70,7 @@ export function isFriendly(source) {
 export function competitionFields(competition, name) {
   const fields = competitionOf({ competition, competitionName: name });
   if (fields.competition !== competition) return null;
-  if (competition === 'tournament' &&
-      (!fields.competitionName || fields.competitionName.length > MAX_COMPETITION_NAME)) return null;
+  if (competition === 'tournament' && !fields.competitionName) return null;
   return fields;
 }
 

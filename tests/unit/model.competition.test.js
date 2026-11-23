@@ -22,6 +22,14 @@ test('competitionOf normalizes stored competition fields', () => {
   }
 });
 
+test('competitionOf enforces the tournament name limit after trimming', () => {
+  const maxName = 'x'.repeat(40);
+  assert.deepEqual(model.competitionOf({ competition: 'tournament', competitionName: ` ${maxName} ` }),
+    { competition: 'tournament', competitionName: maxName });
+  assert.deepEqual(model.competitionOf({ competition: 'tournament', competitionName: ` ${maxName}x ` }),
+    { competition: 'tournament' });
+});
+
 test('isFriendly identifies only friendly games', () => {
   assert.equal(model.isFriendly({ competition: 'friendly' }), true);
   for (const competition of ['league', 'cup', 'tournament', 'bogus', 'Friendly']) {
@@ -82,6 +90,17 @@ test('gameResult adds competition fields for non-league games', () => {
     assert.equal('competition' in result, false);
     assert.equal('competitionName' in result, false);
   }
+});
+
+test('gameResult preserves tournament metadata within the trimmed name limit', () => {
+  const maxName = 'x'.repeat(40);
+  const game = { ...leagueFinal, competition: 'tournament' };
+  const named = model.gameResult({ ...game, competitionName: ` ${maxName} ` });
+  assert.equal(named.competition, 'tournament');
+  assert.equal(named.competitionName, maxName);
+  const unnamed = model.gameResult({ ...game, competitionName: ` ${maxName}x ` });
+  assert.equal(unnamed.competition, 'tournament');
+  assert.equal('competitionName' in unnamed, false);
 });
 
 test('aggregateSeason keeps friendly results while excluding their players, goalies and situations', () => {
