@@ -59,16 +59,18 @@ const noSideScroll = page => page.evaluate(() => ({
 }));
 
 // The tag is fully visible: every line rectangle of its text lies inside the container's rectangle on all four
-// sides, and inside the rectangle of every ancestor up to the container that clips (overflow-x or overflow-y not
-// visible). The nearest block holding it must also not overflow (an inline element has no scrollWidth of its own).
+// sides, and inside the rectangle of the tag and any ancestors up to the container if they clip (overflow-x or
+// overflow-y not visible). The nearest block holding it must also not overflow (an inline element has no scrollWidth of its own).
 async function expectTagFits(tag, container) {
   await expect(tag).toBeVisible();
   const fit = await tag.evaluate((el, containerEl) => {
     const within = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5
       && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
-    const lines = [...el.getClientRects()];
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const lines = [...range.getClientRects()];
     const boxes = [containerEl.getBoundingClientRect()];
-    for (let node = el.parentElement; node && node !== containerEl; node = node.parentElement) {
+    for (let node = el; node && node !== containerEl; node = node.parentElement) {
       const style = getComputedStyle(node);
       if (style.overflowX !== 'visible' || style.overflowY !== 'visible') boxes.push(node.getBoundingClientRect());
     }
