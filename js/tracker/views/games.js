@@ -55,7 +55,7 @@ export function mount(root, ctx) {
   let infoFor = null; // id of the game the details form was last filled from
   let seasonTouched = false;
   let competitionTouched = false; // set once either competition field has been edited by hand
-  let entryInFlight = null; // id of the game whose save that adds a list entry is not yet answered
+  const entryInFlight = new Set(); // ids of games with a save that adds a list entry and is not yet answered
   let autoRelink = false; // the competition fields hold the automatic legacy prefill, which follows the lists until a hand edit
   let competitionEdits = 0; // counts hand edits, so an acknowledged save can tell whether a newer edit started
 
@@ -411,17 +411,17 @@ export function mount(root, ctx) {
     }
     // A second submit before the first one is answered would send the same new entry again, under another id.
     const newEntry = competitionChanged && edited.newEntry !== undefined;
-    if (newEntry && entryInFlight === game.id) return;
+    if (newEntry && entryInFlight.has(game.id)) return;
     const sentEdits = competitionEdits;
-    if (newEntry) entryInFlight = game.id;
+    if (newEntry) entryInFlight.add(game.id);
     try {
       // Both the old and the new season change when a game moves between them; the same season
       // still lists the game's opponent and date in its results.
       recountAfter(ctx, [game.season, season], ctx.repo.updateGameInfo(game.id, { opponent, date, season, ...(competitionChanged ? edited : {}) }))
-        .then(() => { if (entryInFlight === game.id) entryInFlight = null; if (competitionTouched) releaseCompetition(game.id, sentEdits); },
-          err => { if (entryInFlight === game.id) entryInFlight = null; ctx.onWriteError(err); });
+        .then(() => { if (newEntry) entryInFlight.delete(game.id); if (competitionTouched) releaseCompetition(game.id, sentEdits); },
+          err => { if (newEntry) entryInFlight.delete(game.id); ctx.onWriteError(err); });
     } catch (err) {
-      if (entryInFlight === game.id) entryInFlight = null;
+      if (newEntry) entryInFlight.delete(game.id);
       ctx.onWriteError(err);
     }
   }
