@@ -460,13 +460,22 @@ test('updateGameInfo called without a competition leaves the stored one untouche
   const id = await createGame(repo, {
     ...gameInput, competition: 'tournament', competitionName: 'Summer Cup', tournamentId: 't1',
   });
-  await repo.updateGameInfo(id, { ...gameInfo, opponent: 'Harbour WPC', tournamentId: 't2', phaseId: 'p1' });
+  const lists = { tournaments: { t1: { name: 'Summer Cup' } }, phases: { p1: { name: 'Round 1' } } };
+  await setDoc(doc(db, 'team', 'main'), lists, { merge: true });
+  await repo.updateGameInfo(id, {
+    opponent: 'Harbour WPC', date: '2026-07-01', season: '2025-26',
+    tournamentId: 't2', phaseId: 'p1', newEntry: { list: 'tournaments', name: 'New Cup' },
+  });
   const game = await read(db, `games/${id}`);
   assert.equal(game.opponent, 'Harbour WPC');
+  assert.equal(game.date, '2026-07-01');
+  assert.equal(game.season, '2025-26');
   assert.equal(game.competition, 'tournament');
   assert.equal(game.competitionName, 'Summer Cup');
   assert.equal(game.tournamentId, 't1');
   assert.equal('phaseId' in game, false);
+  const { tournaments, phases } = await read(db, 'team/main');
+  assert.deepEqual({ tournaments, phases }, lists);
 });
 
 test('updateGameInfo keeps a tournament link on a free-text edit and accepts an explicit replacement', async () => {

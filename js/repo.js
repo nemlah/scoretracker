@@ -265,7 +265,9 @@ export function createRepo(db) {
      */
     updateGameInfo(gameId, info) {
       const { opponent, date, season, competition, competitionName, tournamentId, phaseId, newEntry } = info;
-      const { fields, entry } = checkedCompetition(competition, competitionName, { tournamentId, phaseId, newEntry });
+      const { fields, entry } = competition === undefined
+        ? { fields: null }
+        : checkedCompetition(competition, competitionName, { tournamentId, phaseId, newEntry });
       const changes = { opponent, date, season, ...fields };
       if (fields !== null) {
         changes.competitionName ??= deleteField();
