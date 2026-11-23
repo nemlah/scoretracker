@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures.js';
 import { aggregateSeason } from '../../js/model.js';
-import { closeAll, get, resetAll, seed, update } from './helpers.js';
+import { closeAll, get, instrumentRepo, resetAll, seed, update } from './helpers.js';
 import { CODE, HOME_URL, TRACKER_URL, collectProblems, unlockTracker } from './tracker-helpers.js';
 
 const roster = [
@@ -11,6 +11,9 @@ const lineupP5 = [{ playerId: 'p5', name: 'Alexiou', cap: 5 }];
 const goal = id => ({ id, type: 'goal', period: 1, ts: 1000, playerId: 'p5' });
 // 40 characters, no break opportunity, Greek.
 const LONG_NAME = 'Τουρνουά'.repeat(5);
+
+// instrumentRepo serves its own copy of repo.js, which the service worker must not replace.
+test.use({ serviceWorkers: 'block' });
 
 let problems;
 test.beforeEach(async ({ page }) => {
@@ -124,7 +127,8 @@ test('changing a counted game to friendly recounts the season without it and tag
   await page.getByTestId('info-save').click();
 
   await expect(page.getByTestId('game-meta')).toHaveText('01/10/2026 · 2026-27 · Friendly');
-  expect(await get('games/g1')).toMatchObject({ competition: 'friendly' });
+  // The meta follows the local write; the server may not have it yet.
+  await expect.poll(async () => (await get('games/g1')).competition).toBe('friendly');
   await expect.poll(async () => (await get('stats/2026-27')).players).toEqual({});
   const stats = await get('stats/2026-27');
   expect(stats.results).toHaveLength(1);
@@ -149,6 +153,7 @@ test('a snapshot does not overwrite a competition being edited', async ({ page }
 });
 
 test('an untouched competition follows the game and is not sent by an opponent-only save', async ({ page }) => {
+  await instrumentRepo(page);
   await seedFinal('g1');
   await openDetail(page);
   await expect(page.getByTestId('info-competition')).toHaveValue('league');
@@ -160,6 +165,12 @@ test('an untouched competition follows the game and is not sent by an opponent-o
   await page.getByTestId('info-save').click();
   await expect.poll(async () => (await get('games/g1')).opponent).toBe('Harbour WPC');
   expect((await get('games/g1')).competition).toBe('cup');
+  // The form sent the opponent change only: neither competition key was in the payload.
+  const calls = await page.evaluate(() => window.__infoCalls);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].info.opponent).toBe('Harbour WPC');
+  expect(Object.keys(calls[0].info)).not.toContain('competition');
+  expect(Object.keys(calls[0].info)).not.toContain('competitionName');
 });
 
 test('a 40-character Greek tournament name fits at 360 px in the list and the form', async ({ page }) => {

@@ -161,12 +161,19 @@ export const recordedHome = async page => ({
 // its loading state. window.__queued counts each snapshot put on hold.
 // { cached: true } delivers every snapshot as if from the cache,
 // so the server never seems to confirm it (the record still says what the server really sent).
+// window.__infoCalls lists the arguments of every repo.updateGameInfo call.
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
   const real = readFileSync('js/repo.js', 'utf8');
   const call = 'cb(data, { fromCache, hasPendingWrites });';
   if (!real.includes(call)) throw new Error('repo.js changed: update instrumentRepo');
-  const body = real.replace(call, `{
+  const infoHead = 'updateGameInfo(gameId, { opponent, date, season, competition, competitionName }) {';
+  if (!real.includes(infoHead)) throw new Error('repo.js changed: update instrumentRepo');
+  // Records what each updateGameInfo call was given (window.__infoCalls: { gameId, info }), before it is destructured.
+  const recorded = real.replace(infoHead, `updateGameInfo(gameId, info) {
+      (window.__infoCalls ??= []).push({ gameId, info: { ...info } });
+      const { opponent, date, season, competition, competitionName } = info;`);
+  const body = recorded.replace(call, `{
       const record = () => (window.__snaps ??= []).push({
         path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache,
       });
