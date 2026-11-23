@@ -180,6 +180,8 @@ const STRINGS = {
   listNameDuplicate: 'That name is already in the list',
   listEntryRemoved: 'That entry was removed. Pick again',
   listOptionRemoved: '(removed)',
+  listCheckFailed: 'Cannot check which entries games use, so Remove is off',
+  competitionsUnavailable: 'Competitions are not available in this version. Reload the page.',
 
   // Roster
   rosterHeading: 'Roster',

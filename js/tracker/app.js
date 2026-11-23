@@ -4,6 +4,7 @@ import { initFirebase, signIn } from '../firebase.js';
 import { createJournal } from '../journal.js';
 import { formatDate } from '../model.js';
 import { createRepo } from '../repo.js';
+import * as strings from '../strings.js';
 import { eventLabel, t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
 import { createWriteErrorHandler } from './ownership.js';
@@ -18,8 +19,46 @@ import * as newgame from './views/newgame.js';
 import * as roster from './views/roster.js';
 import * as unlock from './views/unlock.js';
 
+// The Competitions screen is loaded when its route is entered, not imported above: a phone can hold
+// this file beside the previous release's module cache, and a missing or failing view must not stop
+// the tracker from starting. The view also says whether repo, model and strings are all this release's.
+const competitions = {
+  mount(el, viewCtx) {
+    const slot = h('div');
+    el.append(slot);
+    let inner = null;
+    let latest = null;
+    let gone = false;
+    const unavailable = () => slot.replaceChildren(h('p', { class: 'help', 'data-testid': 'competitions-unavailable' },
+      strings.hasString?.('competitionsUnavailable') === true ? t('competitionsUnavailable') : t('trackerUnavailable')));
+    import('./views/competitions.js').then(module => {
+      if (gone) return;
+      if (module.available?.(viewCtx) !== true) {
+        unavailable();
+        return;
+      }
+      inner = module.mount(slot, viewCtx);
+      if (latest) inner.update(latest);
+    }).catch(err => {
+      console.warn('Competitions screen unavailable', err);
+      if (!gone) unavailable();
+    });
+    return {
+      update(next) {
+        latest = next;
+        inner?.update(next);
+      },
+      unmount() {
+        gone = true;
+        inner?.unmount();
+        el.replaceChildren();
+      },
+    };
+  },
+};
+
 // Views by first route segment.
-const ROUTES = { '': home, roster, new: newgame, live, games };
+const ROUTES = { '': home, roster, new: newgame, live, games, competitions };
 const TOAST_MS = 5000;
 // A write that is still unanswered after this long is shown as "not synced yet"; the usual
 // round trip is well under it, so an ordinary tap does not flash the offline text.
@@ -247,6 +286,8 @@ const ctx = {
   navigate,
   getState: () => state,
   onWriteError,
+  // Home shows the Competitions row only from a build that has the route: the previous app.js sends it back to Home.
+  competitionsRoute: true,
 };
 
 function refreshFailed() {

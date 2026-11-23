@@ -187,6 +187,12 @@ body.tracker:has(.unlock) { background: var(--t-board); }
 .edit-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; }
 .edit-form .input:first-child { flex: 1 1 10rem; width: auto; }
 .edit-form .form-error { flex-basis: 100%; }
+.competitions { display: grid; gap: 1.5rem; }
+.competitions-section { display: grid; gap: 0.75rem; }
+.competitions-section h2 { margin: 0; }
+.competitions-section .form-error, .competitions .help { margin: 0; }
+.list-name { flex: 1 1 12rem; min-width: 0; font-size: 1.125rem; font-weight: 700; overflow-wrap: anywhere; }
+.list-used { flex-basis: 100%; }
 .archived summary {
   min-height: 3.25rem;
   padding-inline: 1rem;

@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../../sw.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://pool.example';
 const SCOPE = `${ORIGIN}/`;
-const CACHE_NAME = `wp-shell-v5::${SCOPE}`;
+const CACHE_NAME = `wp-shell-v6::${SCOPE}`;
 const keyOf = (input, ignoreSearch) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
   if (ignoreSearch) url.search = '';
@@ -158,7 +158,7 @@ test('the shell cache is named after the worker scope, so sibling sites keep the
   assert.deepEqual([...new Set(sw.opened)], [CACHE_NAME]);
   const project = boot({ scope: `${ORIGIN}/scoretracker/`, fetchImpl: async () => new Response('x') });
   await (await project.dispatch(page)).response;
-  assert.deepEqual([...new Set(project.opened)], [`wp-shell-v5::${ORIGIN}/scoretracker/`]);
+  assert.deepEqual([...new Set(project.opened)], [`wp-shell-v6::${ORIGIN}/scoretracker/`]);
 });
 
 test('activation deletes only this scope\'s obsolete shell caches', async () => {

@@ -1,11 +1,14 @@
 import { team } from '../../config.js';
 import { deriveScore, formatDate } from '../../model.js';
+import * as model from '../../model.js';
+import * as strings from '../../strings.js';
 import { periodLabel, t } from '../../strings.js';
 import { h } from '../../ui/dom.js';
 
 const NAV_ICONS = {
   new: 'M12 5v14M5 12h14',
   roster: 'M16 11a4 4 0 1 0-8 0a4 4 0 1 0 8 0M4 21a8 8 0 0 1 16 0',
+  competitions: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   games: 'M21 12a9 9 0 1 1-18 0a9 9 0 1 1 18 0M12 7v5l3 2',
 };
 
@@ -41,8 +44,13 @@ export function mount(root, ctx) {
   const rosterCount = h('span', { class: 'home-nav-count', 'data-testid': 'home-roster-count' });
   const gamesCount = h('span', { class: 'home-nav-count', 'data-testid': 'home-games-count', hidden: true });
   const start = navRow('new', 'homeNew');
+  // The Competitions row needs this release's app.js (the route), repo, model and strings together.
+  const competitionsOn = ctx.competitionsRoute === true && ctx.repo?.competitionLists === true
+    && typeof model.listEntries === 'function' && strings.hasString?.('homeCompetitions') === true;
   const nav = h('nav', { class: 'stack home-nav', 'aria-label': t('homeNav') },
-    start, navRow('roster', 'homeRoster', rosterCount), navRow('games', 'homeGames', gamesCount));
+    start, navRow('roster', 'homeRoster', rosterCount),
+    competitionsOn ? navRow('competitions', 'homeCompetitions') : null,
+    navRow('games', 'homeGames', gamesCount));
   const home = h('section', { class: 'home home--board' }, nav);
   root.append(home);
 
