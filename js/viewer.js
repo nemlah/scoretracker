@@ -1014,7 +1014,7 @@ function rosterNames() {
   return names;
 }
 
-function seasonPlayersPanel(results, stats, caps, names = new Map()) {
+function seasonPlayersPanel(results, stats, caps, names) {
   if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
   if (results === 'failed') return [h('p', { class: 'muted' }, t('resultsFailed'))];
   const players = Object.entries(stats?.players ?? {})

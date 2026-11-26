@@ -92,18 +92,31 @@ test('a rename redraws the totals and goalies and their order without a stats wr
 });
 
 test('a scoped Players view uses the current names too', async ({ page }) => {
+  const rosterNow = [...roster, { id: 'p3', name: 'Γάμμα', cap: 3, archived: false }];
   await seed('team/main', {
-    roster, phases: { f1: { name: 'Regular season' } }, tournaments: { t1: { name: 'Spring Cup' } },
+    roster: rosterNow, phases: { f1: { name: 'Regular season' } }, tournaments: { t1: { name: 'Spring Cup' } },
   });
-  const games = [
-    { ...finalGame, phaseId: 'f1' },
-    { ...finalGame, id: 'h', opponent: 'Bravo FC', date: '2026-10-10', competition: 'tournament', tournamentId: 't1' },
-  ];
-  await seed(`stats/${SEASON}`, aggregateSeason(games, [
-    { id: 'p1', name: 'Παλιό', cap: 1 }, { id: 'p2', name: 'Βήτα', cap: 2 },
+  const goals = (id, who, n) => Array.from({ length: n }, (_, i) => (
+    { id: `${id}-${who}${i}`, type: 'goal', period: 1, ts: 10 + i, playerId: who }));
+  // The league game: p1 twice, p2 once. The tournament game: p2 twice and p3, who scores only there.
+  const league = { ...finalGame, phaseId: 'f1', events: [...goals('g', 'p1', 2), ...goals('g', 'p2', 1)] };
+  const cup = {
+    ...finalGame, id: 'h', opponent: 'Bravo FC', date: '2026-10-10', competition: 'tournament', tournamentId: 't1',
+    lineup: [{ playerId: 'p2', name: 'Βήτα', cap: 2 }, { playerId: 'p3', name: 'Παλιός Γάμμα', cap: 3 }],
+    events: [...goals('h', 'p2', 2), ...goals('h', 'p3', 1)],
+  };
+  await seed(`stats/${SEASON}`, aggregateSeason([league, cup], [
+    { id: 'p1', name: 'Παλιό', cap: 1 }, { id: 'p2', name: 'Βήτα', cap: 2 }, { id: 'p3', name: 'Παλιός Γάμμα', cap: 3 },
   ]));
   await openPlayers(page);
+  // Season first: all three players, p2 on the 3 goals of both games.
+  await expect(names(page, 'season-row')).toHaveText(['Βήτα', 'Νέο', 'Γάμμα']);
+  await expect(page.getByTestId('season-row').locator('td:nth-child(3)')).toHaveText(['3', '2', '1']);
+
   await page.getByTestId('scope-select').selectOption('tournament:t1');
+  // The tournament game alone: p1 is gone, p2 has 2 goals, and p3's stored name gives way to the roster's.
   await expect(page.getByTestId('season-row')).toHaveCount(2);
-  await expect(names(page, 'season-row')).toHaveText(['Νέο', 'Βήτα']);
+  await expect(names(page, 'season-row')).toHaveText(['Βήτα', 'Γάμμα']);
+  await expect(page.getByTestId('season-row').locator('td:nth-child(3)')).toHaveText(['2', '1']);
+  await expect(page.getByTestId('season-row').filter({ hasText: 'Παλιός' })).toHaveCount(0);
 });
