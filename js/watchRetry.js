@@ -16,13 +16,14 @@ export function keepWatching(open, options = {}) {
     onFail = () => {},
     holdCached = false,
     startFailed = false,
-    delays = DEFAULT_DELAYS,
+    delays: givenDelays = DEFAULT_DELAYS,
     jitter = 0.2,
     random = Math.random,
     timers = { setTimeout, clearTimeout },
     now = Date.now,
     minRetryNowMs = 10000,
   } = options;
+  const delays = Array.isArray(givenDelays) && givenDelays.length > 0 ? givenDelays : DEFAULT_DELAYS;
   // Called unbound on purpose: a browser's setTimeout throws when `this` is not the window.
   const { setTimeout: setTimer, clearTimeout: clearTimer } = timers;
 
@@ -33,7 +34,9 @@ export function keepWatching(open, options = {}) {
   let counter = 0;
   let unsubscribe = null;
   let timer = null;
-  let lastOpenAt = -Infinity;
+  // With startFailed the construction counts as the last attempt, so an early retryNow() cannot
+  // skip the first delay.
+  let lastOpenAt = startFailed ? now() : -Infinity;
 
   function release(unsub) {
     // An unsubscribe that throws must not stop the retry from being scheduled.
@@ -46,24 +49,30 @@ export function keepWatching(open, options = {}) {
 
   function schedule() {
     cancelTimer();
+    if (stopped) return;
     const base = delays[Math.min(step, delays.length - 1)];
     step++;
     timer = setTimer(() => { timer = null; attempt(); }, base * (1 - jitter + 2 * jitter * random()));
   }
 
-  // Ends the live attempt (if any) so its callbacks are ignored from now on.
-  function dropAttempt() {
+  // Ends the live attempt (if any) so its callbacks are ignored from now on, and hands back its
+  // unsubscribe. The caller reserves its own state first and only then calls the unsubscribe:
+  // the cleanup may re-enter stop() or retryNow().
+  function takeAttempt() {
     token = 0;
     const unsub = unsubscribe;
     unsubscribe = null;
-    release(unsub);
+    return unsub;
   }
 
   function attempt() {
-    dropAttempt();
+    const old = takeAttempt();
     const mine = ++counter;
-    token = mine;
+    token = mine; // reserved before the old cleanup runs
     lastOpenAt = now();
+    release(old);
+    // The cleanup stopped the watch, or re-entered and opened a newer attempt.
+    if (stopped || token !== mine) return;
 
     const next = (data, meta) => {
       if (stopped || token !== mine) return;
@@ -77,10 +86,11 @@ export function keepWatching(open, options = {}) {
     };
     const fail = err => {
       if (stopped || token !== mine) return;
-      dropAttempt();
+      const unsub = takeAttempt();
       failedNow = true;
-      schedule();
-      onFail(err);
+      schedule(); // before the cleanup: a stop() in it then cancels this timer
+      release(unsub);
+      if (!stopped) onFail(err);
     };
 
     let unsub;
@@ -108,7 +118,7 @@ export function keepWatching(open, options = {}) {
       if (stopped) return;
       stopped = true;
       cancelTimer();
-      dropAttempt();
+      release(takeAttempt());
     },
     failed: () => failedNow,
   };

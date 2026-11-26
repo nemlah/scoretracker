@@ -347,3 +347,90 @@ test('an unsubscribe returned after a synchronous fail is called, and late callb
   assert.equal(calls, 2);
   assert.equal(unsubscribed, 1, 'the second attempt is still open');
 });
+
+test('startFailed: an early retryNow does not skip the first delay', () => {
+  const h = harness({ startFailed: true });
+  h.advance(500);
+  h.watch.retryNow();
+  assert.equal(h.opens.length, 0, 'throttled: the construction counts as the last attempt');
+  h.advance(1499);
+  assert.equal(h.opens.length, 0);
+  h.advance(1);
+  assert.equal(h.opens.length, 1, 'the initial timer stayed in force');
+  assert.equal(h.opens[0].at, 2000);
+
+  const slow = harness({ startFailed: true, delays: [60000] });
+  slow.advance(9999);
+  slow.watch.retryNow();
+  assert.equal(slow.opens.length, 0, 'still throttled at 9.999 s');
+  slow.advance(1);
+  slow.watch.retryNow();
+  assert.equal(slow.opens.length, 1, 'allowed once minRetryNowMs has passed');
+  slow.advance(60000);
+  assert.equal(slow.opens.length, 1, 'the initial timer was cancelled');
+});
+
+// An opener whose unsubscribe for attempt number `index` (0-based) runs `onUnsubscribe` once.
+function reentrantHarness(index, onUnsubscribe, options = {}) {
+  const ref = {};
+  let ran = false;
+  ref.h = harness(options, ({ next, fail, opens, at }) => {
+    const attempt = { next, fail, unsubscribed: 0, at };
+    const mine = opens.length;
+    opens.push(attempt);
+    return () => {
+      attempt.unsubscribed++;
+      if (mine === index && !ran) { ran = true; onUnsubscribe(ref.h); }
+    };
+  });
+  return ref.h;
+}
+
+test('an unsubscribe that calls stop() leaves nothing opened or scheduled (after a failure)', () => {
+  const h = reentrantHarness(0, x => x.watch.stop());
+  h.opens[0].fail(new Error('x'));
+  assert.equal(h.opens[0].unsubscribed, 1);
+  assert.equal(h.pendingTimers(), 0, 'no reopen queued after stop');
+  h.advance(120000);
+  assert.equal(h.opens.length, 1);
+});
+
+test('an unsubscribe that calls stop() during a replacement opens nothing', () => {
+  const h = reentrantHarness(1, x => x.watch.stop());
+  h.opens[0].fail(new Error('x'));
+  h.advance(12000); // the reopen at 2 s is still failed
+  assert.equal(h.opens.length, 2);
+  h.watch.retryNow();
+  assert.equal(h.opens[1].unsubscribed, 1);
+  assert.equal(h.opens.length, 2, 'no listener opened after stop');
+  assert.equal(h.pendingTimers(), 0);
+  h.opens[1].next({ late: 1 }, server);
+  assert.equal(h.got.length, 0);
+  h.advance(120000);
+  assert.equal(h.opens.length, 2);
+});
+
+test('an unsubscribe that calls retryNow() during a replacement leaves exactly one live listener', () => {
+  const h = reentrantHarness(1, x => x.watch.retryNow(), { minRetryNowMs: 0 });
+  h.opens[0].fail(new Error('x'));
+  h.advance(2000);
+  assert.equal(h.opens.length, 2);
+  h.watch.retryNow();
+  assert.equal(h.opens.length, 3, 'one new attempt, not two');
+  assert.deepEqual(h.opens.map(o => o.unsubscribed), [1, 1, 0], 'only the newest is live');
+  h.opens[1].next({ stale: true }, server);
+  assert.equal(h.got.length, 0);
+  h.opens[2].next({ fresh: true }, server);
+  assert.deepEqual(h.got.map(g => g.data), [{ fresh: true }]);
+});
+
+test('an empty or invalid delays option falls back to the default delays', () => {
+  for (const delays of [[], 'x', null, 5]) {
+    const h = harness({ delays });
+    h.opens[0].fail(new Error('x'));
+    h.advance(1999);
+    assert.equal(h.opens.length, 1, `delays ${JSON.stringify(delays)}`);
+    h.advance(1);
+    assert.equal(h.opens.length, 2, `delays ${JSON.stringify(delays)}`);
+  }
+});
