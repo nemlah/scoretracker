@@ -251,6 +251,15 @@ export function latestNewGoal(prevEvents, nextEvents) {
   }, null);
 }
 
+// One version per event id: the last one wins and sits at its own position. Entries without a string id
+// are kept as they are. Returns the same array when nothing repeats.
+export function uniqueEvents(events) {
+  const last = new Map();
+  events.forEach((event, i) => { if (typeof event?.id === 'string') last.set(event.id, i); });
+  const keep = events.filter((event, i) => typeof event?.id !== 'string' || last.get(event.id) === i);
+  return keep.length === events.length ? events : keep;
+}
+
 export function timeline(events) {
   return [...PERIODS].reverse().flatMap(period => {
     const entries = events.filter(event => event.period === period
@@ -569,4 +578,52 @@ export function viewerState({ route, team, game, live, stats, offline, calendarS
     tracked: { team: true, game: isGame, live: isHome, stats: isHome },
     mode, season, results, banner,
   };
+}
+
+// Oldest first: date, then createdAt, then id. A null createdAt is a pending server timestamp (newest);
+// a missing one is oldest.
+function createdKey(game) {
+  const c = game.createdAt;
+  if (c === null) return Infinity;
+  if (c === undefined) return -Infinity;
+  return typeof c.toMillis === 'function' ? c.toMillis() : -Infinity;
+}
+
+export function compareGames(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+  const ka = createdKey(a);
+  const kb = createdKey(b);
+  if (ka !== kb) return ka < kb ? -1 : 1;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
+}
+
+export function newestGame(games, excludeId) {
+  let best = null;
+  for (const game of games) {
+    if (game.id === excludeId) continue;
+    if (best === null || compareGames(game, best) > 0) best = game;
+  }
+  return best;
+}
+
+// Id of a game that sorts after the ended one, or null. Unknown without a real createdAt on the ended game.
+export function newerThan(ended, candidates) {
+  if (typeof ended?.createdAt?.toMillis !== 'function') return null;
+  const newest = newestGame(candidates, ended.id);
+  return newest !== null && compareGames(newest, ended) > 0 ? newest.id : null;
+}
+
+export function validDocId(id) {
+  return id !== '' && !id.includes('/') && id !== '.' && id !== '..'
+    && !/^__.*__$/.test(id) && new TextEncoder().encode(id).length <= 1500;
+}
+
+export function parseGamesRoute(route) {
+  const m = /^\/games(?:\/(.*))?$/.exec(route);
+  if (m === null || m[1] === undefined || m[1] === '') return { kind: m === null ? 'invalid' : 'list' };
+  if (m[1].includes('/')) return { kind: 'invalid' };
+  let id;
+  try { id = decodeURIComponent(m[1]); } catch { return { kind: 'invalid' }; }
+  return validDocId(id) ? { kind: 'detail', id } : { kind: 'invalid' };
 }
