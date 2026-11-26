@@ -44,10 +44,12 @@ export function mount(root, ctx) {
 
   const keyOf = (list, id) => `${list}/${id}`;
   const entryRefs = () => LISTS.flatMap(({ list }) => model.listEntries(state.team?.[list]).map(entry => ({ list, id: entry.id })));
-  const anyFailed = () => (perEntry ? failed.size > 0 : checkFailed);
   const writable = () => state.active === true || state.writable === true;
-  const removable = (list, id) => writable() && state.online !== false && usedKnown && !checkFailed && !removing
-    && !used[list].has(id) && !failed.has(keyOf(list, id));
+  const removable = perEntry
+    ? (list, id) => writable() && state.online !== false && usedKnown && !failed.has(keyOf(list, id)) && !removing
+      && !used[list].has(id)
+    : (list, id) => writable() && state.online !== false && usedKnown && !checkFailed && !removing
+      && !used[list].has(id);
 
   async function readUse() {
     try {
@@ -333,7 +335,7 @@ export function mount(root, ctx) {
 
   function sync() {
     for (const section of sections) section.render();
-    note.hidden = !(anyFailed() || state.online === false);
+    note.hidden = perEntry ? !(failed.size > 0 || state.online === false) : !(checkFailed || state.online === false);
     syncRemoves();
   }
 
@@ -345,7 +347,7 @@ export function mount(root, ctx) {
       state = next;
       sync();
       // A failed check is asked again once the device is online, unless a retry is already waiting.
-      if (anyFailed() && next.online !== false && retryTimer === null) refreshUse();
+      if ((perEntry ? failed.size > 0 : checkFailed) && next.online !== false && retryTimer === null) refreshUse();
     },
     unmount() {
       unmounted = true;

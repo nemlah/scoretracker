@@ -160,12 +160,14 @@ export function mount(root, ctx) {
     });
   }
 
-  // The answer of a re-read for the rows shown: the previously last shown game and everything above it, so a
-  // game that arrived on top pushes nothing out of view. If that game is gone, as many rows as were shown.
-  function trimmed(result, shownCount, lastId) {
+  // The answer of a re-read for the rows shown: cut after the last of the previously shown games that it holds
+  // (a game that was edited can have moved), so everything shown stays and a game that arrived on top pushes
+  // nothing out of view. If none of them is in it, as many rows as were shown.
+  function trimmed(result, shownCount, shownIds) {
     const games = result.games;
     const snapshots = result.snapshots ?? [];
-    const at = games.findIndex(game => game.id === lastId);
+    let at = -1;
+    games.forEach((game, index) => { if (shownIds.has(game.id)) at = index; });
     const count = at >= 0 ? at + 1 : Math.min(games.length, Math.max(PAGE, shownCount));
     if (count === games.length || snapshots[count - 1] === undefined) return result;
     return { ...result, games: games.slice(0, count), cursor: snapshots[count - 1], more: true };
@@ -182,13 +184,13 @@ export function mount(root, ctx) {
     }
     const token = listToken += 1;
     const shownCount = loadedGames.length;
-    const lastId = loadedGames.at(-1)?.id;
+    const shownIds = new Set(loadedGames.map(game => game.id));
     pageLoading = true;
     syncMore();
     Promise.resolve(ctx.repo.listGamesPage({ pageSize: shownCount + PAGE })).then(result => {
       if (unmounted || token !== listToken) return;
       pageLoading = false;
-      const kept = trimmed(result, shownCount, lastId);
+      const kept = trimmed(result, shownCount, shownIds);
       takePage(kept, kept.games);
       syncMore();
       if (refreshPending) {
@@ -217,7 +219,12 @@ export function mount(root, ctx) {
       cursor = result.cursor;
       more = result.more;
       anyFromCache ||= result.fromCache === true;
-      if (result.fromCache !== true) retries = 0; // a server answer starts the retry budget over
+      if (result.fromCache !== true) {
+        // A server answer starts the retry budget over and a pending retry is not needed.
+        retries = 0;
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
       loadedGames = [...loadedGames, ...result.games];
       renderRowsFromGames();
       syncMore();

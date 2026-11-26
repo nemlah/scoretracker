@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
-import { closeAll, get, noSideScroll, resetAll, seed } from './helpers.js';
+import { closeAll, get, noSideScroll, resetAll, seed, update } from './helpers.js';
 import {
   CODE, HOME_URL, SERVER_WAIT, collectProblems, dropNetworkNoise, unlockTracker,
 } from './tracker-helpers.js';
@@ -115,6 +115,8 @@ async function stubPages(page) {
       const entry = { after: options.after != null, pageSize: options.pageSize ?? 20 };
       (window.__pageLog ??= []).push(entry);
       const gate = window.__gates?.shift();
+      const before = window.__befores?.shift(); // holds the read itself, so the server can change first
+      if (before) await before;
       const page = await this.__realListGamesPage(options);
       // A test can have the next reads reported as cache answers, to stand for a connection that has not come back yet.
       if (window.__forceCached > 0) { window.__forceCached -= 1; page.fromCache = true; }
@@ -227,6 +229,28 @@ test('a cached Show more answer still reloads after the retries ran out and a se
   await page.getByTestId('games-more').click();
   await expect(rows(page).first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
   await expect(rows(page)).toHaveCount(46);
+});
+
+test('a reload keeps every shown row when the last one moved to the top', async ({ page }) => {
+  await stubPages(page);
+  await seedGames(45);
+  await openGames(page);
+  // Show more answers as if from the cache, so the list re-reads from page one; that re-read waits until the test lets it go.
+  await page.evaluate(() => {
+    window.__forceCached = 1;
+    window.__befores = [null, new Promise(resolve => { window.__go = resolve; })];
+  });
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(40);
+  const shown = await hrefs(page);
+  expect(shown.at(-1)).toBe('#/games/g06');
+  // The last shown game gets the newest date on the server, then the re-read goes ahead.
+  await update('games/g06', { date: '2026-12-31' });
+  await page.evaluate(() => window.__go());
+  await expect(rows(page).first()).toHaveAttribute('href', '#/games/g06', { timeout: SERVER_WAIT });
+  await expect(rows(page)).toHaveCount(40);
+  expect(await hrefs(page)).toEqual(['#/games/g06', ...shown.slice(0, -1)]);
+  await expect(page.getByTestId('games-more')).toBeVisible();
 });
 
 test('an invalid game route shows the not-found state without an error', async ({ page }) => {
