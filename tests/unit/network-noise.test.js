@@ -6,6 +6,7 @@ import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from '../e2e/n
 const lostConnection = 'Failed to load resource: The network connection was lost.';
 const firestore = `http://${EMULATOR.host}:${EMULATOR.firestorePort}/google.firestore.v1.Firestore`;
 const listen = `${firestore}/Listen/channel?VER=8&RID=rpc`;
+const documents = (project) => `http://${EMULATOR.host}:${EMULATOR.firestorePort}/v1/projects/${project}/databases/(default)/documents`;
 
 for (const [name, text, dropped] of [
   ['drops the exact Playwright service worker warning', 'Service Worker registration blocked by Playwright', true],
@@ -25,6 +26,13 @@ for (const [name, text, url, dropped] of [
   ['keeps a lost request with no URL', lostConnection, undefined, false],
   ['keeps a different error on the Listen channel', 'Failed to load resource: The request timed out.', listen, false],
   ['keeps a lost request to a different Firestore endpoint', lostConnection, `${firestore}/Listen/channelStatus`, false],
+  ['drops a lost runAggregationQuery for a worker project', lostConnection, `${documents('demo-scoretracker-0')}:runAggregationQuery?key=demo`, true],
+  ['drops a lost runAggregationQuery for the project without a worker suffix', lostConnection, `${documents('demo-scoretracker')}:runAggregationQuery`, true],
+  ['keeps a lost documents:runQuery', lostConnection, `${documents('demo-scoretracker-0')}:runQuery`, false],
+  ['keeps a lost documents/games/abc GET', lostConnection, `${documents('demo-scoretracker-0')}/games/abc`, false],
+  ['keeps a different error on the aggregation URL', 'Failed to load resource: The request timed out.', `${documents('demo-scoretracker-0')}:runAggregationQuery`, false],
+  ['keeps a lost aggregation for a different project', lostConnection, `${documents('other-project')}:runAggregationQuery`, false],
+  ['keeps a lost aggregation on a different port', lostConnection, `${documents('demo-scoretracker-0').replace(`:${EMULATOR.firestorePort}/`, ':1/')}:runAggregationQuery`, false],
 ]) {
   test(name, () => assert.equal(isFirestoreChannelLoss(text, url), dropped));
 }
