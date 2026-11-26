@@ -9,6 +9,7 @@ import { eventLabel, t } from '../strings.js';
 import { clear, h } from '../ui/dom.js';
 import { createWriteErrorHandler } from './ownership.js';
 import * as ownership from './ownership.js';
+import * as recount from './recount.js';
 import { createRecovery } from './recovery.js';
 import { createStatsQueue } from './statsQueue.js';
 import { createTapper } from './taps.js';
@@ -143,6 +144,8 @@ let writesInFlight = 0;
 // its latest { game, meta } snapshot. Every one of them can settle that game's journal entries.
 const gameWatches = new Set();
 let stats = null;
+// Drains again after a failed recount. Null with a recount.js from before it existed.
+let redrain = null;
 let wasActive = false;
 let repairPending = false;
 let couldReconcile = false;
@@ -281,7 +284,13 @@ const ctx = {
   // waits until this device is active; whatever is left stays queued for the next drain.
   stats: {
     markDirty: season => stats?.markDirty(season),
-    drain: () => (stats && state.active ? stats.drain() : Promise.resolve(noDrain)),
+    drain() {
+      if (!(stats && state.active)) return Promise.resolve(noDrain);
+      const drained = stats.drain();
+      // Every result passes here once; the redrain's own timer calls this too, so a retry that
+      // fails again schedules the next one.
+      return redrain ? drained.then(result => { redrain.after(result); return result; }) : drained;
+    },
   },
   navigate,
   getState: () => state,
@@ -636,6 +645,12 @@ async function boot() {
     repo = createRepo(db);
     journal = createJournal(safeStorage());
     stats = createStatsQueue(safeStorage(), season => repo.recomputeSeason(season));
+    // Read through the namespace: this file can run beside a recount.js from the previous release.
+    redrain = recount.createRedrain?.({
+      drain: () => ctx.stats.drain(),
+      isActive: () => state.active,
+      hasDirty: () => stats.dirty().length > 0,
+    }) ?? null;
     // Unlocking also clears any "code changed" state, whichever view asked for it.
     ctx.repo = {
       ...repo,

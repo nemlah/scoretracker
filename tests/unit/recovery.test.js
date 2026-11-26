@@ -109,7 +109,7 @@ test('retry reads an unwatched game from the server and removes the version it h
   assert.deepEqual(reads, ['old']);
   assert.deepEqual(calls, [
     ['removeEvent', 'old', e1],
-    ['markDirty', '2025-26'], ['drain'],
+    ['markDirty', '2025-26'],
     ['markDirty', '2025-26'], ['drain'],
   ]);
 });
