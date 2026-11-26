@@ -95,54 +95,91 @@ export function mount(root, ctx) {
     showMore.disabled = pageLoading;
   }
 
+  const PAGE = 20;
   // A page read from the cache while the device says it is online (the connection has just returned and
-  // Firestore has not reconnected yet) is read again, quietly, a few times.
+  // Firestore has not reconnected yet) is read again, quietly, a few times. The re-read asks for at least as
+  // many rows as are shown, and it never overlaps a Show more: it waits for one in flight.
   const CACHED_RETRY_MS = 2000;
   const CACHED_RETRIES = 5;
   let retryTimer = null;
   let retries = 0;
+  let refreshPending = false; // a re-read is waiting for the Show more in flight
 
-  function loadList({ quiet = false } = {}) {
+  function scheduleRefresh() {
+    if (!anyFromCache || ctx.getState().online === false || retries >= CACHED_RETRIES || retryTimer !== null) return;
+    retries += 1;
+    retryTimer = setTimeout(() => { retryTimer = null; refresh(); }, CACHED_RETRY_MS);
+  }
+
+  function takePage(result, shown) {
+    cursor = result.cursor;
+    more = result.more;
+    anyFromCache = result.fromCache === true;
+    loadedGames = shown;
+    listStatus.hidden = true;
+    listEmpty.hidden = shown.length > 0;
+    renderRowsFromGames();
+  }
+
+  function loadList() {
     const token = listToken += 1;
     clearTimeout(retryTimer);
     retryTimer = null;
-    if (!quiet) {
-      retries = 0;
-      listStatus.hidden = false;
-      listStatus.textContent = t('gamesLoading');
-      listEmpty.hidden = true;
-      listRows.replaceChildren();
-      loadedGames = null;
-      cursor = null;
-      more = false;
-      anyFromCache = false;
-      pageLoading = true;
-      syncMore();
-    }
+    retries = 0;
+    refreshPending = false;
+    listStatus.hidden = false;
+    listStatus.textContent = t('gamesLoading');
+    listEmpty.hidden = true;
+    listRows.replaceChildren();
+    loadedGames = null;
+    cursor = null;
+    more = false;
+    anyFromCache = false;
+    pageLoading = true;
+    syncMore();
     const paged = typeof ctx.repo.listGamesPage === 'function';
     Promise.resolve(paged ? ctx.repo.listGamesPage() : ctx.repo.listGames()).then(result => {
       if (unmounted || token !== listToken) return;
-      const games = paged ? result.games : result;
-      if (paged) {
-        cursor = result.cursor;
-        more = result.more;
-        anyFromCache = result.fromCache === true;
-      }
       pageLoading = false;
-      listStatus.hidden = true;
-      listEmpty.hidden = games.length > 0;
-      loadedGames = games;
-      renderRowsFromGames();
+      if (paged) takePage(result, result.games);
+      else takePage({ cursor: null, more: false, fromCache: false }, result);
       syncMore();
-      if (anyFromCache && ctx.getState().online !== false && retries < CACHED_RETRIES) {
-        retries += 1;
-        retryTimer = setTimeout(() => { retryTimer = null; loadList({ quiet: true }); }, CACHED_RETRY_MS);
-      }
+      scheduleRefresh();
     }, () => {
-      if (unmounted || token !== listToken || quiet) return; // a quiet read that fails keeps the rows shown
+      if (unmounted || token !== listToken) return;
       pageLoading = false;
       listStatus.textContent = t('gamesLoadFailed');
       syncMore();
+    });
+  }
+
+  // Reads page one again with room for every row shown, replacing the list. The rows stay on screen until it answers.
+  function refresh() {
+    if (unmounted || mode?.kind !== 'list' || loadedGames === null) return;
+    if (pageLoading) {
+      refreshPending = true;
+      return;
+    }
+    const token = listToken += 1;
+    pageLoading = true;
+    syncMore();
+    Promise.resolve(ctx.repo.listGamesPage({ pageSize: Math.max(PAGE, loadedGames.length) })).then(result => {
+      if (unmounted || token !== listToken) return;
+      pageLoading = false;
+      takePage(result, result.games);
+      syncMore();
+      if (refreshPending) {
+        refreshPending = false;
+        refresh();
+      } else {
+        scheduleRefresh();
+      }
+    }, () => {
+      if (unmounted || token !== listToken) return;
+      pageLoading = false;
+      syncMore();
+      refreshPending = false;
+      scheduleRefresh(); // the cache answer is still what is shown
     });
   }
 
@@ -160,10 +197,21 @@ export function mount(root, ctx) {
       loadedGames = [...loadedGames, ...result.games];
       renderRowsFromGames();
       syncMore();
+      // A page that came from the cache while online, or a re-read that waited for this one, is read from page one.
+      if (refreshPending) {
+        refreshPending = false;
+        refresh();
+      } else {
+        scheduleRefresh();
+      }
     }, () => {
       if (unmounted || token !== listToken) return;
       pageLoading = false;
       syncMore();
+      if (refreshPending) {
+        refreshPending = false;
+        refresh();
+      }
     });
   }
 
@@ -560,7 +608,10 @@ export function mount(root, ctx) {
     listView.hidden = mode.kind !== 'list';
     detailView.hidden = mode.kind === 'list';
     if (mode.kind === 'list') {
-      if (reload) loadList();
+      if (reload) {
+        retries = 0;
+        refresh();
+      }
       // A rename or a new entry re-tags the loaded rows without reloading the games.
       else if (loadedGames !== null && listsKey() !== shownListsKey) renderRowsFromGames();
       return;

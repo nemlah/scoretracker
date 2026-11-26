@@ -103,7 +103,7 @@ function parseRoute(hash) {
   if (!match) return { kind: 'home' };
   try {
     const id = decodeURIComponent(match[1]);
-    return (model.validDocId ?? validDocId)(id) ? { kind: 'game', id } : { kind: 'invalid' };
+    return (model.validDocId?.(id) ?? validDocId(id)) ? { kind: 'game', id } : { kind: 'invalid' };
   } catch {
     return { kind: 'invalid' };
   }

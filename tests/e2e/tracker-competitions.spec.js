@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures.js';
 import { closeAll, get, noSideScroll, resetAll, seed, update } from './helpers.js';
@@ -292,6 +293,52 @@ test('a check that failed while online is retried without remounting, for the fa
   expect(await page.evaluate(() => window.__useCalls)).toEqual({ t1: 2, t2: 1 });
   await remove.click();
   await expect.poll(async () => (await get('team/main')).tournaments).toEqual({ t2: { name: 'Other Cup' } });
+});
+
+// A phone holding the previous repo.js has no listEntryInUse: every check reads the whole games list, and what that read
+// says replaces what was known for every entry.
+test.describe('previous repo.js', () => {
+  const previousRepo = () => execSync('git show 67cd574:js/repo.js', { encoding: 'utf8', maxBuffer: 1 << 20 });
+
+  async function serveOld(page, extra = '') {
+    const head = 'async listGamesFromServer() {';
+    const old = previousRepo();
+    expect(old).toContain(head);
+    await page.route('**/js/repo.js', route => route.fulfill({
+      contentType: 'text/javascript',
+      body: old.replace(head, `${head} window.__scans = (window.__scans ?? 0) + 1; ${extra}`),
+    }));
+  }
+
+  test('a Remove rescans every game, so another entry linked meanwhile shows as in use', async ({ page }) => {
+    await serveOld(page);
+    await seed('team/main', { roster: [], tournaments: { t1: { name: 'Cup One' }, t2: { name: 'Cup Two' } } });
+    await openCompetitions(page);
+    const t2 = entry(tournaments(page), 't2');
+    await expect(t2.getByTestId('list-remove')).toBeEnabled({ timeout: SERVER_WAIT });
+    await expect(entry(tournaments(page), 't1').getByTestId('list-remove')).toBeEnabled();
+    // Another device links a game to t2 after the first check.
+    await seedFinal('late', { competition: 'tournament', competitionName: 'Cup Two', tournamentId: 't2' });
+    await entry(tournaments(page), 't1').getByTestId('list-remove').click();
+    await expect.poll(async () => (await get('team/main')).tournaments).toEqual({ t2: { name: 'Cup Two' } });
+    await expect(t2.getByTestId('list-in-use')).toBeVisible();
+    await expect(t2.getByTestId('list-remove')).toBeDisabled();
+  });
+
+  test('a failed scan on Remove turns every removal off and removes nothing', async ({ page }) => {
+    // The second scan (the one the click makes) fails; the first and the retry are the real thing.
+    await serveOld(page, "if (window.__scans === 2) throw new Error('scan failed');");
+    await seed('team/main', { roster: [], tournaments: { t1: { name: 'Cup One' }, t2: { name: 'Cup Two' } } });
+    await openCompetitions(page);
+    await expect(entry(tournaments(page), 't2').getByTestId('list-remove')).toBeEnabled({ timeout: SERVER_WAIT });
+    await entry(tournaments(page), 't1').getByTestId('list-remove').click();
+    await expect(page.getByTestId('list-check-note')).toBeVisible();
+    await expect(entry(tournaments(page), 't2').getByTestId('list-remove')).toBeDisabled();
+    expect(await page.evaluate(() => window.__scans)).toBe(2);
+    expect((await get('team/main')).tournaments).toEqual({ t1: { name: 'Cup One' }, t2: { name: 'Cup Two' } });
+    // The retry reads again and turns removal back on.
+    await expect(entry(tournaments(page), 't2').getByTestId('list-remove')).toBeEnabled({ timeout: SERVER_WAIT });
+  });
 });
 
 test('at 360 px a 40-character Greek name with Rename and Remove does not scroll sideways', async ({ page }) => {

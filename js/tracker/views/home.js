@@ -62,10 +62,17 @@ export function mount(root, ctx) {
     h('span', { class: 'tracker-chevron', 'aria-hidden': 'true' }));
   }
 
+  // The count is read only while online (the previous repo.js would answer an offline listGames from its
+  // cache), hidden when the device disconnects and read again when it reconnects.
+  let online = ctx.getState().online !== false;
+  let countToken = 0;
+
   async function loadGameCount() {
+    if (!online) return;
+    const mine = countToken += 1;
     try {
       const count = ctx.repo.countGames ? await ctx.repo.countGames() : (await ctx.repo.listGames()).length;
-      if (unmounted) return;
+      if (unmounted || mine !== countToken || !online) return;
       gamesCount.textContent = count;
       gamesCount.hidden = false;
     } catch {
@@ -75,6 +82,17 @@ export function mount(root, ctx) {
 
   function update(state) {
     const { game } = state;
+    const nowOnline = state.online !== false;
+    if (nowOnline !== online) {
+      online = nowOnline;
+      if (online) {
+        loadGameCount();
+      } else {
+        countToken += 1;
+        gamesCount.hidden = true;
+        gamesCount.textContent = '';
+      }
+    }
     const count = (state.team?.roster ?? []).filter(player => player.archived !== true).length;
     rosterCount.textContent = t(count === 1 ? 'homeRosterCountOne' : 'homeRosterCount', { count });
     const isLive = game?.status === 'live';

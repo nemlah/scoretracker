@@ -103,39 +103,109 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
-test('a list built offline reloads from page one when back online', async ({ page, context }) => {
+// Wraps listGamesPage: logs each call ({ after, pageSize }) and, for a call that has a gate in window.__gates, keeps
+// the answer back (after the read is made) until the test opens the gate. The log gets fromCache when it is delivered.
+async function stubPages(page) {
   const real = readFileSync('js/repo.js', 'utf8');
   const head = 'async listGamesPage(';
   expect(real).toContain(head);
-  // Records, per call, whether the first page came from the cache.
   await page.route('**/js/repo.js', route => route.fulfill({
     contentType: 'text/javascript',
-    body: real.replace(head, `async listGamesPage(...args) {
-      const page = await this.__realListGamesPage(...args);
-      (window.__pageCalls ??= []).push({ after: args[0]?.after != null, fromCache: page.fromCache });
+    body: real.replace(head, `async listGamesPage(options = {}) {
+      const entry = { after: options.after != null, pageSize: options.pageSize ?? 20 };
+      (window.__pageLog ??= []).push(entry);
+      const gate = window.__gates?.shift();
+      const page = await this.__realListGamesPage(options);
+      if (gate) await gate;
+      entry.fromCache = page.fromCache;
       return page;
     },
     async __realListGamesPage(`),
   }));
-  await seedGames(5);
-  await openGames(page);
-  await expect(rows(page)).toHaveCount(5);
-  await page.getByTestId('nav-home').click();
+}
 
+// 23 games, every one in the cache; then the device goes offline on Home, so the next visit to Past games reads the cache.
+async function cacheAllThenGoOffline(page, context) {
+  await seedGames();
+  await openGames(page);
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(23);
+  await page.getByTestId('nav-home').click();
   await context.setOffline(true);
   await expect(page.getByTestId('offline-banner')).toBeVisible();
   await page.getByTestId('home-games').click();
-  await expect(rows(page)).toHaveCount(5, { timeout: SERVER_WAIT });
-  const calls = await page.evaluate(() => window.__pageCalls);
-  expect(calls.at(-1)).toEqual({ after: false, fromCache: true });
+  await expect(rows(page)).toHaveCount(20, { timeout: SERVER_WAIT });
+  expect((await page.evaluate(() => window.__pageLog)).at(-1)).toMatchObject({ after: false, fromCache: true });
+}
 
-  await seed('games/g99', {
-    opponent: 'Brand New FC', date: '2026-11-30', season: '2026-27', status: 'final', period: 4, lineup: [], events: [],
-  });
+const newGame = () => seed('games/g99', {
+  opponent: 'Brand New FC', date: '2026-11-30', season: '2026-27', status: 'final', period: 4, lineup: [], events: [],
+});
+const expectedIds = (from, to) => Array.from({ length: from - to + 1 }, (_, i) => `#/games/g${pad(from - i)}`);
+
+test('a list with a cached second page reloads when back online: the new game on top, every row kept', async ({ page, context }) => {
+  await stubPages(page);
+  await cacheAllThenGoOffline(page, context);
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(23);
+  expect((await page.evaluate(() => window.__pageLog)).at(-1)).toMatchObject({ after: true, fromCache: true });
+
+  await newGame();
   await context.setOffline(false);
   await expect(rows(page).first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
-  await expect(rows(page)).toHaveCount(6);
-  expect((await page.evaluate(() => window.__pageCalls)).at(-1)).toEqual({ after: false, fromCache: false });
+  // The re-read asked for the 23 rows shown, so none was lost; the game pushed out of that window is behind Show more.
+  const reread = (await page.evaluate(() => window.__pageLog)).filter(call => !call.after).at(-1);
+  expect(reread).toMatchObject({ pageSize: 23, fromCache: false });
+  const links = await hrefs(page);
+  expect(links).toEqual(['#/games/g99', ...expectedIds(23, 2)]);
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(24);
+  expect(await hrefs(page)).toEqual(['#/games/g99', ...expectedIds(23, 1)]);
+  await expect(page.getByTestId('games-more')).toBeHidden();
+  dropNetworkNoise(problems);
+});
+
+test('a cached Show more answer that arrives just after the connection returns still reloads the list', async ({ page, context }) => {
+  await stubPages(page);
+  await seedGames();
+  await openGames(page);
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(23);
+  // Back to page one from the server, with every game already in the cache; the connection then drops on the list.
+  await page.getByTestId('nav-home').click();
+  await page.getByTestId('home-games').click();
+  await expect(rows(page)).toHaveCount(20);
+  expect((await page.evaluate(() => window.__pageLog)).at(-1)).toMatchObject({ after: false, fromCache: false });
+  await context.setOffline(true);
+  await expect(page.getByTestId('offline-banner')).toBeVisible();
+  // The cached read is made now but its answer is held until after the online event, so the list has no cached page at that moment.
+  await page.evaluate(() => { window.__gates = [new Promise(resolve => { window.__open = resolve; })]; });
+  await page.getByTestId('games-more').click();
+  await newGame();
+  await context.setOffline(false);
+  await expect(page.getByTestId('offline-banner')).toBeHidden();
+  await page.evaluate(() => window.__open());
+  await expect(page.getByTestId('game-row').first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
+  expect((await page.evaluate(() => window.__pageLog)).filter(call => call.after).at(-1)).toMatchObject({ fromCache: true });
+  dropNetworkNoise(problems);
+});
+
+test('a reload that meets a Show more in flight waits for it and keeps the rows it asked for', async ({ page, context }) => {
+  await stubPages(page);
+  await cacheAllThenGoOffline(page, context);
+  await page.evaluate(() => { window.__gates = [new Promise(resolve => { window.__open = resolve; })]; });
+  await page.getByTestId('games-more').click();
+  await newGame();
+  // The connection returns while Show more is still in flight: the reload is due now, not dropped, and does not drop Show more.
+  await context.setOffline(false);
+  await expect(page.getByTestId('offline-banner')).toBeHidden();
+  expect((await page.evaluate(() => window.__pageLog)).filter(call => !call.after)).toHaveLength(2); // one online, one cached
+  await page.evaluate(() => window.__open());
+  await expect(rows(page).first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
+  const log = await page.evaluate(() => window.__pageLog);
+  // The Show more answer was used (23 rows), so the re-read asked for 23.
+  expect(log.at(-1)).toMatchObject({ after: false, pageSize: 23, fromCache: false });
+  expect(await hrefs(page)).toEqual(['#/games/g99', ...expectedIds(23, 2)]);
   dropNetworkNoise(problems);
 });
 
@@ -185,6 +255,34 @@ test.describe('mixed module cache', () => {
     await page.getByTestId('home-games').click();
     await expect(rows(page)).toHaveCount(23);
     await expect(page.getByTestId('games-more')).toBeHidden();
+  });
+
+  test('with the previous repo.js the Home count is hidden offline, never read offline, and read again on reconnect', async ({ page, context }) => {
+    const old = previous('js/repo.js');
+    const head = 'async listGames() {';
+    expect(old).toContain(head);
+    await serve(page, 'js/repo.js', old.replace(head, `${head} window.__listCalls = (window.__listCalls ?? 0) + 1;`));
+    await seedGames();
+    await page.goto(HOME_URL);
+    await unlockTracker(page);
+    const count = page.getByTestId('home-games-count');
+    await expect(count).toHaveText('23');
+    const online = await page.evaluate(() => window.__listCalls);
+
+    await context.setOffline(true);
+    await expect(page.getByTestId('offline-banner')).toBeVisible();
+    // The disconnect hides it at once.
+    await expect(count).toBeHidden();
+    // Home mounted again offline asks for nothing: the previous repo.js would answer from its cache.
+    await page.getByTestId('home-roster').click();
+    await page.getByTestId('nav-home').click();
+    await expect(page.getByTestId('home-roster-count')).toBeVisible();
+    expect(await page.evaluate(() => window.__listCalls)).toBe(online);
+    await expect(count).toBeHidden();
+
+    await context.setOffline(false);
+    await expect(count).toHaveText('23', { timeout: SERVER_WAIT });
+    dropNetworkNoise(problems);
   });
 
   test('with the previous games.js: Past games lists all 23', async ({ page }) => {
