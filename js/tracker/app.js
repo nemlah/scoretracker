@@ -760,10 +760,7 @@ async function boot() {
       onChange() { refreshFailed(); render(); },
     });
     // Loaded next to the sign-in; a module missing from a mixed cache leaves every listener as it was.
-    const retryModule = import('../watchRetry.js').catch(err => {
-      console.warn('Watch retry unavailable', err);
-      return null;
-    });
+    const retryModule = import('../watchRetry.js').catch(() => null);
     [state.uid, watchRetry] = await Promise.all([signIn(auth), retryModule]);
   } catch (err) {
     console.warn('Tracker failed to start', err);
@@ -781,9 +778,14 @@ function subscribe() {
   if (unsubscribers.length > 0) return;
   const editor = keep((next, fail) => repo.watchOwnEditor(state.uid, next, fail), {
     onSnapshot(doc, meta) {
+      const recovered = editorFailed && !meta.fromCache;
       if (!meta.fromCache) editorFailed = false;
-      // An unconfirmed local write (e.g. a code the server may still reject) must not unlock the UI.
-      if (meta.hasPendingWrites) return;
+      // An unconfirmed local write (e.g. a code the server may still reject) must not unlock the UI. The
+      // recovery itself still shows: the offline banner follows the failed flag.
+      if (meta.hasPendingWrites) {
+        if (recovered) syncChrome();
+        return;
+      }
       noteServer(meta);
       editorDoc = doc;
       editorLoaded = true;

@@ -3,7 +3,7 @@ import { test, expect } from './fixtures.js';
 import {
   closeAll, consoleProblems, get, instrumentRepo, resetAll, seed, update,
 } from './helpers.js';
-import { isFirestoreChannelLoss } from './network-noise.js';
+import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import {
   CODE, HOME_URL, SERVER_WAIT, dropNetworkNoise, editEvent, formatConsoleProblem, otherDeviceTakesControl,
   reloadTracker, unlockTracker,
@@ -43,13 +43,18 @@ const setVisibility = (page, visibility) => page.evaluate(value => {
 const reopenHeld = (page, path) => expect.poll(() => counter(page, '__queued', path), { timeout: SERVER_WAIT }).toBe(1);
 const release = (page, path) => page.evaluate(p => window.__releaseHeld(p), path);
 
-// A confirming tap right after arming counts as a double tap and is ignored, so wait it out.
-async function armThenConfirm(page, testid) {
+// The first tap arms the button. A confirming tap too soon after arming counts as a double tap and is ignored (the
+// button stays armed), and nothing on the page says when the guard has passed. So the confirming tap is retried until
+// its outcome is on the server: an ignored tap leaves the game live and the next try, still inside the 4 s window,
+// goes through.
+async function armThenConfirm(page, testid, confirmed) {
   const button = page.getByTestId(testid);
   await button.click();
   await expect(button).toHaveText('Tap again to confirm');
-  await page.waitForTimeout(700);
-  await button.click();
+  await expect(async () => {
+    await button.click({ timeout: 1000 });
+    await expect.poll(confirmed, { timeout: 1500 }).toBe(true);
+  }).toPass({ timeout: SERVER_WAIT });
 }
 
 let problems;
@@ -65,35 +70,57 @@ test.afterEach(() => {
 });
 test.afterAll(closeAll);
 
+// The device is unlocked and in control first (no failure rule yet), then the page reloads with the rules. The failure
+// a rule injects at boot, right after the first server answer, then meets a screen that is ready to be used, and a test
+// can act inside the first backoff step (2 s, at least 1.6 s) before the listener is reopened.
 async function openTracker(page, rules, hash = '#/live') {
-  await instrumentRepo(page, rules);
   await page.goto(HOME_URL);
   await unlockTracker(page);
   await go(page, hash);
+  await instrumentRepo(page, rules);
+  await reloadTracker(page, problems);
+}
+
+// Taps a goal as soon as the game listener's failure has landed, and says the listener had not been reopened yet: a
+// tap after the reopen could show through the reopened listener's cached snapshot and prove nothing.
+async function tapWhileDown(page) {
+  await page.waitForFunction(() => window.__failures?.['games/g1'] === 1, null, { polling: 'raf' });
+  await tile(page, 5).getByTestId('tile-goal').click();
+  expect(await counter(page, '__attempts', 'games/g1'), 'the tap came after the listener was reopened').toBe(1);
+  // The tap is in the journal at once, with no server answer yet.
+  expect(await journalOf(page)).toHaveLength(1);
 }
 
 test('a failed team listener shows the offline banner and recovers', async ({ page }) => {
   await seed('team/main', { roster });
-  // The reopen's server answer is held, so the banner has a steady state to be seen in.
-  await openTracker(page, { 'team/main': { fail: 1, holdReopen: true } }, '#/');
+  // Records each state the offline banner takes (shown or hidden), so a stay of any length is seen.
+  await page.addInitScript(() => {
+    window.__bannerLog = [];
+    const seen = () => {
+      const banner = document.querySelector('[data-testid="offline-banner"]');
+      if (!banner) return;
+      const state = banner.hidden ? 'hidden' : 'shown';
+      if (window.__bannerLog.at(-1) !== state) window.__bannerLog.push(state);
+    };
+    new MutationObserver(seen).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] });
+  });
+  // The bare rule: the listener fails after its first server answer and the automatic reopen brings it back.
+  await openTracker(page, { 'team/main': { fail: 1 } }, '#/');
   await expect.poll(() => counter(page, '__failures', 'team/main'), { timeout: SERVER_WAIT }).toBe(1);
-  await expect(page.getByTestId('offline-banner')).toBeVisible();
-  // A rename while the listener is down.
+  // A rename while the listener is down or being reopened.
   await update('team/main', { roster: [{ ...roster[0], name: 'Renamed' }, roster[1]] });
-  await reopenHeld(page, 'team/main');
-  await expect(page.getByTestId('offline-banner')).toBeVisible();
-  await release(page, 'team/main');
-  await expect(page.getByTestId('offline-banner')).toBeHidden();
+  await expect.poll(() => counter(page, '__attempts', 'team/main'), { timeout: SERVER_WAIT }).toBe(2);
+  // Hidden, then shown for the outage, then hidden again once the server has answered the reopened listener.
+  await expect.poll(() => page.evaluate(() => window.__bannerLog), { timeout: SERVER_WAIT }).toEqual(['hidden', 'shown', 'hidden']);
   await page.getByTestId('home-roster').click();
   await expect(page.getByTestId('roster-list').getByTestId('roster-row').filter({ hasText: 'Renamed' })).toBeVisible();
-  expect(await counter(page, '__attempts', 'team/main')).toBe(2);
+  dropNetworkNoise(problems);
 });
 
 test('a failed game listener keeps a tap pending until the reopened server answer, then confirms it', async ({ page }) => {
   await seedLive();
   await openTracker(page, { 'games/g1': { fail: 1, holdReopen: true } });
-  await expect.poll(() => counter(page, '__failures', 'games/g1'), { timeout: SERVER_WAIT }).toBe(1);
-  await tile(page, 5).getByTestId('tile-goal').click();
+  await tapWhileDown(page);
   await expect.poll(async () => (await get('games/g1')).events.length).toBe(1);
   await reopenHeld(page, 'games/g1');
   // The reopened listener has not answered yet: the tap is neither confirmed nor failed.
@@ -107,6 +134,7 @@ test('a failed game listener keeps a tap pending until the reopened server answe
   await expect(page.getByTestId('failed-banner')).toBeHidden();
   expect((await get('games/g1')).events).toHaveLength(1);
   expect((await get('games/g1')).events[0]).toMatchObject({ type: 'goal', playerId: 'p5' });
+  dropNetworkNoise(problems);
 });
 
 test('back from the background, a failed control listener keeps a non-active device unconfirmed', async ({ page }) => {
@@ -143,8 +171,7 @@ test('back from the background, a failed control listener keeps a non-active dev
 test('a write made while the game listener is failed shows at the next reopen', async ({ page }) => {
   await seedLive();
   await openTracker(page, { 'games/g1': { fail: 1, holdReopen: true } });
-  await expect.poll(() => counter(page, '__failures', 'games/g1'), { timeout: SERVER_WAIT }).toBe(1);
-  await tile(page, 5).getByTestId('tile-goal').click();
+  await tapWhileDown(page);
   await expect.poll(async () => (await get('games/g1')).events.length).toBe(1);
   await expect(page.getByTestId('offline-banner')).toBeVisible();
   await reopenHeld(page, 'games/g1');
@@ -154,6 +181,7 @@ test('a write made while the game listener is failed shows at the next reopen', 
   await expect(page.getByTestId('score-us')).toHaveText('1');
   await expect(page.getByTestId('offline-banner')).toBeHidden();
   expect(await counter(page, '__attempts', 'games/g1')).toBe(2);
+  dropNetworkNoise(problems);
 });
 
 test.describe('mixed module cache', () => {
@@ -196,7 +224,7 @@ test.describe('mixed module cache', () => {
     await page.getByTestId('ev-row').last().getByTestId('ev-delete').click();
     await expect.poll(async () => (await get('games/g1')).events.map(event => event.id)).toEqual(['e2']);
 
-    await armThenConfirm(page, 'end-game');
+    await armThenConfirm(page, 'end-game', async () => (await get('games/g1')).status === 'final');
     await expect.poll(async () => (await get('games/g1')).status).toBe('final');
     await expect.poll(() => journalOf(page)).toEqual([]);
   });
@@ -205,6 +233,8 @@ test.describe('mixed module cache', () => {
     blocked.url = new URL('/js/watchRetry.js', baseURL).href;
     let asked = 0;
     await page.route('**/js/watchRetry.js', route => { asked += 1; return route.abort(); });
+    const warnings = [];
+    page.on('console', message => { if (message.type() === 'warning' && !isPlaywrightServiceWorkerBlock(message.text())) warnings.push(message.text()); });
     await seedLive();
     await page.goto(HOME_URL);
     await unlockTracker(page);
@@ -215,5 +245,7 @@ test.describe('mixed module cache', () => {
     await expect.poll(() => journalOf(page)).toEqual([]);
     // The module was asked for, and its loss changed nothing.
     expect(asked).toBeGreaterThan(0);
+    // A module missing from a mixed cache is not worth a warning: the tracker simply behaves as it did.
+    expect(warnings).toEqual([]);
   });
 });
