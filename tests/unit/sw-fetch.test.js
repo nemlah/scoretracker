@@ -131,28 +131,32 @@ test('the worker stays alive until the copy is stored, and a failed write is log
 
 test('networkFirst answers from the network when caches.open rejects', async () => {
   let fetched = 0;
+  const calls = [];
   const sw = boot({
-    fetchImpl: async () => { fetched += 1; return new Response('fresh shell'); },
-    openImpl: async () => { throw new Error('storage evicted'); },
+    fetchImpl: async () => { calls.push('fetch'); fetched += 1; return new Response('fresh shell'); },
+    openImpl: async () => { calls.push('open'); throw new Error('storage evicted'); },
   });
   const { response, settled } = await sw.dispatch(page);
   assert.equal(await (await response).text(), 'fresh shell');
   await settled();
   assert.equal(fetched, 1);
+  assert.deepEqual(calls, ['fetch', 'open'], 'the fetch starts before any cache call');
   assert.ok(sw.warnings.length >= 1, 'the failure is logged');
   assert.equal(sw.store.size, 0);
 });
 
 test('networkFirst answers from the network when match rejects on a slow response', async () => {
   let release;
+  let lookedUp;
+  const lookup = new Promise(resolve => { lookedUp = resolve; });
   const sw = boot({
     fastTimers: true,
     fetchImpl: () => new Promise(resolve => { release = () => resolve(new Response('slow shell')); }),
-    matchImpl: async () => { throw new Error('cache read failed'); },
+    matchImpl: async () => { lookedUp(); throw new Error('cache read failed'); },
   });
   const { response, settled } = await sw.dispatch(page);
-  // The timeout has fired and the cache lookup has rejected before the network answers.
-  await new Promise(resolve => setTimeout(resolve, 20));
+  // The network answers only once the timeout has fired and the cache lookup has been attempted.
+  await lookup;
   release();
   assert.equal(await (await response).text(), 'slow shell');
   await settled();

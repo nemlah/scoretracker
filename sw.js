@@ -123,6 +123,16 @@ async function store(cache, key, copy) {
 async function networkFirst(event) {
   const { request } = event;
   // The fetch starts before any cache call, and a broken Cache Storage only costs the cache.
+  // `cache` is read only after the response arrives or the timeout fires, never before the fetch.
+  let persisted = Promise.resolve();
+  const network = fetch(request).then(response => {
+    slowUntil = 0;
+    if (storable(response) && !failed(response)) {
+      const copy = response.clone();
+      persisted = cache.then(opened => opened && store(opened, cacheKey(request), copy));
+    }
+    return response;
+  });
   const cache = caches.open(CACHE).catch(err => {
     console.warn('Service worker cache unavailable', err);
     return null;
@@ -135,15 +145,6 @@ async function networkFirst(event) {
       return undefined;
     }
   };
-  let persisted = Promise.resolve();
-  const network = fetch(request).then(response => {
-    slowUntil = 0;
-    if (storable(response) && !failed(response)) {
-      const copy = response.clone();
-      persisted = cache.then(opened => opened && store(opened, cacheKey(request), copy));
-    }
-    return response;
-  });
   event.waitUntil(network.then(() => persisted, () => {}));
   let timer;
   const wait = Date.now() < slowUntil ? 0 : NETWORK_TIMEOUT_MS;
