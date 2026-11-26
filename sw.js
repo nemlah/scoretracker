@@ -1,7 +1,7 @@
 // Offline app shell. Classic script: service workers are not loaded as modules here.
 // The Cache Storage is shared by every site on the origin (GitHub Pages project sites included),
 // so the name carries this worker's scope and cleanup only ever touches caches of this scope.
-const CACHE = `wp-shell-v6::${self.registration.scope}`;
+const CACHE = `wp-shell-v7::${self.registration.scope}`;
 
 // SHELL-START
 const SHELL = [
@@ -122,12 +122,26 @@ async function store(cache, key, copy) {
 // request carries on in the background, and the worker stays alive until its copy is stored.
 async function networkFirst(event) {
   const { request } = event;
-  const cache = await caches.open(CACHE);
-  const cachedCopy = () => cache.match(cacheKey(request), { ignoreSearch: true });
+  // The fetch starts before any cache call, and a broken Cache Storage only costs the cache.
+  const cache = caches.open(CACHE).catch(err => {
+    console.warn('Service worker cache unavailable', err);
+    return null;
+  });
+  const cachedCopy = async () => {
+    try {
+      return (await (await cache)?.match(cacheKey(request), { ignoreSearch: true })) ?? undefined;
+    } catch (err) {
+      console.warn('Service worker could not read the cache', err);
+      return undefined;
+    }
+  };
   let persisted = Promise.resolve();
   const network = fetch(request).then(response => {
     slowUntil = 0;
-    if (storable(response) && !failed(response)) persisted = store(cache, cacheKey(request), response.clone());
+    if (storable(response) && !failed(response)) {
+      const copy = response.clone();
+      persisted = cache.then(opened => opened && store(opened, cacheKey(request), copy));
+    }
     return response;
   });
   event.waitUntil(network.then(() => persisted, () => {}));

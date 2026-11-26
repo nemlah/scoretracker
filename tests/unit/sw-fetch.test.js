@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../../sw.js', import.meta.url), 'utf8');
 const ORIGIN = 'https://pool.example';
 const SCOPE = `${ORIGIN}/`;
-const CACHE_NAME = `wp-shell-v6::${SCOPE}`;
+const CACHE_NAME = `wp-shell-v7::${SCOPE}`;
 const keyOf = (input, ignoreSearch) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
   if (ignoreSearch) url.search = '';
@@ -14,7 +14,7 @@ const keyOf = (input, ignoreSearch) => {
 };
 
 // Runs sw.js against in-memory stand-ins for the worker globals.
-function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
+function boot({ fetchImpl, putImpl, openImpl, matchImpl, fastTimers = false, scope = SCOPE, cacheNames = [] } = {}) {
   const store = new Map();
   const opened = [];
   const deleted = [];
@@ -24,6 +24,7 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
   const cache = {
     put: async (key, response) => { await putImpl?.(key, response); store.set(keyOf(key), response); },
     match: async (key, options = {}) => {
+      await matchImpl?.(key, options);
       for (const [url, response] of store) {
         if (url === keyOf(key, options.ignoreSearch) || (options.ignoreSearch && keyOf(url, true) === keyOf(key, true))) {
           return response.clone();
@@ -41,7 +42,7 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
       clients: { claim: async () => {} },
     },
     caches: {
-      open: async name => { opened.push(name); return cache; },
+      open: async name => { opened.push(name); await openImpl?.(name); return cache; },
       keys: async () => cacheNames,
       delete: async name => { deleted.push(name); return true; },
     },
@@ -49,7 +50,9 @@ function boot({ fetchImpl, putImpl, scope = SCOPE, cacheNames = [] } = {}) {
     console: { warn: (...args) => warnings.push(args.join(' ')), error: () => {} },
     // Relative URLs resolve against the worker's location, as in a real service worker.
     Request: class { constructor(url, init = {}) { this.url = new URL(url, SCOPE).href; this.cache = init.cache; } },
-    URL, Response, Promise, Date, setTimeout, clearTimeout,
+    URL, Response, Promise, Date, clearTimeout,
+    // fastTimers: the 3 s network timeout elapses at once, so a test reaches the slow path without waiting.
+    setTimeout: (fn, ms, ...args) => setTimeout(fn, fastTimers ? 0 : ms, ...args),
   };
   vm.runInNewContext(source, sandbox);
 
@@ -126,6 +129,47 @@ test('the worker stays alive until the copy is stored, and a failed write is log
   assert.match(sw.warnings[0], /could not cache/);
 });
 
+test('networkFirst answers from the network when caches.open rejects', async () => {
+  let fetched = 0;
+  const sw = boot({
+    fetchImpl: async () => { fetched += 1; return new Response('fresh shell'); },
+    openImpl: async () => { throw new Error('storage evicted'); },
+  });
+  const { response, settled } = await sw.dispatch(page);
+  assert.equal(await (await response).text(), 'fresh shell');
+  await settled();
+  assert.equal(fetched, 1);
+  assert.ok(sw.warnings.length >= 1, 'the failure is logged');
+  assert.equal(sw.store.size, 0);
+});
+
+test('networkFirst answers from the network when match rejects on a slow response', async () => {
+  let release;
+  const sw = boot({
+    fastTimers: true,
+    fetchImpl: () => new Promise(resolve => { release = () => resolve(new Response('slow shell')); }),
+    matchImpl: async () => { throw new Error('cache read failed'); },
+  });
+  const { response, settled } = await sw.dispatch(page);
+  // The timeout has fired and the cache lookup has rejected before the network answers.
+  await new Promise(resolve => setTimeout(resolve, 20));
+  release();
+  assert.equal(await (await response).text(), 'slow shell');
+  await settled();
+  assert.ok(sw.warnings.length >= 1, 'the failure is logged');
+});
+
+test('networkFirst returns a fast response when put rejects (guard: already passed before v7)', async () => {
+  const sw = boot({
+    fetchImpl: async () => new Response('fresh shell'),
+    putImpl: async () => { throw new Error('quota'); },
+  });
+  const { response, settled } = await sw.dispatch(page);
+  assert.equal(await (await response).text(), 'fresh shell');
+  await settled();
+  assert.equal(sw.warnings.length, 1);
+});
+
 test('a cache write failure does not fail an SDK or font fetch', async () => {
   const sw = boot({
     fetchImpl: async () => new Response('sdk code'),
@@ -158,7 +202,7 @@ test('the shell cache is named after the worker scope, so sibling sites keep the
   assert.deepEqual([...new Set(sw.opened)], [CACHE_NAME]);
   const project = boot({ scope: `${ORIGIN}/scoretracker/`, fetchImpl: async () => new Response('x') });
   await (await project.dispatch(page)).response;
-  assert.deepEqual([...new Set(project.opened)], [`wp-shell-v6::${ORIGIN}/scoretracker/`]);
+  assert.deepEqual([...new Set(project.opened)], [`wp-shell-v7::${ORIGIN}/scoretracker/`]);
 });
 
 test('activation deletes only this scope\'s obsolete shell caches', async () => {
