@@ -960,12 +960,13 @@ function renderSeason(plan, tabsShown) {
   renderIfChanged(panelEls.results, [results, stats, teamLists()], () => resultsPanel(results, stats));
   // The season's totals carry no cap: it comes from the current roster, by player id.
   const caps = rosterCaps();
+  const names = rosterNames();
   // Season shows the stored totals and the friendlies note. Another scope sums its own rows' lines.
   const scoped = scope === 'season' ? null : model.scopeRows(stats.results, scope);
-  renderIfChanged(panelEls.players, [results, stats, [...caps], scope, teamLists()], () => {
-    if (scoped) return seasonPlayersPanel(results, { ...stats, ...model.sumLines(scoped) }, caps);
+  renderIfChanged(panelEls.players, [results, stats, [...caps], [...names], scope, teamLists()], () => {
+    if (scoped) return seasonPlayersPanel(results, { ...stats, ...model.sumLines(scoped) }, caps, names);
     const note = results === 'ready' ? friendliesNote(stats?.results) : null;
-    return [...seasonPlayersPanel(results, stats, caps), ...(note ? [note] : [])];
+    return [...seasonPlayersPanel(results, stats, caps, names), ...(note ? [note] : [])];
   });
   // Gated on the plan: the season's figures come from the results document, so Team waits for it as well.
   renderIfChanged(panelEls.team, [results, stats, state.teamViewStatus, scope, teamLists()], () => {
@@ -1001,14 +1002,26 @@ function rosterCaps() {
   return caps;
 }
 
-function seasonPlayersPanel(results, stats, caps) {
+// Current names of the roster, by player id. The totals store the name from when they were counted.
+function rosterNames() {
+  const names = new Map();
+  const roster = state.team.data?.roster;
+  for (const player of Array.isArray(roster) ? roster : []) {
+    if (typeof player?.id === 'string' && typeof player.name === 'string' && player.name.trim() !== '') {
+      names.set(player.id, player.name);
+    }
+  }
+  return names;
+}
+
+function seasonPlayersPanel(results, stats, caps, names = new Map()) {
   if (results === 'loading') return [h('p', { class: 'muted' }, t('resultsLoading'))];
   if (results === 'failed') return [h('p', { class: 'muted' }, t('resultsFailed'))];
   const players = Object.entries(stats?.players ?? {})
-    .map(([id, player]) => ({ id, ...player }))
+    .map(([id, player]) => ({ id, ...player, name: names.get(id) ?? player.name }))
     .sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
   const goalies = Object.entries(stats?.goalies ?? {})
-    .map(([id, goalie]) => ({ id, ...goalie }))
+    .map(([id, goalie]) => ({ id, ...goalie, name: names.get(id) ?? goalie.name }))
     .sort((a, b) => (b.saves + b.penSaves) - (a.saves + a.penSaves) || a.name.localeCompare(b.name));
   if (!players.length && !goalies.length) return [h('p', { class: 'muted' }, t('playersEmpty'))];
   return [
