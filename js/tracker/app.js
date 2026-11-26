@@ -504,6 +504,13 @@ function reconcileOrphans() {
 
 let serverSeen = false;
 let gameWatchReady = false; // false until the watched game has been chosen since (re)subscribing
+// Set while the current game's listener has failed. The one place that decides whether the game
+// can count as confirmed: nothing is confirmed by a listener that is not delivering.
+let gameWatchFailed = false;
+
+function setGameConfirmed(confirmed) {
+  gameConfirmed = confirmed && !gameWatchFailed;
+}
 
 function syncGameWatch() {
   if (!repo || unsubscribers.length === 0 || !teamLoaded) return;
@@ -525,10 +532,13 @@ function syncGameWatch() {
   if (wanted === null) return;
   gameUnsub = watchGameWithJournal(wanted, (game, meta) => {
     if (!meta.fromCache) serverSeen = true;
-    gameConfirmed = !meta.fromCache;
+    setGameConfirmed(!meta.fromCache);
     noteServer(meta);
     state.game = game;
-    state.gameLoaded = true;
+    // A null from the cache only says the cache lacks the game, not that the game is absent: it
+    // leaves gameLoaded as it was. A server snapshot or a game in hand loads it, for good until
+    // the watch is replaced.
+    if (game !== null || !meta.fromCache) state.gameLoaded = true;
     state.gameOffline = serverSeen && meta.fromCache;
     gamePending = meta.hasPendingWrites;
     syncPending();
@@ -739,7 +749,7 @@ async function reconfirm() {
   if (!read) {
     teamConfirmed = true;
     controlConfirmed = true;
-    gameConfirmed = true;
+    setGameConfirmed(true);
     render();
     return;
   }
@@ -756,8 +766,14 @@ async function reconfirm() {
   controlConfirmed = true;
   // The game follows the team's pointer; a pointer that moved is picked up by the next render,
   // and the new game's own snapshot then confirms it. A game that changed is left to its listener.
-  if (watchedGameId === (fresh.team?.currentGameId ?? null) && state.gameLoaded && fresh.game?.status === state.game?.status) {
-    gameConfirmed = true;
+  const pointerHolds = watchedGameId === (fresh.team?.currentGameId ?? null);
+  if (pointerHolds && state.gameLoaded && fresh.game?.status === state.game?.status) {
+    setGameConfirmed(true);
+  } else if (pointerHolds && watchedGameId !== null && fresh.game === null) {
+    // The server read says the pointed-at game does not exist, which a cached null could not.
+    state.game = null;
+    state.gameLoaded = true;
+    setGameConfirmed(true);
   }
   render();
 }

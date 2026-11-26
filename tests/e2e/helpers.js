@@ -161,6 +161,8 @@ export const recordedHome = async page => ({
 // its loading state. window.__queued counts each snapshot put on hold.
 // { cached: true } delivers every snapshot as if from the cache,
 // so the server never seems to confirm it (the record still says what the server really sent).
+// { cachedNullAfterServer: true } follows the first server snapshot of that path with one extra cached null
+// (recorded in window.__snaps with `injected: true`), as a listener falling back to a cache that lacks the document.
 // window.__infoCalls lists the arguments of every repo.updateGameInfo call.
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
@@ -180,7 +182,16 @@ export async function instrumentRepo(page, slow = {}) {
       const seen = (window.__seen ??= new Set());
       const held = (window.__held ??= {});
       const meta = { fromCache: rule?.cached ? true : fromCache, hasPendingWrites };
-      const deliver = () => { cb(data, meta); record(); };
+      const deliver = () => {
+        cb(data, meta);
+        record();
+        const injected = (window.__injected ??= new Set());
+        if (rule?.cachedNullAfterServer && !fromCache && !injected.has(ref.path)) {
+          injected.add(ref.path);
+          cb(null, { fromCache: true, hasPendingWrites });
+          window.__snaps.push({ path: ref.path, exists: false, status: undefined, pointer: undefined, fromCache: true, injected: true });
+        }
+      };
       const enqueue = () => {
         (held[ref.path] ??= []).push(deliver);
         const queued = (window.__queued ??= {});

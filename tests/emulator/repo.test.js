@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import {
-  collection, disableNetwork, doc, enableNetwork, getDocFromServer, getDocs, setDoc, Timestamp, updateDoc, waitForPendingWrites,
+  collection, disableNetwork, doc, enableNetwork, getDocFromCache, getDocFromServer, getDocs, setDoc, Timestamp, updateDoc, waitForPendingWrites,
 } from 'firebase/firestore';
 import { makeEvent, withPlayer } from '../../js/model.js';
 import { makeClient, testEnv } from './helpers.js';
@@ -823,4 +823,27 @@ test('listEntryInUse is true only for an entry a game links', async () => {
   assert.equal(await repo.listEntryInUse('tournaments', 't2'), false);
   assert.equal(await repo.listEntryInUse('phases', 'p1'), true);
   assert.equal(await repo.listEntryInUse('phases', 'p2'), false);
+});
+
+// The tracker's "a game the cache lacks is not loaded" fix relies on a refused createGame leaving
+// no trace in the client's cache: the pointer and the new game roll back when the server refuses.
+test('a refused createGame rolls back the game and the pointer in the client\'s cache', async () => {
+  const first = await activeClient();
+  const previous = await createGame(first.repo);
+  // Cache team/main, then lose control to a second client: first stays a valid editor but is not active.
+  assert.equal((await read(first.db, 'team/main')).currentGameId, previous);
+  await activeClient();
+
+  const { id, done } = first.repo.createGame({ ...gameInput, opponent: 'Refused FC' });
+  const refused = assert.rejects(done, { code: 'permission-denied' });
+  assert.equal((await getDocFromCache(doc(first.db, 'team/main'))).data().currentGameId, id);
+  await refused;
+
+  assert.equal((await getDocFromCache(doc(first.db, 'team/main'))).data().currentGameId, previous);
+  // A document the cache lacks either rejects (unavailable) or reads as missing.
+  const stillCached = await getDocFromCache(doc(first.db, `games/${id}`)).then(
+    snapshot => snapshot.exists(),
+    error => (error.code === 'unavailable' ? false : Promise.reject(error)),
+  );
+  assert.equal(stillCached, false);
 });
