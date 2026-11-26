@@ -767,12 +767,13 @@ async function reconfirm() {
   // The game follows the team's pointer; a pointer that moved is picked up by the next render,
   // and the new game's own snapshot then confirms it. A game that changed is left to its listener.
   const pointerHolds = watchedGameId === (fresh.team?.currentGameId ?? null);
-  if (pointerHolds && state.gameLoaded && fresh.game?.status === state.game?.status) {
-    setGameConfirmed(true);
-  } else if (pointerHolds && watchedGameId !== null && fresh.game === null) {
-    // The server read says the pointed-at game does not exist, which a cached null could not.
+  if (pointerHolds && watchedGameId !== null && fresh.game === null) {
+    // The server read says the pointed-at game does not exist, which a cached null could not. This
+    // comes before any status comparison: a game stored without a status would match null's.
     state.game = null;
     state.gameLoaded = true;
+    setGameConfirmed(true);
+  } else if (pointerHolds && state.gameLoaded && fresh.game?.status === state.game?.status) {
     setGameConfirmed(true);
   }
   render();
