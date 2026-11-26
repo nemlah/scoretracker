@@ -125,6 +125,11 @@ let controlLoaded = false;
 let teamConfirmed = false;
 let controlConfirmed = false;
 let gameConfirmed = false;
+// Whether each listener has failed and not yet been answered by the server. A failed listener
+// delivers nothing, so what it last showed cannot count as confirmed (see keep()).
+let editorFailed = false;
+let teamFailed = false;
+let controlFailed = false;
 // Counts trips to the background, so a server read started before one cannot confirm after it.
 let backgrounds = 0;
 let bootFailed = false;
@@ -132,6 +137,12 @@ let bootFailed = false;
 let landingChecked = false;
 
 let repo = null;
+// js/watchRetry.js, once boot() has loaded it. A brand-new module in a mixed cache may be missing:
+// without it every listener opens as before and a failed one stays failed.
+let watchRetry = null;
+// The retry handle of every open listener (the app's own and past-game views'), for `online` and
+// the return from the background.
+const keepers = new Set();
 let journal = null;
 let tapper = null;
 let recovery = null;
@@ -453,22 +464,59 @@ function trackWrite(write) {
   };
 }
 
+// Opens a listener and, when watchRetry.js is loaded, keeps it alive: a failed listener is reopened
+// with a growing delay. `open(next, fail)` subscribes and returns an unsubscribe. Cached snapshots
+// pass through while a listener is failed (holdCached: false), since the tracker's own pending
+// writes must still show; the callers' failed flags are what stop them counting as confirmed.
+// Without the module the listener opens with no `fail`, exactly as before.
+function keep(open, { onSnapshot, onFail }) {
+  const keepWatching = watchRetry?.keepWatching;
+  if (typeof keepWatching !== 'function') {
+    return { stop: open(onSnapshot), retryNow() {} };
+  }
+  const keeper = keepWatching(open, { holdCached: false, onSnapshot, onFail });
+  keepers.add(keeper);
+  return {
+    stop() {
+      keepers.delete(keeper);
+      keeper.stop();
+    },
+    retryNow: () => keeper.retryNow(),
+  };
+}
+
 // repo.watchGame plus the journal: a server-confirmed snapshot settles every pending journal
-// entry of this game (confirmed, or failed if the server does not have it).
-function watchGameWithJournal(gameId, cb) {
-  const watch = { gameId, last: null };
+// entry of this game (confirmed, or failed if the server does not have it). When the listener
+// fails its last snapshot is dropped, so nothing is reconciled against a state from before the
+// failure: the entries stay pending until the reopened listener's first server snapshot. The
+// watch stays registered meanwhile, so orphan recovery does not race it.
+function watchGameKept(gameId, cb, onFail) {
+  const watch = { gameId, last: null, failed: false };
   gameWatches.add(watch);
-  const off = repo.watchGame(gameId, (game, meta) => {
-    watch.last = { game, meta };
-    reconcileWatch(watch);
-    cb(game, meta);
+  const kept = keep((next, fail) => repo.watchGame(gameId, next, fail), {
+    onSnapshot(game, meta) {
+      if (!meta.fromCache) watch.failed = false;
+      watch.last = { game, meta };
+      reconcileWatch(watch);
+      cb(game, meta);
+    },
+    onFail(err) {
+      watch.failed = true;
+      watch.last = null;
+      onFail?.(err);
+      render();
+    },
   });
   return () => {
     gameWatches.delete(watch);
-    off();
+    kept.stop();
   };
 }
-ctx.watchGame = watchGameWithJournal;
+// Views get the same call as before; a failure is only visible through the banner.
+ctx.watchGame = (gameId, cb) => watchGameKept(gameId, cb);
+
+const anyListenerFailed = () => editorFailed || teamFailed || controlFailed
+  || [...gameWatches].some(watch => watch.failed);
 
 // Whether writes are waiting for the server: ours in flight, or the game snapshot says so. The
 // flag only turns on after PENDING_GRACE_MS, so a normal round trip never flashes the offline text.
@@ -504,8 +552,9 @@ function reconcileOrphans() {
 
 let serverSeen = false;
 let gameWatchReady = false; // false until the watched game has been chosen since (re)subscribing
-// Set while the current game's listener has failed. The one place that decides whether the game
-// can count as confirmed: nothing is confirmed by a listener that is not delivering.
+// Set while the current game's listener has failed, until the server answers a reopened one. The
+// one place that decides whether the game can count as confirmed: nothing is confirmed by a
+// listener that is not delivering.
 let gameWatchFailed = false;
 
 function setGameConfirmed(confirmed) {
@@ -521,6 +570,7 @@ function syncGameWatch() {
   gameUnsub = null;
   watchedGameId = wanted;
   serverSeen = false;
+  gameWatchFailed = false;
   gameConfirmed = false;
   state.game = null;
   state.gameLoaded = wanted === null;
@@ -530,8 +580,14 @@ function syncGameWatch() {
   refreshFailed();
   reconcileOrphans();
   if (wanted === null) return;
-  gameUnsub = watchGameWithJournal(wanted, (game, meta) => {
-    if (!meta.fromCache) serverSeen = true;
+  // A render during the call (a failure reported at once) must see a watch in place, not open another.
+  const opening = () => {};
+  gameUnsub = opening;
+  const off = watchGameKept(wanted, (game, meta) => {
+    if (!meta.fromCache) {
+      serverSeen = true;
+      gameWatchFailed = false;
+    }
     setGameConfirmed(!meta.fromCache);
     noteServer(meta);
     state.game = game;
@@ -544,7 +600,13 @@ function syncGameWatch() {
     syncPending();
     refreshFailed();
     render();
+  }, () => {
+    // The screen keeps what it showed, but nothing about the game counts as confirmed.
+    gameWatchFailed = true;
+    setGameConfirmed(false);
   });
+  if (gameUnsub === opening) gameUnsub = off;
+  else off();
 }
 
 function derive() {
@@ -634,7 +696,7 @@ function syncChrome() {
   const readOnly = inRoute && !state.active && !state.writable;
   backButton.hidden = !inRoute || current.slot === 'home';
   takeoverBanner.hidden = !readOnly;
-  offlineBanner.hidden = state.online || current.slot === 'unlock';
+  offlineBanner.hidden = (state.online && !anyListenerFailed()) || current.slot === 'unlock';
   failedBanner.hidden = !inRoute || state.failedTaps.length === 0;
   renderFailed();
   root.classList.toggle('is-readonly', readOnly);
@@ -697,7 +759,12 @@ async function boot() {
       },
       onChange() { refreshFailed(); render(); },
     });
-    state.uid = await signIn(auth);
+    // Loaded next to the sign-in; a module missing from a mixed cache leaves every listener as it was.
+    const retryModule = import('../watchRetry.js').catch(err => {
+      console.warn('Watch retry unavailable', err);
+      return null;
+    });
+    [state.uid, watchRetry] = await Promise.all([signIn(auth), retryModule]);
   } catch (err) {
     console.warn('Tracker failed to start', err);
     bootFailed = true;
@@ -708,33 +775,56 @@ async function boot() {
   render();
 }
 
-// Our three watchers; the game watcher follows team.currentGameId (see syncGameWatch).
+// Our three watchers; the game watcher follows team.currentGameId (see syncGameWatch). Each is kept
+// alive by keep(): a failure sets the listener's failed flag until the server answers again.
 function subscribe() {
   if (unsubscribers.length > 0) return;
-  unsubscribers.push(
-    repo.watchOwnEditor(state.uid, (doc, meta) => {
+  const editor = keep((next, fail) => repo.watchOwnEditor(state.uid, next, fail), {
+    onSnapshot(doc, meta) {
+      if (!meta.fromCache) editorFailed = false;
       // An unconfirmed local write (e.g. a code the server may still reject) must not unlock the UI.
       if (meta.hasPendingWrites) return;
       noteServer(meta);
       editorDoc = doc;
       editorLoaded = true;
       render();
-    }),
-    repo.watchControl((doc, meta) => {
+    },
+    onFail() {
+      editorFailed = true;
+      render();
+    },
+  });
+  const control = keep((next, fail) => repo.watchControl(next, fail), {
+    onSnapshot(doc, meta) {
+      if (!meta.fromCache) controlFailed = false;
       noteServer(meta);
       controlConfirmed = !meta.fromCache;
       state.control = claim.receive(doc);
       controlLoaded = true;
       render();
-    }),
-    repo.watchTeam((doc, meta) => {
+    },
+    onFail() {
+      controlFailed = true;
+      controlConfirmed = false;
+      render();
+    },
+  });
+  const team = keep((next, fail) => repo.watchTeam(next, fail), {
+    onSnapshot(doc, meta) {
+      if (!meta.fromCache) teamFailed = false;
       noteServer(meta);
       teamConfirmed = !meta.fromCache;
       state.team = doc;
       teamLoaded = true;
       render();
-    }),
-  );
+    },
+    onFail() {
+      teamFailed = true;
+      teamConfirmed = false;
+      render();
+    },
+  });
+  unsubscribers.push(editor.stop, control.stop, team.stop);
   syncGameWatch();
 }
 
@@ -747,8 +837,8 @@ async function reconfirm() {
   const trip = backgrounds;
   const read = repo.confirmFromServer?.();
   if (!read) {
-    teamConfirmed = true;
-    controlConfirmed = true;
+    teamConfirmed = !teamFailed;
+    controlConfirmed = !controlFailed;
     setGameConfirmed(true);
     render();
     return;
@@ -762,8 +852,10 @@ async function reconfirm() {
   if (trip !== backgrounds) return;
   state.team = fresh.team;
   state.control = claim.receive(fresh.control);
-  teamConfirmed = true;
-  controlConfirmed = true;
+  // A listener that has failed since delivers nothing, whatever this read (maybe started before the
+  // failure) says: its mark waits for a server snapshot of its own.
+  teamConfirmed = !teamFailed;
+  controlConfirmed = !controlFailed;
   // The game follows the team's pointer; a pointer that moved is picked up by the next render,
   // and the new game's own snapshot then confirms it. A game that changed is left to its listener.
   const pointerHolds = watchedGameId === (fresh.team?.currentGameId ?? null);
@@ -788,11 +880,17 @@ document.addEventListener('visibilitychange', () => {
     render();
   } else if (document.visibilityState === 'visible') {
     reconfirm();
+    retryListeners();
   }
 });
 
+// Failed listeners are reopened at once (`retryNow` itself throttles to one try per 10 s).
+function retryListeners() {
+  for (const keeper of [...keepers]) keeper.retryNow();
+}
+
 window.addEventListener('hashchange', render);
-window.addEventListener('online', () => { state.online = true; ctx.stats.drain(); render(); });
+window.addEventListener('online', () => { state.online = true; ctx.stats.drain(); retryListeners(); render(); });
 window.addEventListener('offline', () => { state.online = false; render(); });
 // A page restored from the back/forward cache holds a Firestore client that shut itself down
 // when the page was hidden. Reloading is the only reliable way back; the service worker serves

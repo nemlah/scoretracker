@@ -188,8 +188,8 @@ export function createRepo(db) {
     watchTeam: (cb, onError) => watch(teamRef, cb, false, onError),
     watchGame: (gameId, cb, onError) => watch(gameRef(gameId), cb, true, onError),
     watchStats: (season, cb, onError) => watch(doc(db, 'stats', season), cb, false, onError),
-    watchControl: cb => watch(controlRef, cb),
-    watchOwnEditor: (uid, cb) => watch(doc(db, 'editors', uid), cb),
+    watchControl: (cb, onError) => watch(controlRef, cb, false, onError),
+    watchOwnEditor: (uid, cb, onError) => watch(doc(db, 'editors', uid), cb, false, onError),
 
     /** The control document as the server has it; rejects when the server cannot be reached. */
     async readControlFromServer() {

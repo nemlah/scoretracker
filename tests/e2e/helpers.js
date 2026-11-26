@@ -171,6 +171,8 @@ export const recordedHome = async page => ({
 // until window.__releaseHeld(path); a held callback stays tied to its own subscription.
 // Each window.__snaps entry carries `attempt`, the number of its watch() call on that path.
 // window.__infoCalls lists the arguments of every repo.updateGameInfo call.
+// window.__confirmed counts the repo.confirmFromServer reads that have completed (the tracker's check back from the
+// background); it goes up before the caller continues, so a test that sees it can rely on the read being handled.
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
   const real = readFileSync('js/repo.js', 'utf8');
@@ -188,7 +190,15 @@ export async function instrumentRepo(page, slow = {}) {
     const attempts = (window.__attempts ??= {});
     attempts[ref.path] = (attempts[ref.path] ?? 0) + 1;
     const mine = { n: attempts[ref.path], dead: false, held: false };`);
-  const body = recorded.replace(call, `{
+  // confirmFromServer keeps its signature and result; the read moves to __confirmRead and the counter follows it.
+  const confirmHead = 'async confirmFromServer() {';
+  if (!real.includes(confirmHead)) throw new Error('repo.js changed: update instrumentRepo');
+  const counted = recorded.replace(confirmHead, `confirmFromServer() {
+      return this.__confirmRead().then(result => { window.__confirmed = (window.__confirmed ?? 0) + 1; return result; });
+    },
+
+    ${confirmHead.replace('confirmFromServer', '__confirmRead')}`);
+  const body = counted.replace(call, `{
       const record = () => (window.__snaps ??= []).push({
         path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache, attempt: mine.n,
       });
