@@ -152,8 +152,20 @@ export function createRepo(db) {
   }
 
   // The id of the newest game when it is newer than this one; null otherwise or when unreachable.
-  async function newerGameId(gameId) {
+  // With the game's date, games on that date or later are compared as the model orders them
+  // (date, then creation), so a later-created game on the same date counts as newer. Without it,
+  // or with a model that lacks newerThan, only a strictly later date counts.
+  async function newerGameId(gameId, date) {
     try {
+      if (typeof date === 'string' && typeof model.newerThan === 'function') {
+        const [game, later] = await Promise.all([
+          getDocFromServer(gameRef(gameId)),
+          getDocsFromServer(query(gamesRef, where('date', '>=', date))),
+        ]);
+        if (!game.exists()) return null;
+        const plain = snapshot => ({ ...snapshot.data(), id: snapshot.id });
+        return model.newerThan(plain(game), later.docs.map(plain));
+      }
       const [game, newest] = await Promise.all([
         getDocFromServer(gameRef(gameId)),
         getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(1))),
@@ -325,12 +337,13 @@ export function createRepo(db) {
       return batch.commit();
     },
 
-    async endGame(gameId) {
+    // date is optional: an older caller passes only the id.
+    async endGame(gameId, date) {
       const batch = writeBatch(db);
       batch.update(gameRef(gameId), updated({ status: 'final' }));
       // Reopening an older game made it current; once it ends again the team should point at the
       // newest game, which is what the viewer shows.
-      const newer = globalThis.navigator?.onLine === false ? null : await withinMs(newerGameId(gameId), END_LOOKUP_MS);
+      const newer = globalThis.navigator?.onLine === false ? null : await withinMs(newerGameId(gameId, date), END_LOOKUP_MS);
       if (newer) batch.set(teamRef, updated({ currentGameId: newer }), { merge: true });
       await batch.commit();
     },
@@ -349,9 +362,15 @@ export function createRepo(db) {
       // game must not detach the current (possibly live) one.
       const team = await getDocFromServer(teamRef);
       if (team.data()?.currentGameId === gameId) {
-        // Two candidates suffice because only the deleted game is excluded.
+        // Two candidates suffice for the newest date because only the deleted game is excluded.
         const candidates = await getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(2)));
-        const replacement = candidates.docs.find(game => game.id !== gameId);
+        let replacement = candidates.docs.find(game => game.id !== gameId);
+        if (replacement && typeof model.newestGame === 'function') {
+          // Several games can share that date: take the one the model orders last.
+          const sameDate = await getDocsFromServer(query(gamesRef, where('date', '==', replacement.data().date)));
+          const newest = model.newestGame(sameDate.docs.map(game => ({ ...game.data(), id: game.id })), gameId);
+          replacement = newest ?? replacement;
+        }
         batch.set(teamRef, updated({ currentGameId: replacement?.id ?? null }), { merge: true });
       }
       await batch.commit();

@@ -235,7 +235,7 @@ export function createEventsPanel(ctx, host, { onEnded = () => {}, rowToggles = 
     const target = game;
     if (!target || !ctx.getState().active || target.status !== 'live') return;
     try {
-      recountAfter(ctx, target.season, ctx.repo.endGame(target.id)).catch(ctx.onWriteError);
+      recountAfter(ctx, target.season, ctx.repo.endGame(target.id, target.date)).catch(ctx.onWriteError);
     } catch (err) {
       ctx.onWriteError(err);
       return;

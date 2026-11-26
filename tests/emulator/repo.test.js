@@ -143,6 +143,59 @@ test('endGame repoints currentGameId to the newest game when a newer one exists'
   assert.deepEqual(team.roster.map(player => player.id), ['a', 'b']);
 });
 
+const SAME_DAY = '2026-11-08';
+
+// Games with explicit creation times, written with the rules off; the team points at `current`.
+async function seedSameDayGames(ids, current) {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore();
+    for (const [index, id] of ids.entries()) {
+      await setDoc(doc(firestore, `games/${id}`), {
+        ...gameInfo, date: SAME_DAY, status: 'final', lineup, roster, events: [], period: 1,
+        createdAt: Timestamp.fromMillis(index + 1),
+      });
+    }
+    await setDoc(doc(firestore, 'team/main'), { currentGameId: current, roster }, { merge: true });
+  });
+}
+
+test('ending a reopened game re-points to the later-created game on the same date', async () => {
+  const { db, repo } = await activeClient();
+  await seedSameDayGames(['g1', 'g2'], 'g2');
+  await repo.reopenGame('g1');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'g1');
+  await repo.endGame('g1', SAME_DAY);
+  assert.equal((await read(db, 'games/g1')).status, 'final');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'g2');
+});
+
+test('ending the newest same-date game keeps the pointer', async () => {
+  const { db, repo } = await activeClient();
+  await seedSameDayGames(['g1', 'g2'], 'g1');
+  await repo.reopenGame('g2');
+  await repo.endGame('g2', SAME_DAY);
+  assert.equal((await read(db, 'games/g2')).status, 'final');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'g2');
+});
+
+test('an old caller without a date still ends the game and keeps today\'s strict comparison', async () => {
+  const { db, repo } = await activeClient();
+  await seedSameDayGames(['g1', 'g2'], 'g2');
+  await repo.reopenGame('g1');
+  await repo.endGame('g1');
+  assert.equal((await read(db, 'games/g1')).status, 'final');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'g1');
+});
+
+test('deleting the current game picks the later-created game on the newest remaining date', async () => {
+  const { db, repo } = await activeClient();
+  // Ids sort against creation order, so an id-ordered pick (Firestore's tie order) would be wrong.
+  await seedSameDayGames(['z-first', 'm-second', 'a-third'], 'a-third');
+  await repo.deleteGame('a-third');
+  assert.equal(await read(db, 'games/a-third'), undefined);
+  assert.equal((await read(db, 'team/main')).currentGameId, 'm-second');
+});
+
 test('endGame still ends the game when the server cannot be asked', async () => {
   const { db, repo } = await activeClient();
   const older = await createGame(repo, { ...gameInput, date: '2026-11-01' });
