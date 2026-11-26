@@ -134,8 +134,9 @@ test('a watch that fails before watchRetry.js has loaded is retried once per fai
     await expect(page.getByTestId('game-unavailable')).toBeVisible();
     await update(path, { events: [goal('e1', 1000), goal('e2', 1010)] });
     // Nothing-happened check: with the module still out nothing reopens the watch. There is nothing to wait on;
-    // the end condition is the counter read after it.
-    await page.waitForTimeout(2500);
+    // the window is the 2.4 s jitter ceiling of the first backoff step plus margin, and the end condition is the
+    // counter read after it.
+    await page.waitForTimeout(3000);
     expect(await counter(page, '__attempts', path)).toBe(1);
   } finally {
     openGate();
@@ -146,16 +147,19 @@ test('a watch that fails before watchRetry.js has loaded is retried once per fai
   expect(await counter(page, '__attempts', path)).toBe(2);
   // Nothing-happened check: the injected failure comes after a server answer, which resets the keeper's backoff,
   // so the next reopen is 2 s away (1.6 s at the least with jitter). 0.8 s later there is still exactly one reopen
-  // for this failure, not a duplicate and not an early one. Ended by the counter and the screen below.
+  // for this failure, not an early one. This window is deliberately shorter than that delay: it guards against a
+  // reopen BEFORE the step, and a duplicate one is caught by the later windows. Ended by the counter and the
+  // screen below.
   await page.waitForTimeout(800);
   expect(await counter(page, '__attempts', path)).toBe(2);
   await expect(page.getByTestId('game-unavailable')).toBeVisible();
   // Step 2: one more reopen, which works and shows the goal.
   await expect.poll(() => counter(page, '__attempts', path), POLL).toBe(3);
   await expect(page.getByTestId('score-us')).toHaveText('2', { timeout: 15000 });
-  // Nothing-happened check: once recovered the watch stays as it is, and a duplicate keeper would already have
-  // opened by now. Ended by the counters below.
-  await page.waitForTimeout(1500);
+  // Nothing-happened check: once recovered the watch stays as it is. A leftover or duplicate retry would fire one
+  // first-step delay after the recovery, 1.6 to 2.4 s with jitter, so the window is the 2.4 s ceiling plus margin.
+  // Ended by the counters below.
+  await page.waitForTimeout(3000);
   expect(await counter(page, '__attempts', path)).toBe(3);
   expect(await counter(page, '__failures', path)).toBe(2);
   await expect(page.getByTestId('score-us')).toHaveText('2');
