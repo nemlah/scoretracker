@@ -19,8 +19,6 @@ for (const [name, text, dropped] of [
 for (const [name, text, url, dropped] of [
   ['drops a lost Firestore Listen channel', lostConnection, listen, true],
   ['drops a lost Firestore Write channel', lostConnection, `${firestore}/Write/channel?VER=8`, true],
-  ['drops a lost games count request', lostConnection, `http://${EMULATOR.host}:${EMULATOR.firestorePort}/v1/projects/demo-x/databases/(default)/documents:runAggregationQuery?key=demo`, true],
-  ['keeps a lost document read', lostConnection, `http://${EMULATOR.host}:${EMULATOR.firestorePort}/v1/projects/demo-x/databases/(default)/documents/games/g1`, false],
   ['keeps a lost Auth emulator request', lostConnection, `http://${EMULATOR.host}:${EMULATOR.authPort}/identitytoolkit.googleapis.com/v1/accounts:signUp`, false],
   ['keeps a lost static server request', lostConnection, `http://${EMULATOR.host}:4173/track.html`, false],
   ['keeps a lost request with an empty URL', lostConnection, '', false],

@@ -792,6 +792,7 @@ test('listGamesPage pages 25 games as 20 and 5, in date then id descending order
   assert.equal(first.more, true);
   assert.equal(first.fromCache, false);
   assert.equal(first.cursor.id, 'g20');
+  assert.deepEqual(first.snapshots.map(snapshot => snapshot.id), PAGED_ORDER.slice(0, 20));
   const second = await repo.listGamesPage({ after: first.cursor });
   assert.deepEqual(second.games.map(game => game.id), PAGED_ORDER.slice(20));
   assert.equal(second.more, false);

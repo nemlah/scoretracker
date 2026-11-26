@@ -111,10 +111,17 @@ export function mount(root, ctx) {
     retryTimer = setTimeout(() => { retryTimer = null; refresh(); }, CACHED_RETRY_MS);
   }
 
+  // A page-one answer replaces the list. One from the server settles the matter: no cached page is left, the
+  // retry budget starts over and a pending retry is not needed.
   function takePage(result, shown) {
     cursor = result.cursor;
     more = result.more;
     anyFromCache = result.fromCache === true;
+    if (!anyFromCache) {
+      retries = 0;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     loadedGames = shown;
     listStatus.hidden = true;
     listEmpty.hidden = shown.length > 0;
@@ -153,20 +160,36 @@ export function mount(root, ctx) {
     });
   }
 
+  // The answer of a re-read for the rows shown: the previously last shown game and everything above it, so a
+  // game that arrived on top pushes nothing out of view. If that game is gone, as many rows as were shown.
+  function trimmed(result, shownCount, lastId) {
+    const games = result.games;
+    const snapshots = result.snapshots ?? [];
+    const at = games.findIndex(game => game.id === lastId);
+    const count = at >= 0 ? at + 1 : Math.min(games.length, Math.max(PAGE, shownCount));
+    if (count === games.length || snapshots[count - 1] === undefined) return result;
+    return { ...result, games: games.slice(0, count), cursor: snapshots[count - 1], more: true };
+  }
+
   // Reads page one again with room for every row shown, replacing the list. The rows stay on screen until it answers.
   function refresh() {
     if (unmounted || mode?.kind !== 'list' || loadedGames === null) return;
+    clearTimeout(retryTimer);
+    retryTimer = null;
     if (pageLoading) {
       refreshPending = true;
       return;
     }
     const token = listToken += 1;
+    const shownCount = loadedGames.length;
+    const lastId = loadedGames.at(-1)?.id;
     pageLoading = true;
     syncMore();
-    Promise.resolve(ctx.repo.listGamesPage({ pageSize: Math.max(PAGE, loadedGames.length) })).then(result => {
+    Promise.resolve(ctx.repo.listGamesPage({ pageSize: shownCount + PAGE })).then(result => {
       if (unmounted || token !== listToken) return;
       pageLoading = false;
-      takePage(result, result.games);
+      const kept = trimmed(result, shownCount, lastId);
+      takePage(kept, kept.games);
       syncMore();
       if (refreshPending) {
         refreshPending = false;
@@ -194,6 +217,7 @@ export function mount(root, ctx) {
       cursor = result.cursor;
       more = result.more;
       anyFromCache ||= result.fromCache === true;
+      if (result.fromCache !== true) retries = 0; // a server answer starts the retry budget over
       loadedGames = [...loadedGames, ...result.games];
       renderRowsFromGames();
       syncMore();

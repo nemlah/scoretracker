@@ -116,6 +116,8 @@ async function stubPages(page) {
       (window.__pageLog ??= []).push(entry);
       const gate = window.__gates?.shift();
       const page = await this.__realListGamesPage(options);
+      // A test can have the next reads reported as cache answers, to stand for a connection that has not come back yet.
+      if (window.__forceCached > 0) { window.__forceCached -= 1; page.fromCache = true; }
       if (gate) await gate;
       entry.fromCache = page.fromCache;
       return page;
@@ -143,7 +145,7 @@ const newGame = () => seed('games/g99', {
 });
 const expectedIds = (from, to) => Array.from({ length: from - to + 1 }, (_, i) => `#/games/g${pad(from - i)}`);
 
-test('a list with a cached second page reloads when back online: the new game on top, every row kept', async ({ page, context }) => {
+test('a list with a cached second page reloads when back online: the new game on top, every shown row kept', async ({ page, context }) => {
   await stubPages(page);
   await cacheAllThenGoOffline(page, context);
   await page.getByTestId('games-more').click();
@@ -153,13 +155,10 @@ test('a list with a cached second page reloads when back online: the new game on
   await newGame();
   await context.setOffline(false);
   await expect(rows(page).first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
-  // The re-read asked for the 23 rows shown, so none was lost; the game pushed out of that window is behind Show more.
+  // The re-read asked for the 23 rows shown and 20 more, and was cut after the game that was last on screen, so
+  // the new game on top pushed nothing out of view and there is nothing more to load.
   const reread = (await page.evaluate(() => window.__pageLog)).filter(call => !call.after).at(-1);
-  expect(reread).toMatchObject({ pageSize: 23, fromCache: false });
-  const links = await hrefs(page);
-  expect(links).toEqual(['#/games/g99', ...expectedIds(23, 2)]);
-  await page.getByTestId('games-more').click();
-  await expect(rows(page)).toHaveCount(24);
+  expect(reread).toMatchObject({ pageSize: 43, fromCache: false });
   expect(await hrefs(page)).toEqual(['#/games/g99', ...expectedIds(23, 1)]);
   await expect(page.getByTestId('games-more')).toBeHidden();
   dropNetworkNoise(problems);
@@ -203,10 +202,31 @@ test('a reload that meets a Show more in flight waits for it and keeps the rows 
   await page.evaluate(() => window.__open());
   await expect(rows(page).first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
   const log = await page.evaluate(() => window.__pageLog);
-  // The Show more answer was used (23 rows), so the re-read asked for 23.
-  expect(log.at(-1)).toMatchObject({ after: false, pageSize: 23, fromCache: false });
-  expect(await hrefs(page)).toEqual(['#/games/g99', ...expectedIds(23, 2)]);
+  // The Show more answer was used (23 rows), so the re-read asked for those and 20 more.
+  expect(log.at(-1)).toMatchObject({ after: false, pageSize: 43, fromCache: false });
+  expect(await hrefs(page)).toEqual(['#/games/g99', ...expectedIds(23, 1)]);
   dropNetworkNoise(problems);
+});
+
+test('a cached Show more answer still reloads after the retries ran out and a server answer came', async ({ page }) => {
+  test.setTimeout(90000);
+  await stubPages(page);
+  await seedGames(45);
+  await openGames(page);
+  await expect(rows(page)).toHaveCount(20);
+  // Show more and the first four re-reads are reported as cache answers; the fifth (the last retry) is the server's.
+  await page.evaluate(() => { window.__forceCached = 5; });
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(40);
+  await expect.poll(() => page.evaluate(() => window.__pageLog.length), { timeout: 30000 }).toBe(7);
+  await expect.poll(() => page.evaluate(() => window.__pageLog.at(-1).fromCache), { timeout: 30000 }).toBe(false);
+  await expect(page.getByTestId('games-more')).toBeEnabled();
+  // The list is complete and the budget is spent. A new game, then a cached Show more answer while online.
+  await newGame();
+  await page.evaluate(() => { window.__forceCached = 1; });
+  await page.getByTestId('games-more').click();
+  await expect(rows(page).first()).toContainText('Brand New FC', { timeout: SERVER_WAIT });
+  await expect(rows(page)).toHaveCount(46);
 });
 
 test('an invalid game route shows the not-found state without an error', async ({ page }) => {

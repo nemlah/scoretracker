@@ -236,6 +236,7 @@ export function createRepo(db) {
       const shown = snapshot.docs.slice(0, pageSize);
       return {
         games: shown.map(gameData),
+        snapshots: shown,
         cursor: shown.at(-1) ?? null,
         more: snapshot.docs.length > pageSize,
         fromCache: snapshot.metadata.fromCache,
