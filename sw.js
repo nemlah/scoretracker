@@ -32,6 +32,7 @@ const SHELL = [
   './js/teamStats.js',
   './js/teamView.js',
   './js/viewer.js',
+  './js/watchRetry.js',
   './js/tracker/app.js',
   './js/tracker/ownership.js',
   './js/tracker/recount.js',
