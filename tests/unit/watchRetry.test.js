@@ -434,3 +434,46 @@ test('an empty or invalid delays option falls back to the default delays', () =>
     assert.equal(h.opens.length, 2, `delays ${JSON.stringify(delays)}`);
   }
 });
+
+test('onFail is not delivered for an attempt a re-entrant retryNow already superseded and recovered', () => {
+  let watch = null;
+  let calls = 0;
+  const h = harness({ minRetryNowMs: 0 }, ({ next, fail, opens, at }) => {
+    const mine = calls++;
+    const attempt = { next, fail, unsubscribed: 0, at };
+    opens.push(attempt);
+    if (mine === 1) next({ recovered: true }, server); // synchronous server snapshot
+    return () => {
+      attempt.unsubscribed++;
+      if (mine === 0) watch.retryNow(); // cleanup of the failing attempt re-enters
+    };
+  });
+  watch = h.watch;
+  h.opens[0].fail(new Error('old'));
+  assert.equal(h.opens.length, 2, 'the re-entrant retry opened the second attempt');
+  assert.deepEqual(h.got.map(g => g.data), [{ recovered: true }]);
+  assert.equal(h.watch.failed(), false);
+  assert.equal(h.fails.length, 0, 'no stale onFail after the recovery');
+  assert.equal(h.pendingTimers(), 0, 'the cancelled reopen stays cancelled');
+});
+
+test('onFail is not delivered for a superseded attempt that has not recovered either', () => {
+  let watch = null;
+  let calls = 0;
+  const h = harness({ minRetryNowMs: 0 }, ({ next, fail, opens, at }) => {
+    const mine = calls++;
+    const attempt = { next, fail, unsubscribed: 0, at };
+    opens.push(attempt);
+    return () => {
+      attempt.unsubscribed++;
+      if (mine === 0) watch.retryNow();
+    };
+  });
+  watch = h.watch;
+  h.opens[0].fail(new Error('old'));
+  assert.equal(h.opens.length, 2);
+  assert.equal(h.fails.length, 0);
+  assert.equal(h.watch.failed(), true);
+  h.opens[1].fail(new Error('new'));
+  assert.equal(h.fails.length, 1, 'a failure of the newest attempt is still reported');
+});

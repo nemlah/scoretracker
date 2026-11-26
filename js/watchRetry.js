@@ -90,7 +90,9 @@ export function keepWatching(open, options = {}) {
       failedNow = true;
       schedule(); // before the cleanup: a stop() in it then cancels this timer
       release(unsub);
-      if (!stopped) onFail(err);
+      // The cleanup may have stopped the watch or re-entered retryNow(), which opened a newer
+      // attempt (maybe already recovered): this failure is then stale and is not reported.
+      if (!stopped && counter === mine) onFail(err);
     };
 
     let unsub;
