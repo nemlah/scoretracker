@@ -59,6 +59,12 @@ test('newerThan returns the later-created same-date game, null when the ended ga
   assert.equal(newerThan({ ...ended, createdAt: null }, [{ ...later, createdAt: ts(5) }]), null);
 });
 
+test('newerThan returns null for an ended game with a null or absent createdAt even when a later-date game exists', () => {
+  const laterDate = { id: 'l', date: 'e', createdAt: ts(1) };
+  assert.equal(newerThan({ id: 'e', date: 'd', createdAt: null }, [laterDate]), null);
+  assert.equal(newerThan({ id: 'e', date: 'd' }, [laterDate]), null);
+});
+
 test("validDocId refuses '', '.', '..', a slash, __x__, and over 1500 bytes", () => {
   for (const bad of ['', '.', '..', 'a/b', '__x__', 'a'.repeat(1501), 'é'.repeat(751)]) {
     assert.equal(validDocId(bad), false, JSON.stringify(bad.slice(0, 10)));
