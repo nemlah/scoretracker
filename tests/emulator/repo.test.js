@@ -589,7 +589,8 @@ test('the repo reports that it knows competitions', async () => {
   assert.equal(repo.competitionLists, true);
 });
 
-// Production games held two array entries with one event id after racing corrections.
+// Reproduces a possible stale-write sequence: racing corrections can leave two array entries
+// with one event id.
 const seedEvents = (id, events) => testEnv.withSecurityRulesDisabled(
   context => updateDoc(doc(context.firestore(), `games/${id}`), { events }),
 );
@@ -639,7 +640,7 @@ test('two replacements against the same stale version leave one version, counted
   await first.repo.replaceEvent(id, goalA, goalB);
   await second.repo.takeOver(second.uid);
   await second.repo.replaceEvent(id, goalA, goalC);
-  // Both versions are now on the server: this is the production state.
+  // Both versions are now on the server: a stale write can leave this state.
   assert.deepEqual((await read(second.db, `games/${id}`)).events, [goalB, goalC]);
 
   const visible = await second.repo.readGameFromServer(id);
@@ -656,14 +657,28 @@ test('two replacements against the same stale version leave one version, counted
   assert.equal(Object.values(stats.players).reduce((sum, player) => sum + player.goals, 0), 1);
 });
 
-test('a pending replacement does not make the repo forget the committed version', async () => {
-  const { db, repo } = await activeClient();
-  const id = await createGame(repo);
+test('a rejected deleteGame keeps the remembered versions for a later removal', async () => {
+  const first = await activeClient();
+  const id = await createGame(first.repo);
+  await seedEvents(id, [goalA, goalB]);
+  const game = await first.repo.readGameFromServer(id);
+  assert.deepEqual(game.events, [goalB]);
+  // Client 2 takes control, so client 1's delete is refused and the game stays.
+  await activeClient();
+  await assert.rejects(first.repo.deleteGame(id), { code: 'permission-denied' });
+  await first.repo.takeOver(first.uid);
+  await first.repo.removeEvent(id, game.events[0]);
+  assert.deepEqual((await read(first.db, `games/${id}`)).events, []);
+});
+
+test('a removal queued behind a refused replacement still clears the committed version', async () => {
+  const first = await activeClient();
+  const id = await createGame(first.repo);
   await seedEvents(id, [goalA]);
-  assert.deepEqual((await repo.readGameFromServer(id)).events, [goalA]);
+  assert.deepEqual((await first.repo.readGameFromServer(id)).events, [goalA]);
   const snapshots = [];
   let wake = () => {};
-  const stop = repo.watchGame(id, (game, meta) => {
+  const stop = first.repo.watchGame(id, (game, meta) => {
     snapshots.push({ game, meta });
     wake();
   });
@@ -672,14 +687,20 @@ test('a pending replacement does not make the repo forget the committed version'
   };
   try {
     await until(({ game, meta }) => !meta.fromCache && !meta.hasPendingWrites && game.events.length === 1);
-    await disableNetwork(db);
-    const replaced = repo.replaceEvent(id, goalA, goalB);
+    await disableNetwork(first.db);
+    // Queued offline: the repo's latest version of e1 is now B, and only its confirmed memory holds A.
+    const replaced = assert.rejects(first.repo.replaceEvent(id, goalA, goalB), { code: 'permission-denied' });
     await until(({ game, meta }) => meta.hasPendingWrites && game.events[0]?.playerId === 'b');
-    const removed = repo.removeEvent(id, goalB);
-    await enableNetwork(db);
-    await Promise.all([replaced, removed]);
-    await waitForPendingWrites(db);
-    assert.deepEqual((await read(db, `games/${id}`)).events, []);
+    // Client 2 takes control while client 1 is offline, so client 1's queued replacement will be refused.
+    await activeClient();
+    const takeover = first.repo.takeOver(first.uid);
+    const removed = first.repo.removeEvent(id, goalB);
+    await enableNetwork(first.db);
+    await Promise.all([replaced, takeover, removed]);
+    await waitForPendingWrites(first.db);
+    // The refused replacement left A on the server; the removal carried it only through the
+    // remembered confirmed version.
+    assert.deepEqual((await read(first.db, `games/${id}`)).events, []);
   } finally {
     stop();
   }

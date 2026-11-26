@@ -345,7 +345,6 @@ export function createRepo(db) {
     async deleteGame(gameId) {
       const batch = writeBatch(db);
       batch.delete(gameRef(gameId));
-      rawEvents.delete(gameId);
       // The pointer only moves when it points at the game being deleted; deleting any other
       // game must not detach the current (possibly live) one.
       const team = await getDocFromServer(teamRef);
@@ -356,6 +355,8 @@ export function createRepo(db) {
         batch.set(teamRef, updated({ currentGameId: replacement?.id ?? null }), { merge: true });
       }
       await batch.commit();
+      // Only a committed delete retires the remembered versions.
+      rawEvents.delete(gameId);
     },
 
     async recomputeSeason(season) {
