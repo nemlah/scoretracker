@@ -77,9 +77,16 @@ test('a failed stats watch shows Failed until the server answers, never a cached
   await update(path, statsDoc([result('g2', 'After FC')]));
   // The new server answer queues behind the held one: both are still on hold.
   await expect.poll(() => counter(page, '__queued', path), POLL).toBeGreaterThanOrEqual(2);
-  const cachedAnswers = await page.evaluate(p => window.__snaps.filter(snap => snap.path === p && snap.fromCache && snap.exists).length, path);
-  expect(cachedAnswers, 'the reopened listener delivered its cached answer').toBeGreaterThan(0);
-  // Nothing-happened check, ended by the release below: nothing is waiting to be seen, so the record is read now.
+  // The reopened attempt (the second watch() call) really delivered its cached answer, the old row, to the viewer
+  // before the release: only holdCached keeps it off the screen. The first attempt's answers do not count.
+  const reopenedCached = await page.evaluate(p => window.__snaps
+    .filter(snap => snap.path === p && snap.attempt === 2 && snap.fromCache && snap.exists).length, path);
+  expect(reopenedCached, 'the reopened attempt delivered its cached answer').toBeGreaterThan(0);
+  const reopenedServer = await page.evaluate(p => window.__snaps
+    .filter(snap => snap.path === p && snap.attempt === 2 && !snap.fromCache).length, path);
+  expect(reopenedServer, 'the reopened attempt has no server answer on record before the release').toBe(0);
+  // Nothing-happened check, ended by the release below: the cached answer arrived and nothing showed it, so the
+  // record is read now. It must hold neither a Loading line nor the old row.
   await expect(page.getByTestId('results-failed')).toBeVisible();
   expect(await page.evaluate(() => window.__flash)).toEqual({ failedSeen: true, loading: 0, rows: [] });
   await page.evaluate(p => window.__releaseHeld(p), path);
@@ -108,7 +115,8 @@ test('the viewer starts and shows the score when watchRetry.js fails to load', a
   await expect(page.getByTestId('score-us')).toHaveText('1');
 });
 
-test('a watch that fails before watchRetry.js has loaded is retried exactly once it loads', async ({ page }) => {
+test('a watch that fails before watchRetry.js has loaded is retried once per failure after it loads', async ({ page }) => {
+  const path = 'games/g1';
   let openGate;
   const gate = new Promise(resolve => { openGate = resolve; });
   const module = readFileSync('js/watchRetry.js', 'utf8');
@@ -118,19 +126,37 @@ test('a watch that fails before watchRetry.js has loaded is retried exactly once
   });
   try {
     await seedLive();
-    await instrumentRepo(page, { 'games/g1': { fail: 1 } });
+    // The first two attempts fail: the original watch, then the first reopen. The second reopen is the one that works.
+    await instrumentRepo(page, { [path]: { fail: 2 } });
     // WebKit holds the load event for the module that is still out, so the page is not waited for.
     await page.goto('/index.html?emulator=1#/game/g1', { waitUntil: 'commit' });
-    await expect.poll(() => counter(page, '__failures', 'games/g1'), POLL).toBe(1);
+    await expect.poll(() => counter(page, '__failures', path), POLL).toBe(1);
     await expect(page.getByTestId('game-unavailable')).toBeVisible();
-    // The module is still out: the watch is not reopened by anything else.
-    expect(await counter(page, '__attempts', 'games/g1')).toBe(1);
-    await update('games/g1', { events: [goal('e1', 1000), goal('e2', 1010)] });
+    await update(path, { events: [goal('e1', 1000), goal('e2', 1010)] });
+    // Nothing-happened check: with the module still out nothing reopens the watch. There is nothing to wait on;
+    // the end condition is the counter read after it.
+    await page.waitForTimeout(2500);
+    expect(await counter(page, '__attempts', path)).toBe(1);
   } finally {
     openGate();
   }
-  // The module arrives, takes the failed watch over, and reopens it once.
+  // Step 1: the module arrives, takes the failed watch over, and reopens it once (after about 2 s). That reopen fails.
+  // Waited for in the page itself (a frame at a time), so the window below starts at the failure.
+  await page.waitForFunction(p => window.__failures?.[p] === 2, path, { timeout: 10000 });
+  expect(await counter(page, '__attempts', path)).toBe(2);
+  // Nothing-happened check: the injected failure comes after a server answer, which resets the keeper's backoff,
+  // so the next reopen is 2 s away (1.6 s at the least with jitter). 0.8 s later there is still exactly one reopen
+  // for this failure, not a duplicate and not an early one. Ended by the counter and the screen below.
+  await page.waitForTimeout(800);
+  expect(await counter(page, '__attempts', path)).toBe(2);
+  await expect(page.getByTestId('game-unavailable')).toBeVisible();
+  // Step 2: one more reopen, which works and shows the goal.
+  await expect.poll(() => counter(page, '__attempts', path), POLL).toBe(3);
   await expect(page.getByTestId('score-us')).toHaveText('2', { timeout: 15000 });
-  expect(await counter(page, '__attempts', 'games/g1')).toBe(2);
-  expect(await counter(page, '__failures', 'games/g1')).toBe(1);
+  // Nothing-happened check: once recovered the watch stays as it is, and a duplicate keeper would already have
+  // opened by now. Ended by the counters below.
+  await page.waitForTimeout(1500);
+  expect(await counter(page, '__attempts', path)).toBe(3);
+  expect(await counter(page, '__failures', path)).toBe(2);
+  await expect(page.getByTestId('score-us')).toHaveText('2');
 });

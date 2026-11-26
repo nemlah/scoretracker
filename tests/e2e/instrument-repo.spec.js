@@ -64,6 +64,27 @@ test.describe('fail rules', () => {
     expect(warnings).toHaveLength(1);
   });
 
+  test('a held listener that fails delivers one snapshot on release, then the error, then nothing more', async ({ page }) => {
+    const warnings = [];
+    page.on('console', message => { if (message.text().startsWith('Could not watch game')) warnings.push(message.text()); });
+    await seedGames();
+    await instrumentRepo(page, { 'games/g1': { hold: true, fail: 1 } });
+    await open(page, '#/game/g1');
+    await expect.poll(() => counter(page, '__queued', 'games/g1')).toBe(1);
+    // A second server snapshot arrives during the hold and queues behind the first.
+    await update('games/g1', { events: [goal('e1', 1000), goal('e2', 1010)] });
+    await expect.poll(() => counter(page, '__queued', 'games/g1')).toBeGreaterThanOrEqual(2);
+    expect(await counter(page, '__failures', 'games/g1')).toBe(0);
+    const queued = await counter(page, '__queued', 'games/g1');
+    await page.evaluate(() => window.__releaseHeld('games/g1'));
+    // Exactly one queued snapshot got through, then the error; every other queued one was dropped.
+    expect(await serverSnaps(page, 'games/g1')).toBe(1);
+    expect(await counter(page, '__failures', 'games/g1')).toBe(1);
+    expect(await counter(page, '__dropped', 'games/g1')).toBe(queued - 1);
+    expect(warnings).toHaveLength(1);
+    await expect(page.getByTestId('game-unavailable')).toBeVisible();
+  });
+
   test('holdReopen holds the reopened listener\'s first server answer', async ({ page }) => {
     await seedGames();
     await instrumentRepo(page, { 'games/g1': { fail: 1, holdReopen: true } });

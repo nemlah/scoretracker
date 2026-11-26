@@ -119,11 +119,10 @@ const subs = {
 // js/watchRetry.js, once it has loaded. A brand-new module in a mixed cache may be missing: then a failed
 // watch stays failed, as before. A watch that failed first is taken over when the module arrives.
 let watchRetry = null;
-import('./watchRetry.js').then(module => {
+import('./watchRetry.js').catch(() => null).then(module => {
+  if (!module) return;
   watchRetry = module;
   for (const sub of Object.values(subs)) sub.takeOver?.();
-}).catch(err => {
-  console.warn('Watch retry unavailable', err);
 });
 const openers = {
   team: (key, next, fail) => repo.watchTeam(next, fail),
@@ -161,9 +160,8 @@ function startWatch(name, key) {
     update();
   };
   // A failure the keeper reports: only the state changes (the keeper reopens by itself).
-  const failState = err => {
+  const failState = () => {
     if (sub.token !== token) return;
-    console.warn(`Could not watch ${name}`, err);
     state[name] = { key, data: null, meta: { error: true } };
     update();
   };

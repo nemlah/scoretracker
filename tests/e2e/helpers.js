@@ -169,6 +169,7 @@ export const recordedHome = async page => ({
 // them), and every later snapshot of that listener is dropped, as with a listener the SDK has ended.
 // { fail: n, holdReopen: true } also holds the first server snapshot of the next call on that path (the reopen)
 // until window.__releaseHeld(path); a held callback stays tied to its own subscription.
+// Each window.__snaps entry carries `attempt`, the number of its watch() call on that path.
 // window.__infoCalls lists the arguments of every repo.updateGameInfo call.
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
@@ -189,26 +190,30 @@ export async function instrumentRepo(page, slow = {}) {
     const mine = { n: attempts[ref.path], dead: false, held: false };`);
   const body = recorded.replace(call, `{
       const record = () => (window.__snaps ??= []).push({
-        path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache,
+        path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache, attempt: mine.n,
       });
-      // A listener the rule has ended delivers nothing more.
-      if (mine.dead) {
+      // A listener the rule has ended delivers nothing more: checked when a snapshot arrives and again when a
+      // held one is released, since the listener may have been ended in between.
+      const dropIfDead = () => {
+        if (!mine.dead) return false;
         const dropped = (window.__dropped ??= {});
         dropped[ref.path] = (dropped[ref.path] ?? 0) + 1;
-        return;
-      }
+        return true;
+      };
+      if (dropIfDead()) return;
       const rule = window.__slow?.[ref.path];
       const seen = (window.__seen ??= new Set());
       const held = (window.__held ??= {});
       const meta = { fromCache: rule?.cached ? true : fromCache, hasPendingWrites };
       const deliver = () => {
+        if (dropIfDead()) return;
         cb(data, meta);
         record();
         const injected = (window.__injected ??= new Set());
         if (rule?.cachedNullAfterServer && !fromCache && !injected.has(ref.path)) {
           injected.add(ref.path);
           cb(null, { fromCache: true, hasPendingWrites });
-          window.__snaps.push({ path: ref.path, exists: false, status: undefined, pointer: undefined, fromCache: true, injected: true });
+          window.__snaps.push({ path: ref.path, exists: false, status: undefined, pointer: undefined, fromCache: true, injected: true, attempt: mine.n });
         }
         if (!fromCache && !mine.dead && mine.n <= (rule?.fail ?? 0)) {
           mine.dead = true;
