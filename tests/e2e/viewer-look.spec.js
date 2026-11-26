@@ -933,7 +933,7 @@ test.describe('mixed cache with R2 viewer files', () => {
     await expect(shootout).toHaveText('(2 – 1 pen.)');
   });
 
-  test('R2 viewer.js still shows the live banner, score and saves', async ({ page }) => {
+  test('R2 viewer.js still shows the live banner, score and quarter table', async ({ page }) => {
     const viewer = execFileSync('git', ['show', '720f124:js/viewer.js'], { encoding: 'utf8' });
     let served = 0;
     await page.route('**/js/viewer.js*', route => {

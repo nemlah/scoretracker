@@ -26,8 +26,10 @@ test('release-2 CSS is gone and the shared blocks stay', () => {
   assert.doesNotMatch(viewer, /home-live-text-slots|home-live-gap/);
   const tracker = read('css/tracker.css');
   assert.doesNotMatch(tracker, /R2 tracker markup/);
-  assert.doesNotMatch(tracker, /body\.sit-up \.live-top::after/);
-  assert.doesNotMatch(tracker, /body\.on-live \.bar \{/);
+  for (const selector of ['body.sit-up .live-top::after', 'body.sit-down .live-top::after',
+    'body.sit-up .dock::before', 'body.sit-down .dock::before', 'body.on-live .bar {']) {
+    assert.equal(tracker.includes(selector), false, selector);
+  }
   assert.match(tracker, /Shared by R2 and R3/);
   assert.match(tracker, /body\.on-live \.bar--team \{/);
   const base = read('css/base.css');
