@@ -111,11 +111,20 @@ function parseRoute(hash) {
 
 // Subscriptions keyed by what they watch. A token tells a replaced subscription's late callbacks apart.
 const subs = {
-  team: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
-  game: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
-  live: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
-  stats: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null },
+  team: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null, keeper: null, takeOver: null },
+  game: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null, keeper: null, takeOver: null },
+  live: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null, keeper: null, takeOver: null },
+  stats: { key: null, off: null, token: 0, deadline: null, stale: false, staleTimer: null, keeper: null, takeOver: null },
 };
+// js/watchRetry.js, once it has loaded. A brand-new module in a mixed cache may be missing: then a failed
+// watch stays failed, as before. A watch that failed first is taken over when the module arrives.
+let watchRetry = null;
+import('./watchRetry.js').then(module => {
+  watchRetry = module;
+  for (const sub of Object.values(subs)) sub.takeOver?.();
+}).catch(err => {
+  console.warn('Watch retry unavailable', err);
+});
 const openers = {
   team: (key, next, fail) => repo.watchTeam(next, fail),
   game: (key, next, fail) => repo.watchGame(key, next, fail),
@@ -134,14 +143,15 @@ const isStale = () => Object.values(subs).some(sub => sub.stale);
 const isOffline = () => state.offline || isStale();
 
 // Replaces a watch: drops the old subscription, forgets its data and, for a key, subscribes. Returns
-// nothing; a subscribe that throws leaves the watch in its error state.
+// nothing; a subscribe that throws leaves the watch in its error state. A watch that fails is then kept
+// by watchRetry.js, which reopens it with a growing delay.
 function startWatch(name, key) {
   const sub = subs[name];
   sub.off?.();
   clearTimeout(sub.deadline);
   clearTimeout(sub.staleTimer);
   const token = ++lastToken;
-  Object.assign(sub, { key, off: null, token, deadline: null, stale: false, staleTimer: null });
+  Object.assign(sub, { key, off: null, token, deadline: null, stale: false, staleTimer: null, keeper: null, takeOver: null });
   state[name] = { key, data: undefined, meta: null };
   if (key === null) return;
   const store = (data, meta) => {
@@ -150,25 +160,66 @@ function startWatch(name, key) {
     state[name] = { key, data, meta };
     update();
   };
+  // A failure the keeper reports: only the state changes (the keeper reopens by itself).
+  const failState = err => {
+    if (sub.token !== token) return;
+    console.warn(`Could not watch ${name}`, err);
+    state[name] = { key, data: null, meta: { error: true } };
+    update();
+  };
+  // Hands this failed watch to a keeper: the original listener is disposed, and the keeper reopens after
+  // its first delay. At most one keeper per subscription.
+  const takeOver = () => {
+    if (!watchRetry || sub.token !== token || sub.keeper) return;
+    sub.takeOver = null;
+    const original = sub.off;
+    sub.off = null;
+    try { original?.(); } catch { /* the listener is already gone */ }
+    const keeper = watchRetry.keepWatching((next, fail) => openers[name](key, next, fail), {
+      holdCached: true, startFailed: true, onSnapshot: store, onFail: failState,
+    });
+    sub.keeper = keeper;
+    sub.off = () => keeper.stop();
+  };
+  // The watch failed: if the module is in, it takes over now, otherwise as soon as it loads.
+  const failed = () => {
+    if (sub.token !== token || sub.keeper) return;
+    sub.takeOver = takeOver;
+    takeOver();
+  };
   const fail = err => {
     console.warn(`Could not watch ${name}`, err);
     store(null, { error: true });
+    // store() renders, and a render can replace this watch: then it is not ours to take over.
+    failed();
   };
   try {
-    sub.off = openers[name](key, store, fail);
+    const off = openers[name](key, store, fail);
+    if (sub.token !== token || sub.keeper) {
+      // Replaced or taken over while opening (a failure delivered before the opener returned).
+      try { off?.(); } catch { /* nothing to release */ }
+    } else {
+      sub.off = off;
+    }
   } catch (err) {
     // A subscription that cannot start must not stop the rest of the viewer.
     console.warn(`Could not watch ${name}`, err);
     state[name] = { key, data: null, meta: { error: true } };
+    failed();
     return;
   }
   // A watch that never answers is a failed watch, so nothing waits for it forever. A later snapshot
-  // replaces the error.
+  // replaces the error. The listener behind it is alive, so it is not reopened.
   sub.deadline = setTimeout(() => {
     if (sub.token !== token || state[name].data !== undefined) return;
     state[name] = { key, data: null, meta: { error: true } };
     update();
   }, STALE_MS);
+}
+
+// Failed watches are reopened at once (`retryNow` itself throttles to one try per 10 s).
+function retryWatches() {
+  for (const sub of Object.values(subs)) sub.keeper?.retryNow();
 }
 
 // Makes the watches match the plan. True when any changed, which changes what the plan should say.
@@ -276,7 +327,10 @@ window.addEventListener('hashchange', () => {
   window.scrollTo(0, 0);
   update();
 });
-window.addEventListener('online', () => { state.offline = false; update(); });
+window.addEventListener('online', () => { state.offline = false; retryWatches(); update(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') retryWatches();
+});
 window.addEventListener('offline', () => { state.offline = true; update(); });
 // A page restored from the back/forward cache holds a Firestore client that shut itself down when
 // the page was hidden, so its score would stay frozen. Reloading starts a fresh client.
