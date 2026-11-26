@@ -44,17 +44,19 @@ const reopenHeld = (page, path) => expect.poll(() => counter(page, '__queued', p
 const release = (page, path) => page.evaluate(p => window.__releaseHeld(p), path);
 
 // The first tap arms the button. A confirming tap too soon after arming counts as a double tap and is ignored (the
-// button stays armed), and nothing on the page says when the guard has passed. So the confirming tap is retried until
-// its outcome is on the server: an ignored tap leaves the game live and the next try, still inside the 4 s window,
-// goes through.
+// button stays armed), and nothing on the page says when the guard has passed. So the confirming tap is retried while
+// the button is still visible and armed. A confirming tap closes the sheet (or disarms the button): from then on nothing
+// is clicked again, and only the outcome is waited for, however long the server takes.
 async function armThenConfirm(page, testid, confirmed) {
   const button = page.getByTestId(testid);
   await button.click();
   await expect(button).toHaveText('Tap again to confirm');
   await expect(async () => {
-    await button.click({ timeout: 1000 });
-    await expect.poll(confirmed, { timeout: 1500 }).toBe(true);
+    if (await button.isVisible()) await button.click({ timeout: 1000 });
+    const armed = await button.isVisible() && ((await button.getAttribute('class', { timeout: 500 }).catch(() => '')) ?? '').includes('is-armed');
+    expect(armed, 'the confirming tap was ignored').toBe(false);
   }).toPass({ timeout: SERVER_WAIT });
+  await expect.poll(confirmed, { timeout: SERVER_WAIT }).toBe(true);
 }
 
 let problems;
@@ -207,6 +209,12 @@ test.describe('mixed module cache', () => {
   test('the previous Events sheet edits a goal, deletes a goal and ends the game', async ({ page }) => {
     const old = previous('js/tracker/views/events.js');
     await page.route('**/js/tracker/views/events.js', route => route.fulfill({ contentType: 'text/javascript', body: old }));
+    // Writes leave the page late once `writeDelayMs` is set, so the server answers the End well after a short poll.
+    let writeDelayMs = 0;
+    await page.route(/\/Write\/channel/, async route => {
+      if (writeDelayMs > 0) await new Promise(resolve => setTimeout(resolve, writeDelayMs));
+      await route.continue().catch(() => {});
+    });
     await seedLive([goal('e1', 1000), goal('e2', 1010)]);
     await page.goto(HOME_URL);
     await unlockTracker(page);
@@ -224,9 +232,10 @@ test.describe('mixed module cache', () => {
     await page.getByTestId('ev-row').last().getByTestId('ev-delete').click();
     await expect.poll(async () => (await get('games/g1')).events.map(event => event.id)).toEqual(['e2']);
 
+    writeDelayMs = 2500;
     await armThenConfirm(page, 'end-game', async () => (await get('games/g1')).status === 'final');
-    await expect.poll(async () => (await get('games/g1')).status).toBe('final');
-    await expect.poll(() => journalOf(page)).toEqual([]);
+    writeDelayMs = 0;
+    await expect.poll(() => journalOf(page), { timeout: SERVER_WAIT }).toEqual([]);
   });
 
   test('the tracker starts and records a goal when watchRetry.js fails to load', async ({ page, baseURL }) => {
