@@ -163,6 +163,12 @@ export const recordedHome = async page => ({
 // so the server never seems to confirm it (the record still says what the server really sent).
 // { cachedNullAfterServer: true } follows the first server snapshot of that path with one extra cached null
 // (recorded in window.__snaps with `injected: true`), as a listener falling back to a cache that lacks the document.
+// Rules are tracked per watch() call: window.__attempts[path] counts the calls, and each call has its own state.
+// { fail: n } ends the first n watch() calls on that path: once that listener's first server snapshot has been
+// delivered, the call's own onError is called once with { code: 'unavailable' } (window.__failures[path] counts
+// them), and every later snapshot of that listener is dropped, as with a listener the SDK has ended.
+// { fail: n, holdReopen: true } also holds the first server snapshot of the next call on that path (the reopen)
+// until window.__releaseHeld(path); a held callback stays tied to its own subscription.
 // window.__infoCalls lists the arguments of every repo.updateGameInfo call.
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
@@ -172,12 +178,25 @@ export async function instrumentRepo(page, slow = {}) {
   const infoHead = 'updateGameInfo(gameId, info) {';
   if (!real.includes(infoHead)) throw new Error('repo.js changed: update instrumentRepo');
   // Records what each updateGameInfo call was given (window.__infoCalls: { gameId, info }), before it is destructured.
-  const recorded = real.replace(infoHead, `${infoHead}
+  const infoRecorded = real.replace(infoHead, `${infoHead}
       (window.__infoCalls ??= []).push({ gameId, info: { ...info } });`);
+  // Each watch() call gets its own state (`mine`), counted in window.__attempts.
+  const watchHead = 'function watch(ref, cb, isGame = false, onError) {';
+  if (!real.includes(watchHead)) throw new Error('repo.js changed: update instrumentRepo');
+  const recorded = infoRecorded.replace(watchHead, `${watchHead}
+    const attempts = (window.__attempts ??= {});
+    attempts[ref.path] = (attempts[ref.path] ?? 0) + 1;
+    const mine = { n: attempts[ref.path], dead: false, held: false };`);
   const body = recorded.replace(call, `{
       const record = () => (window.__snaps ??= []).push({
         path: ref.path, exists: data !== null, status: data?.status, pointer: data?.currentGameId, fromCache,
       });
+      // A listener the rule has ended delivers nothing more.
+      if (mine.dead) {
+        const dropped = (window.__dropped ??= {});
+        dropped[ref.path] = (dropped[ref.path] ?? 0) + 1;
+        return;
+      }
       const rule = window.__slow?.[ref.path];
       const seen = (window.__seen ??= new Set());
       const held = (window.__held ??= {});
@@ -190,6 +209,12 @@ export async function instrumentRepo(page, slow = {}) {
           injected.add(ref.path);
           cb(null, { fromCache: true, hasPendingWrites });
           window.__snaps.push({ path: ref.path, exists: false, status: undefined, pointer: undefined, fromCache: true, injected: true });
+        }
+        if (!fromCache && !mine.dead && mine.n <= (rule?.fail ?? 0)) {
+          mine.dead = true;
+          const failures = (window.__failures ??= {});
+          failures[ref.path] = (failures[ref.path] ?? 0) + 1;
+          onError?.({ code: 'unavailable' });
         }
       };
       const enqueue = () => {
@@ -208,6 +233,9 @@ export async function instrumentRepo(page, slow = {}) {
         enqueue();
         cb(rule.miss ? null : data, { fromCache: true, hasPendingWrites });
         if (rule.holdMs) setTimeout(() => window.__releaseHeld(ref.path), rule.holdMs);
+      } else if (rule?.holdReopen && mine.n === (rule.fail ?? 0) + 1 && !fromCache && !mine.held) {
+        mine.held = true;
+        enqueue();
       } else {
         deliver();
       }
