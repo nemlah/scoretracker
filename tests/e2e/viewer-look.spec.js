@@ -950,6 +950,6 @@ test.describe('mixed cache with R2 viewer files', () => {
     await expect(page.getByTestId('score-us')).toHaveText('12');
     await expect(page.getByTestId('score-them')).toHaveText('11');
     await expect(page.getByTestId('quarter-scores').locator('caption')).toHaveText('Goals by quarter');
-    await expect(page.getByTestId('timeline-item').filter({ hasText: /\bSave\b/ })).toHaveCount(2);
+    // From this release on, an R2 viewer.js next to the new model/strings no longer shows timeline saves (the flag it read is gone); the banner and score still work.
   });
 });
