@@ -28,7 +28,12 @@ import * as model from './model.js';
 // hold the end back: past this the game ends without it.
 const END_LOOKUP_MS = 2000;
 
-const gameData = snapshot => ({ ...snapshot.data(), id: snapshot.id });
+// Key-sorted JSON, so two entries with the same fields compare equal whatever their key order.
+const canonical = value => JSON.stringify(value, (_key, v) => (
+  v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : v
+));
 
 async function withinMs(promise, ms) {
   let timer;
@@ -85,6 +90,44 @@ export function createRepo(db) {
   const gamesRef = collection(db, 'games');
   const gameRef = id => doc(gamesRef, id);
   const updated = data => ({ ...data, updatedAt: serverTimestamp() });
+
+  // Every raw events array this repo decoded, per game: the latest one, and the latest one the
+  // server confirmed. A game can hold two entries with one event id; the screen shows one, and a
+  // removal must clear every version this client has seen or the hidden one resurfaces.
+  const rawEvents = new Map();
+
+  function remember(snapshot) {
+    const events = snapshot.data()?.events;
+    if (!Array.isArray(events)) return;
+    const { fromCache, hasPendingWrites } = snapshot.metadata;
+    const known = rawEvents.get(snapshot.id) ?? { latest: [], confirmed: [] };
+    known.latest = events;
+    if (!fromCache && !hasPendingWrites) known.confirmed = events;
+    rawEvents.set(snapshot.id, known);
+  }
+
+  function gameData(snapshot) {
+    const data = { ...snapshot.data(), id: snapshot.id };
+    if (!Array.isArray(data.events)) return data;
+    remember(snapshot);
+    return { ...data, events: model.uniqueEvents?.(data.events) ?? data.events };
+  }
+
+  // The entries to remove with this event: itself, and every other remembered version of its id.
+  function versionsOf(gameId, event) {
+    const known = rawEvents.get(gameId);
+    if (!known || typeof event?.id !== 'string') return [event];
+    const seen = new Set([canonical(event)]);
+    const others = [];
+    for (const entry of [...known.latest, ...known.confirmed]) {
+      if (entry?.id !== event.id) continue;
+      const key = canonical(entry);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      others.push(entry);
+    }
+    return [event, ...others];
+  }
 
   // onError is optional; without it a failed listener behaves as before.
   function watch(ref, cb, isGame = false, onError) {
@@ -236,13 +279,13 @@ export function createRepo(db) {
     },
 
     removeEvent(gameId, event) {
-      return updateDoc(gameRef(gameId), updated({ events: arrayRemove(event) }));
+      return updateDoc(gameRef(gameId), updated({ events: arrayRemove(...versionsOf(gameId, event)) }));
     },
 
     replaceEvent(gameId, oldEvent, newEvent) {
       const batch = writeBatch(db);
       const ref = gameRef(gameId);
-      batch.update(ref, updated({ events: arrayRemove(oldEvent) }));
+      batch.update(ref, updated({ events: arrayRemove(...versionsOf(gameId, oldEvent)) }));
       batch.update(ref, updated({ events: arrayUnion(newEvent) }));
       return batch.commit();
     },
@@ -302,6 +345,7 @@ export function createRepo(db) {
     async deleteGame(gameId) {
       const batch = writeBatch(db);
       batch.delete(gameRef(gameId));
+      rawEvents.delete(gameId);
       // The pointer only moves when it points at the game being deleted; deleting any other
       // game must not detach the current (possibly live) one.
       const team = await getDocFromServer(teamRef);

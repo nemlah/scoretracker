@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import {
-  collection, disableNetwork, doc, enableNetwork, getDocFromServer, getDocs, setDoc, Timestamp,
+  collection, disableNetwork, doc, enableNetwork, getDocFromServer, getDocs, setDoc, Timestamp, updateDoc, waitForPendingWrites,
 } from 'firebase/firestore';
 import { makeEvent, withPlayer } from '../../js/model.js';
 import { makeClient, testEnv } from './helpers.js';
@@ -587,4 +587,100 @@ test('the repo reports that it knows competitions', async () => {
   const { repo } = await client();
   assert.equal(repo.competitions, true);
   assert.equal(repo.competitionLists, true);
+});
+
+// Production games held two array entries with one event id after racing corrections.
+const seedEvents = (id, events) => testEnv.withSecurityRulesDisabled(
+  context => updateDoc(doc(context.firestore(), `games/${id}`), { events }),
+);
+const goalA = { id: 'e1', type: 'goal', period: 1, ts: 1000, playerId: 'a' };
+const goalB = { ...goalA, playerId: 'b' };
+const goalC = { ...goalA, playerId: 'c' };
+
+test('a game read through the repo keeps the last version of a duplicated event id', async () => {
+  const { repo } = await activeClient();
+  const id = await createGame(repo);
+  const other = makeEvent('oppGoal', 1, null, 2000, 'e2');
+  await seedEvents(id, [goalA, other, goalB]);
+  const game = await repo.readGameFromServer(id);
+  assert.deepEqual(game.events, [other, goalB]);
+});
+
+test('removeEvent clears every version of an id the repo has seen', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo);
+  await seedEvents(id, [goalA, goalB]);
+  const game = await repo.readGameFromServer(id);
+  assert.deepEqual(game.events, [goalB]);
+  await repo.removeEvent(id, game.events[0]);
+  assert.deepEqual((await read(db, `games/${id}`)).events, []);
+});
+
+test('replaceEvent leaves only the new version', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo);
+  await seedEvents(id, [goalA, goalB]);
+  const game = await repo.readGameFromServer(id);
+  await repo.replaceEvent(id, game.events[0], goalC);
+  assert.deepEqual((await read(db, `games/${id}`)).events, [goalC]);
+});
+
+test('two replacements against the same stale version leave one version, counted once', async () => {
+  const first = await activeClient();
+  const id = await createGame(first.repo);
+  await seedEvents(id, [goalA]);
+  // The second unlock makes client 2 the active tracker; each takeOver below hands the
+  // right to the client about to write, as two tabs of one scorer do.
+  const second = await activeClient();
+  assert.deepEqual((await first.repo.readGameFromServer(id)).events, [goalA]);
+  assert.deepEqual((await second.repo.readGameFromServer(id)).events, [goalA]);
+
+  await first.repo.takeOver(first.uid);
+  await first.repo.replaceEvent(id, goalA, goalB);
+  await second.repo.takeOver(second.uid);
+  await second.repo.replaceEvent(id, goalA, goalC);
+  // Both versions are now on the server: this is the production state.
+  assert.deepEqual((await read(second.db, `games/${id}`)).events, [goalB, goalC]);
+
+  const visible = await second.repo.readGameFromServer(id);
+  assert.deepEqual(visible.events, [goalC]);
+  const goalD = { ...goalC, playerId: 'a' };
+  await second.repo.replaceEvent(id, visible.events[0], goalD);
+  const raw = (await read(second.db, `games/${id}`)).events;
+  assert.deepEqual(raw, [goalD]);
+
+  await second.repo.endGame(id);
+  await second.repo.recomputeSeason('2026-27');
+  const stats = await read(second.db, 'stats/2026-27');
+  assert.equal(stats.results[0].us, 1);
+  assert.equal(Object.values(stats.players).reduce((sum, player) => sum + player.goals, 0), 1);
+});
+
+test('a pending replacement does not make the repo forget the committed version', async () => {
+  const { db, repo } = await activeClient();
+  const id = await createGame(repo);
+  await seedEvents(id, [goalA]);
+  assert.deepEqual((await repo.readGameFromServer(id)).events, [goalA]);
+  const snapshots = [];
+  let wake = () => {};
+  const stop = repo.watchGame(id, (game, meta) => {
+    snapshots.push({ game, meta });
+    wake();
+  });
+  const until = async predicate => {
+    while (!snapshots.some(predicate)) await new Promise(resolve => { wake = resolve; });
+  };
+  try {
+    await until(({ game, meta }) => !meta.fromCache && !meta.hasPendingWrites && game.events.length === 1);
+    await disableNetwork(db);
+    const replaced = repo.replaceEvent(id, goalA, goalB);
+    await until(({ game, meta }) => meta.hasPendingWrites && game.events[0]?.playerId === 'b');
+    const removed = repo.removeEvent(id, goalB);
+    await enableNetwork(db);
+    await Promise.all([replaced, removed]);
+    await waitForPendingWrites(db);
+    assert.deepEqual((await read(db, `games/${id}`)).events, []);
+  } finally {
+    stop();
+  }
 });
