@@ -173,6 +173,8 @@ export const recordedHome = async page => ({
 // window.__infoCalls lists the arguments of every repo.updateGameInfo call.
 // window.__confirmed counts the repo.confirmFromServer reads that have completed (the tracker's check back from the
 // background); it goes up before the caller continues, so a test that sees it can rely on the read being handled.
+// { 'confirmFromServer': { hold: true } } keeps the first confirmFromServer answer back until window.__releaseConfirm()
+// (window.__confirmReady says it is held); window.__confirmed counts it only once released.
 // Needs `test.use({ serviceWorkers: 'block' })`, so the worker cannot serve the real file.
 export async function instrumentRepo(page, slow = {}) {
   const real = readFileSync('js/repo.js', 'utf8');
@@ -193,8 +195,20 @@ export async function instrumentRepo(page, slow = {}) {
   // confirmFromServer keeps its signature and result; the read moves to __confirmRead and the counter follows it.
   const confirmHead = 'async confirmFromServer() {';
   if (!real.includes(confirmHead)) throw new Error('repo.js changed: update instrumentRepo');
+  // { hold: true } under the key 'confirmFromServer' keeps the first read's result back, after the server has answered
+  // it, until window.__releaseConfirm(): the answer then reflects the server as it was when the read was made.
+  // window.__confirmReady is true while that answer is held.
   const counted = recorded.replace(confirmHead, `confirmFromServer() {
-      return this.__confirmRead().then(result => { window.__confirmed = (window.__confirmed ?? 0) + 1; return result; });
+      const hold = window.__slow?.confirmFromServer?.hold && !window.__confirmHeld;
+      if (hold) window.__confirmHeld = true;
+      const read = this.__confirmRead();
+      const gated = hold
+        ? read.then(result => new Promise(resolve => {
+          window.__releaseConfirm = () => resolve(result);
+          window.__confirmReady = true;
+        }))
+        : read;
+      return gated.then(result => { window.__confirmed = (window.__confirmed ?? 0) + 1; return result; });
     },
 
     ${confirmHead.replace('confirmFromServer', '__confirmRead')}`);

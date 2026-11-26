@@ -85,6 +85,20 @@ test('once the server confirmed the game absent, a later cached null keeps New G
   await expect(page.getByTestId('opponent-input')).toBeVisible({ timeout: SERVER_WAIT });
 });
 
+// The game was shown from the server; a later cached null (the listener fell back to a cache that lacks it) only says
+// the cache lacks the game. The live game stays on screen and New Game stays closed.
+test('a cached null after the live game was shown keeps the game and New Game closed', async ({ page }) => {
+  await seed('team/main', { roster, currentGameId: 'g1' });
+  await seed('games/g1', liveGame);
+  await openTracker(page, { 'games/g1': { cachedNullAfterServer: true } });
+  await page.waitForFunction(() => window.__snaps?.some(snap => snap.path === 'games/g1' && snap.injected));
+  await go(page, '#/new');
+  await expect(page.getByTestId('resume-live')).toBeVisible({ timeout: SERVER_WAIT });
+  await expect(page.getByTestId('opponent-input')).toBeHidden();
+  await go(page, '#/live');
+  await expect(page.getByTestId('score-us')).toBeVisible();
+});
+
 // A game stored without a status compares equal to an absent one's status, so reconfirm must treat the
 // server's absence first, or the stale game stays and New Game prefills from its competition.
 test('a current game without a status that the server no longer has is cleared by the reconfirm', async ({ page }) => {

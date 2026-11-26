@@ -64,6 +64,8 @@ const TOAST_MS = 5000;
 // A write that is still unanswered after this long is shown as "not synced yet"; the usual
 // round trip is well under it, so an ordinary tap does not flash the offline text.
 const PENDING_GRACE_MS = 2000;
+// How long boot waits for the optional watchRetry.js before opening the listeners without it.
+const WATCH_RETRY_WAIT_MS = 2000;
 
 document.documentElement.style.setProperty('--accent', teamConfig.accent);
 import('../accent.js').then(accent => accent.applyAccentPair(document.documentElement.style, teamConfig.accent)).catch(() => {});
@@ -132,6 +134,11 @@ let teamFailed = false;
 let controlFailed = false;
 // Counts trips to the background, so a server read started before one cannot confirm after it.
 let backgrounds = 0;
+// Counts the snapshots each listener has delivered. A server read (see reconfirm) that started before a
+// listener's newer snapshot must not put its older answer over that snapshot.
+let teamRev = 0;
+let controlRev = 0;
+let gameRev = 0;
 let bootFailed = false;
 // The default route is replaced by the live screen on the first load only.
 let landingChecked = false;
@@ -584,13 +591,16 @@ function syncGameWatch() {
   const opening = () => {};
   gameUnsub = opening;
   const off = watchGameKept(wanted, (game, meta) => {
+    gameRev += 1;
     if (!meta.fromCache) {
       serverSeen = true;
       gameWatchFailed = false;
     }
     setGameConfirmed(!meta.fromCache);
     noteServer(meta);
-    state.game = game;
+    // A cached null after this watch has shown the game says the cache lacks it, not that it is gone: the
+    // game stays. A null with a write waiting (a delete made here) is the real thing and applies.
+    if (!(game === null && meta.fromCache && !meta.hasPendingWrites && state.game !== null)) state.game = game;
     // A null from the cache only says the cache lacks the game, not that the game is absent: it
     // leaves gameLoaded as it was. A server snapshot or a game in hand loads it, for good until
     // the watch is replaced.
@@ -615,7 +625,8 @@ function derive() {
   state.active = state.editor === 'valid' && state.control?.activeUid === state.uid;
   // A current game that has not loaded yet counts as live, so nothing is taken over blindly.
   state.gameLive = !state.gameLoaded || state.game?.status === 'live';
-  state.confirmed = teamConfirmed && controlConfirmed && (watchedGameId === null || gameConfirmed);
+  // A failed editor listener delivers nothing, so the editor document on screen cannot be trusted either.
+  state.confirmed = teamConfirmed && controlConfirmed && !editorFailed && (watchedGameId === null || gameConfirmed);
   // Not in control, the first touch may take control only on a screen that can be trusted: no
   // game live, the server has confirmed every piece of it, and no write is waiting for the server.
   state.writable = state.active
@@ -760,8 +771,17 @@ async function boot() {
       onChange() { refreshFailed(); render(); },
     });
     // Loaded next to the sign-in; a module missing from a mixed cache leaves every listener as it was.
+    // It is waited for only a moment: a fetch that stalls (no cached copy, no connection to the module's host) must
+    // not hold the tracker on Loading. A module that arrives later serves the listeners opened after it.
     const retryModule = import('../watchRetry.js').catch(() => null);
-    [state.uid, watchRetry] = await Promise.all([signIn(auth), retryModule]);
+    retryModule.then(module => { watchRetry ??= module; });
+    let giveUp;
+    const bounded = Promise.race([
+      retryModule,
+      new Promise(resolve => { giveUp = setTimeout(resolve, WATCH_RETRY_WAIT_MS, null); }),
+    ]);
+    [state.uid, watchRetry] = await Promise.all([signIn(auth), bounded]);
+    clearTimeout(giveUp);
   } catch (err) {
     console.warn('Tracker failed to start', err);
     bootFailed = true;
@@ -800,6 +820,7 @@ function subscribe() {
     onSnapshot(doc, meta) {
       if (!meta.fromCache) controlFailed = false;
       noteServer(meta);
+      controlRev += 1;
       controlConfirmed = !meta.fromCache;
       state.control = claim.receive(doc);
       controlLoaded = true;
@@ -815,6 +836,7 @@ function subscribe() {
     onSnapshot(doc, meta) {
       if (!meta.fromCache) teamFailed = false;
       noteServer(meta);
+      teamRev += 1;
       teamConfirmed = !meta.fromCache;
       state.team = doc;
       teamLoaded = true;
@@ -845,6 +867,9 @@ async function reconfirm() {
     render();
     return;
   }
+  // What each listener had delivered when the read began. A listener that has delivered since holds
+  // something newer than the read's answer, so that part of the answer is dropped.
+  const seen = { team: teamRev, control: controlRev, game: gameRev };
   let fresh;
   try {
     fresh = await read;
@@ -852,15 +877,20 @@ async function reconfirm() {
     return; // Stays unconfirmed until a server snapshot arrives or the page is shown again.
   }
   if (trip !== backgrounds) return;
-  state.team = fresh.team;
-  state.control = claim.receive(fresh.control);
-  // A listener that has failed since delivers nothing, whatever this read (maybe started before the
-  // failure) says: its mark waits for a server snapshot of its own.
-  teamConfirmed = !teamFailed;
-  controlConfirmed = !controlFailed;
+  const teamHolds = teamRev === seen.team;
+  if (teamHolds) {
+    state.team = fresh.team;
+    // A listener that has failed since delivers nothing, whatever this read (maybe started before the
+    // failure) says: its mark waits for a server snapshot of its own.
+    teamConfirmed = !teamFailed;
+  }
+  if (controlRev === seen.control) {
+    state.control = claim.receive(fresh.control);
+    controlConfirmed = !controlFailed;
+  }
   // The game follows the team's pointer; a pointer that moved is picked up by the next render,
   // and the new game's own snapshot then confirms it. A game that changed is left to its listener.
-  const pointerHolds = watchedGameId === (fresh.team?.currentGameId ?? null);
+  const pointerHolds = teamHolds && gameRev === seen.game && watchedGameId === (fresh.team?.currentGameId ?? null);
   if (pointerHolds && watchedGameId !== null && fresh.game === null) {
     // The server read says the pointed-at game does not exist, which a cached null could not. This
     // comes before any status comparison: a game stored without a status would match null's.

@@ -6,7 +6,7 @@ import {
 import { isFirestoreChannelLoss, isPlaywrightServiceWorkerBlock } from './network-noise.js';
 import {
   CODE, HOME_URL, SERVER_WAIT, dropNetworkNoise, editEvent, formatConsoleProblem, otherDeviceTakesControl,
-  reloadTracker, unlockTracker,
+  reloadTracker, unlockTracker, waitForTrackerControl,
 } from './tracker-helpers.js';
 
 // A listener the server ended (code `unavailable`, a rejected target) used to stay dead while the screen looked
@@ -170,6 +170,80 @@ test('back from the background, a failed control listener keeps a non-active dev
   dropNetworkNoise(problems);
 });
 
+// The foreground read is made, the server then moves on and a listener delivers the newer state, and only then does
+// the read's (older) answer arrive. Each listener's newer snapshot must win over the read.
+test('a slow foreground read does not put back a team pointer a listener has since delivered', async ({ page }) => {
+  await Promise.all([
+    seed('team/main', { roster, currentGameId: 'g1' }),
+    seed('games/g1', liveGame([goal('e1', 1000)])),
+    seed('games/g2', { ...liveGame([goal('e2', 1000), goal('e3', 1010)]), opponent: 'Second FC' }),
+  ]);
+  await openTracker(page, { confirmFromServer: { hold: true } });
+  await expect(page.getByTestId('score-us')).toHaveText('1');
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  // The read has the server's answer for g1 in hand and keeps it back.
+  await page.waitForFunction(() => window.__confirmReady === true);
+  await update('team/main', { currentGameId: 'g2' });
+  await expect(page.getByTestId('score-us')).toHaveText('2', { timeout: SERVER_WAIT });
+  expect(await counter(page, '__attempts', 'games/g2')).toBe(1);
+
+  await page.evaluate(() => window.__releaseConfirm());
+  await page.waitForFunction(() => window.__confirmed >= 1);
+  // The stale pointer would reopen g1 at once (a second watch of it) and show its score.
+  expect(await counter(page, '__attempts', 'games/g1')).toBe(1);
+  await expect(page.getByTestId('score-us')).toHaveText('2');
+  expect(await counter(page, '__attempts', 'games/g2')).toBe(1);
+  dropNetworkNoise(problems);
+});
+
+test('a slow foreground read does not put back a control document a listener has since delivered', async ({ page }) => {
+  await seedLive();
+  await openTracker(page, { confirmFromServer: { hold: true } });
+  await expect(page.getByTestId('score-us')).toHaveText('0');
+  await expect(page.getByTestId('takeover-banner')).toBeHidden();
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  await page.waitForFunction(() => window.__confirmReady === true);
+  // The read holds the control document as it was: this device in control.
+  await otherDeviceTakesControl();
+  await expect(page.getByTestId('takeover-banner')).toBeVisible({ timeout: SERVER_WAIT });
+
+  await page.evaluate(() => window.__releaseConfirm());
+  await page.waitForFunction(() => window.__confirmed >= 1);
+  // isVisible() answers at once: the stale document would have made this device the active one again.
+  expect(await page.getByTestId('takeover-banner').isVisible()).toBe(true);
+  dropNetworkNoise(problems);
+});
+
+// The editor listener is down: whether this device may take control cannot be judged from what it last showed.
+test('a failed editor listener keeps a non-active device from taking control by itself', async ({ page }) => {
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await waitForTrackerControl();
+  const uid = (await get('control/tracker')).activeUid;
+  await otherDeviceTakesControl();
+  // Every editor listener of this device ends right after its first server answer. No game is live.
+  await instrumentRepo(page, { [`editors/${uid}`]: { fail: 99 } });
+  await reloadTracker(page, problems);
+  await expect.poll(() => counter(page, '__failures', `editors/${uid}`), { timeout: SERVER_WAIT }).toBeGreaterThan(0);
+  await expect(page.getByTestId('home-new')).toBeVisible({ timeout: SERVER_WAIT });
+  await setVisibility(page, 'hidden');
+  await setVisibility(page, 'visible');
+  await page.waitForFunction(() => window.__confirmed >= 1);
+  // isVisible() answers at once; see the control-listener test above.
+  const bannerShown = () => page.getByTestId('takeover-banner').isVisible();
+  expect(await bannerShown()).toBe(true);
+  await page.locator('.brand').click();
+  // Nothing-happened check: a takeover would be written at once, and there is nothing to wait on when it is refused.
+  // The window is longer than the first backoff step (2 s, at most 2.4 s); the end condition is the banner still
+  // shown and the other device still holding control.
+  await page.waitForTimeout(3000);
+  expect(await bannerShown()).toBe(true);
+  expect((await get('control/tracker')).activeUid).toBe('another-device');
+  dropNetworkNoise(problems);
+});
+
 test('a write made while the game listener is failed shows at the next reopen', async ({ page }) => {
   await seedLive();
   await openTracker(page, { 'games/g1': { fail: 1, holdReopen: true } });
@@ -236,6 +310,20 @@ test.describe('mixed module cache', () => {
     await armThenConfirm(page, 'end-game', async () => (await get('games/g1')).status === 'final');
     writeDelayMs = 0;
     await expect.poll(() => journalOf(page), { timeout: SERVER_WAIT }).toEqual([]);
+  });
+
+  // A stalled fetch of the optional module (a v6 worker with no cached copy) must not hold the tracker on Loading.
+  test('the tracker starts and records a goal when watchRetry.js never answers', async ({ page }) => {
+    await page.route('**/js/watchRetry.js', () => new Promise(() => {}));
+    await seedLive();
+    await page.goto(HOME_URL);
+    await expect(page.getByTestId('code-input')).toBeVisible({ timeout: SERVER_WAIT });
+    await unlockTracker(page);
+    await go(page, '#/live');
+    await tile(page, 5).getByTestId('tile-goal').click();
+    await expect.poll(async () => (await get('games/g1')).events.length).toBe(1);
+    await expect(page.getByTestId('score-us')).toHaveText('1');
+    await expect.poll(() => journalOf(page)).toEqual([]);
   });
 
   test('the tracker starts and records a goal when watchRetry.js fails to load', async ({ page, baseURL }) => {
