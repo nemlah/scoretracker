@@ -6,7 +6,7 @@ import {
 } from './helpers.js';
 import { isFirestoreChannelLoss } from './network-noise.js';
 import {
-  CODE, HOME_URL, SERVER_WAIT, formatConsoleProblem, unlockTracker,
+  CODE, HOME_URL, SERVER_WAIT, dropNetworkNoise, formatConsoleProblem, unlockTracker,
 } from './tracker-helpers.js';
 
 // A phone mixing releases holds files of the release before this fix (67cd574) beside this branch's. Each test serves
@@ -95,6 +95,8 @@ test.describe('the viewer', () => {
     await expect(row).toContainText('Opponent FC');
     await expect(row).toContainText('3');
     await expect(row).toContainText('1');
+    // Opening home again aborts the streams that were open; that is not an app error.
+    dropNetworkNoise(problems);
   });
 
   test('shows a live score and follows it when repo.js is the previous release', async ({ page }) => {

@@ -316,7 +316,8 @@ test.describe('mixed module cache', () => {
   test('the tracker starts and records a goal when watchRetry.js never answers', async ({ page }) => {
     await page.route('**/js/watchRetry.js', () => new Promise(() => {}));
     await seedLive();
-    await page.goto(HOME_URL);
+    // WebKit holds the load event for the pending import, so the page is not waited on past the response.
+    await page.goto(HOME_URL, { waitUntil: 'commit' });
     await expect(page.getByTestId('code-input')).toBeVisible({ timeout: SERVER_WAIT });
     await unlockTracker(page);
     await go(page, '#/live');
