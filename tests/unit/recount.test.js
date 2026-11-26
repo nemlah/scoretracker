@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRedrain, recountAfter } from '../../js/tracker/recount.js';
+import { createRedrain, recountAfter, wrapDrain } from '../../js/tracker/recount.js';
 
 function fakeCtx() {
   const calls = [];
@@ -156,7 +156,33 @@ test('after the timer fires, a new failed result schedules the next one', () => 
   assert.deepEqual(clock.scheduled, [60000, 60000]);
 });
 
-test('the timer itself does not schedule again: only a result passed to after() does', () => {
+test('a drain run by the timer reaches after() through the wrapped drain, and schedules the next timer', async () => {
+  const clock = fakeTimers();
+  const results = [{ done: [], failed: ['2026-27'] }, { done: [], failed: ['2026-27'] }];
+  let queueRuns = 0;
+  let afterCalls = 0;
+  const redrain = createRedrain({
+    drain: () => wrapped(),
+    isActive: () => true,
+    hasDirty: () => true,
+    timers: clock.timers,
+  });
+  const wrapped = wrapDrain(
+    () => Promise.resolve(results[queueRuns++]),
+    result => { afterCalls++; redrain.after(result); },
+  );
+  await wrapped();
+  assert.deepEqual(clock.scheduled, [60000]);
+  clock.fire();
+  // The timer's drain settles on the microtask queue; the next timer is the positive end condition.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(queueRuns, 2, 'the timer ran the queue');
+  assert.equal(afterCalls, 2, 'its result was forwarded');
+  assert.deepEqual(clock.scheduled, [60000, 60000]);
+  assert.equal(clock.pending.size, 1);
+});
+
+test('the timer itself schedules nothing: without a forwarded result no next timer exists', () => {
   const { clock, state, redrain } = redrainWith();
   redrain.after({ done: [], failed: ['2026-27'] });
   clock.fire();
@@ -190,4 +216,74 @@ test('createRedrain works with the default timers (a real timer is never left ru
   const redrain = createRedrain({ drain: () => {}, isActive: () => true, hasDirty: () => true });
   redrain.after({ done: [], failed: ['2026-27'] });
   redrain.stop();
+});
+
+test('wrapDrain: overlapping callers share one wrapped promise and the result is handled once', async () => {
+  const shared = Promise.resolve({ done: [], failed: ['2026-27'] });
+  const seen = [];
+  const drain = wrapDrain(() => shared, result => seen.push(result));
+  const first = drain();
+  const second = drain();
+  assert.equal(first, second);
+  assert.deepEqual(await first, { done: [], failed: ['2026-27'] });
+  await second;
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].failed[0], '2026-27');
+});
+
+test('wrapDrain: a later drain on a new queue promise is a new result', async () => {
+  const seen = [];
+  let n = 0;
+  const drain = wrapDrain(() => Promise.resolve({ done: [], failed: [`s${n++}`] }), result => seen.push(result.failed[0]));
+  await drain();
+  await drain();
+  assert.deepEqual(seen, ['s0', 's1']);
+});
+
+test('wrapDrain: a throwing observer does not fail the drain', async () => {
+  const drain = wrapDrain(() => Promise.resolve({ done: ['x'], failed: [] }), () => { throw new Error('observer'); });
+  assert.deepEqual(await drain(), { done: ['x'], failed: [] });
+});
+
+// The detached settle chain has no consumer, so its failures must be caught and logged.
+async function withUnhandledWatch(t, body) {
+  const unhandled = [];
+  const listener = reason => unhandled.push(reason);
+  process.on('unhandledRejection', listener);
+  const warn = t.mock.method(console, 'warn', () => {});
+  try {
+    await body();
+    // unhandledRejection is emitted after the microtask queue drains; one macrotask covers it.
+    await new Promise(resolve => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', listener);
+  }
+  return { unhandled, warn };
+}
+
+test('a drain that rejects after the write is logged, not unhandled, and the write still resolves', async t => {
+  const ctx = fakeCtx();
+  ctx.stats.drain = () => Promise.reject(new Error('drain failed'));
+  let outcome;
+  const { unhandled, warn } = await withUnhandledWatch(t, async () => {
+    outcome = await recountAfter(ctx, '2026-27', Promise.resolve('written'));
+  });
+  assert.equal(outcome, 'written');
+  assert.deepEqual(unhandled, []);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments[1]), /drain failed/);
+});
+
+test('a mark that throws after a rejected write is logged, not unhandled, and the write still rejects', async t => {
+  const ctx = fakeCtx();
+  let marks = 0;
+  ctx.stats.markDirty = () => { if (++marks > 1) throw new Error('storage full'); };
+  let rejection;
+  const { unhandled, warn } = await withUnhandledWatch(t, async () => {
+    await recountAfter(ctx, '2026-27', Promise.reject(new Error('denied'))).catch(error => { rejection = error; });
+  });
+  assert.match(rejection.message, /denied/);
+  assert.deepEqual(unhandled, []);
+  assert.equal(warn.mock.callCount(), 1);
+  assert.match(String(warn.mock.calls[0].arguments[1]), /storage full/);
 });

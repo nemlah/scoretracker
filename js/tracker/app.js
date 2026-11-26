@@ -146,6 +146,7 @@ const gameWatches = new Set();
 let stats = null;
 // Drains again after a failed recount. Null with a recount.js from before it existed.
 let redrain = null;
+let statsDrain = null;
 let wasActive = false;
 let repairPending = false;
 let couldReconcile = false;
@@ -286,10 +287,9 @@ const ctx = {
     markDirty: season => stats?.markDirty(season),
     drain() {
       if (!(stats && state.active)) return Promise.resolve(noDrain);
-      const drained = stats.drain();
-      // Every result passes here once; the redrain's own timer calls this too, so a retry that
-      // fails again schedules the next one.
-      return redrain ? drained.then(result => { redrain.after(result); return result; }) : drained;
+      // Overlapping callers share one wrapped promise, so each result reaches the redrain once.
+      // The redrain's own timer calls this too, so a retry that fails again schedules the next.
+      return statsDrain ? statsDrain() : stats.drain();
     },
   },
   navigate,
@@ -651,6 +651,10 @@ async function boot() {
       isActive: () => state.active,
       hasDirty: () => stats.dirty().length > 0,
     }) ?? null;
+    // Same module as createRedrain, but read the same way: without wrapDrain nothing is wrapped.
+    statsDrain = redrain
+      ? recount.wrapDrain?.(() => stats.drain(), result => redrain.after(result)) ?? null
+      : null;
     // Unlocking also clears any "code changed" state, whichever view asked for it.
     ctx.repo = {
       ...repo,

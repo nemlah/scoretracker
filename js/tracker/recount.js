@@ -20,8 +20,32 @@ export function recountAfter(ctx, season, write) {
     markAll();
     return ctx.stats.drain();
   };
-  settled.then(again, again);
+  // Detached: nothing awaits it, so a failure here (marking or draining) is logged, not unhandled.
+  settled.then(again, again).catch(error => console.warn('Season recount after a correction failed', error));
   return settled;
+}
+
+/**
+ * Hands every drain result to `onResult` once. The stats queue returns the same promise to
+ * callers that overlap one drain, so the wrapped promise is cached per queue promise: those
+ * callers share it, and `onResult` runs once per result, not once per caller.
+ * @param {() => Promise<any>} drain
+ * @param {(result: any) => void} onResult
+ * @returns {() => Promise<any>}
+ */
+export function wrapDrain(drain, onResult) {
+  let source = null;
+  let wrapped = null;
+  return () => {
+    const current = drain();
+    if (wrapped !== null && current === source) return wrapped;
+    source = current;
+    wrapped = Promise.resolve(current).then(result => {
+      try { onResult(result); } catch { /* a faulty observer must not fail the drain */ }
+      return result;
+    });
+    return wrapped;
+  };
 }
 
 /**
