@@ -167,7 +167,6 @@ test('timelineEntry for a save', () => {
     { side: 'us', icon: '✋', sr: 'Save', text: 'Save · #1 Georgiou', badge: false, minor: true });
   assert.deepEqual(timelineEntry({ type: 'save', playerId: 'gone' }, goalkeepers),
     { side: 'us', icon: '✋', sr: 'Save', text: 'Save · #? Unknown player', badge: false, minor: true });
-  assert.equal(strings.TIMELINE_SAVES, true);
 });
 
 test('the live banner pill and the R2 viewer lookup keys are available', () => {

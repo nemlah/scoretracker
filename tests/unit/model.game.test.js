@@ -147,7 +147,6 @@ test('timeline keeps saves and leaves out gkIn', () => {
   const penSave = ev('penSave', 1, 'g1', 5);
   const events = [save, ev('gkIn', 1, 'g2', 2), goal, penSave];
   assert.deepEqual(m.timeline(events), [{ period: 1, events: [penSave, goal, save] }]);
-  assert.equal(m.TIMELINE_SAVES, true);
 });
 
 test('foulOutIds marks the foul that reaches 3', () => {

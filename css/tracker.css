@@ -322,28 +322,9 @@ body.tracker:has(.unlock) { background: var(--t-board); }
 /* The whole page changes colour while a situation is open, so it shows at the edge of vision. */
 body.sit-up { background: var(--sit-up); }
 body.sit-down { background: var(--sit-down); }
-/* R2 tracker markup, kept for mixed caches; remove in R4. Covers only the strips below (R3 sets content: none on them
-   under body.live-r3, and its situation band replaces them). */
-/* R2 marks active situations with strips on the score row and dock. */
-body.sit-up .live-top::after, body.sit-down .live-top::after,
-body.sit-up .dock::before, body.sit-down .dock::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 8px;
-  pointer-events: none;
-}
-body.sit-up .live-top::after { bottom: 0; background: var(--sit-band-up); }
-body.sit-down .live-top::after { bottom: 0; background: var(--sit-band-down); }
-body.sit-up .dock::before { top: 0; background: var(--sit-band-up); }
-body.sit-down .dock::before { top: 0; background: var(--sit-band-down); }
 /* Shared by R2 and R3: R3 live.js toggles body.sit-up and body.sit-down, and .live-status is its own screen. */
 body.sit-up .live-status, body.sit-down .live-status { color: var(--ink); }
 body.on-live #app { max-width: 60rem; }
-/* R2 tracker markup, kept for mixed caches; remove in R4. Covers only this one rule: R3's header is always .bar--team,
-   whose rule below wins. */
-body.on-live .bar { padding-block: 0.25rem; }
 /* The R3 header (.bar--team, .bar-brand) and the live view padding: used by R3, not under the R2 tag. */
 body.on-live .bar--team { padding-block: 0.375rem; }
 body.on-live .bar-brand .brand { font-size: 1rem; }
@@ -351,8 +332,7 @@ body.on-live .view { padding: 0; }
 .live-status { padding: 1.5rem 1rem; }
 
 /* The score row, shared by both live screens: R3 live.js renders it as .live-top.live-top--board, and R2 live.js (kept for
-   mixed caches) as a plain .live-top. R3 still needs every rule up to .tiles, so R4 must not remove them. The R2-only
-   parts (the strips under a situation, the old header sizes) are under the "R2 tracker markup" tags above. */
+   mixed caches) as a plain .live-top. R3 still needs every rule up to .tiles, so R4 must not remove them. */
 .live-top {
   position: sticky;
   top: 0;

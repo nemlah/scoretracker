@@ -6,7 +6,7 @@ const STRINGS = {
   tileSaves: '{n} saves', tileSavesOne: '1 save', tilePenSaves: '{n} pen saves', tilePenSavesOne: '{n} pen save',
   tileSavesWithPen: '{saves} · {pens}',
   saveNamed: 'Save · #{cap} {name}', penSaveNamed: 'Penalty save · #{cap} {name}', gkInNamed: 'In goal · #{cap} {name}',
-  evGoalie: 'Goalie', evGoalieFor: 'Goalie for {label}', evInGoal: 'In goal', evInGoalFor: 'In goal for {label}',
+  evGoalieFor: 'Goalie for {label}', evInGoal: 'In goal', evInGoalFor: 'In goal for {label}',
   goaliesHeading: 'Goalkeepers', colSaves: 'Saves', colPenSaves: 'Pen', colGA: 'GA', colSavePct: 'Save %',
   savePctText: '{pct}%', noShots: '—', shootoutGoalie: 'Shootout: {saved} saved, {conceded} conceded', inGoalSr: 'in goal',
   tlSaveIcon: '✋', tlSaveSr: 'Save', tlSaveText: 'Save · {player}',
@@ -157,7 +157,6 @@ const STRINGS = {
   codeChanged: 'The code was changed. Enter the new code to keep tracking.',
 
   // Home
-  homeHeading: 'Tracker',
   homeResume: 'Continue tracking',
   homeNew: 'New game',
   homeRoster: 'Roster',
@@ -276,12 +275,9 @@ const STRINGS = {
   sheetCancel: 'Cancel',
   eventsHeading: 'Events',
   eventsEmpty: 'No events yet.',
-  goalPlain: 'Goal',
-  scorerLabel: 'Scorer',
   scorerFor: 'Scorer for {label}',
   scorerUnknown: 'Scorer unknown',
   scorerOption: '#{cap} {name}',
-  evDelete: 'Delete',
   evDeleteFor: 'Delete {label}',
   evEdit: 'Edit',
   evChangeScorer: 'Change scorer',
@@ -359,9 +355,6 @@ const STRINGS = {
   resultPen: 'pen. {us}–{them}',
   resultNoScore: '–',
 };
-
-// remove in R4: read by the R2 viewer.js
-export const TIMELINE_SAVES = true;
 
 // Keep: gates the competition fields (new-game and game-detail forms, the detail meta) for the mixed-cache window, when a cached
 // module can come from the previous release and lacks the new strings. Not an R4 leftover.

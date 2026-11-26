@@ -45,9 +45,6 @@ import { goalieStats } from './goalies.js';
  * @property {string} [phaseId]
  */
 
-// remove in R4: read by the R2 viewer.js
-export const TIMELINE_SAVES = true;
-
 export const EVENT_TYPES = Object.freeze(['goal', 'excl', 'oppGoal', 'pen', ...SITUATION_TYPES, 'save', 'penSave', 'gkIn']);
 export const PERIODS = Object.freeze([1, 2, 3, 4, 'SO']);
 export const EXCL_LIMIT = 3;
