@@ -253,6 +253,92 @@ test('a reload keeps every shown row when the last one moved to the top', async 
   await expect(page.getByTestId('games-more')).toBeVisible();
 });
 
+test('a reload keeps 20 rows when more games than its window arrived between the newest and the rest', async ({ page, context }) => {
+  await stubPages(page);
+  await cacheAllThenGoOffline(page, context);
+  // Offline, 40 games arrive on the server that sort between g23 (the newest, cached) and the other 19 shown rows:
+  // the same date as g23 with a lower id. The reload asks for 40 rows, and g23 is the only shown game among them.
+  for (let i = 1; i <= 40; i += 1) {
+    await seed(`games/a${pad(i)}`, {
+      opponent: `Between ${pad(i)}`, date: '2026-10-23', season: '2026-27', status: 'final', period: 4, lineup: [], events: [],
+    });
+  }
+  await context.setOffline(false);
+  // The re-read for the 20 rows shown (20 and 20 more) is answered by the server once the connection is back.
+  const rereads = async () => (await page.evaluate(() => window.__pageLog)).filter(call => !call.after && call.pageSize === 40);
+  await expect.poll(async () => (await rereads()).some(call => call.fromCache === false), { timeout: SERVER_WAIT }).toBe(true);
+  // The list is not cut down to the one shown game: at least the 20 rows a page shows, the new games after g23.
+  await expect(rows(page).nth(1)).toContainText('Between 40', { timeout: SERVER_WAIT });
+  await expect(rows(page)).toHaveCount(20);
+  const expected = ['#/games/g23', ...Array.from({ length: 40 }, (_, i) => `#/games/a${pad(40 - i)}`),
+    ...Array.from({ length: 22 }, (_, i) => `#/games/g${pad(22 - i)}`)];
+  expect(await hrefs(page)).toEqual(expected.slice(0, 20));
+  // Show more continues from the last kept row: every game once, in order.
+  for (const total of [40, 60, 63]) {
+    await page.getByTestId('games-more').click();
+    await expect(rows(page)).toHaveCount(total);
+  }
+  await expect(page.getByTestId('games-more')).toBeHidden();
+  expect(await hrefs(page)).toEqual(expected);
+  dropNetworkNoise(problems);
+});
+
+test('Show more does not add a game twice when another tracker moved a shown game past the cursor', async ({ page }) => {
+  await stubPages(page);
+  await seedGames();
+  await openGames(page);
+  await expect(rows(page)).toHaveCount(20);
+  // g23 (shown, first) moves to the oldest date: the next page, after g04, now ends with it.
+  await update('games/g23', { date: '2026-09-01' });
+  await page.getByTestId('games-more').click();
+  await expect(rows(page)).toHaveCount(23, { timeout: SERVER_WAIT });
+  const links = await hrefs(page);
+  expect(new Set(links).size).toBe(23);
+  expect(links).toEqual([...expectedIds(22, 1), '#/games/g23']);
+  await expect(page.getByTestId('games-more')).toBeHidden();
+});
+
+// The delete is held back until the test releases it; the view goes back to the list meanwhile.
+test('a game deleted while the list was reopened leaves the list when the delete commits', async ({ page }) => {
+  const real = readFileSync('js/repo.js', 'utf8');
+  const head = 'async deleteGame(gameId) {';
+  expect(real).toContain(head);
+  await page.route('**/js/repo.js', route => route.fulfill({
+    contentType: 'text/javascript',
+    body: real.replace(head, `async deleteGame(gameId) {
+      await window.__deleteGate;
+      return this.__realDeleteGame(gameId);
+    },
+    async __realDeleteGame(gameId) {`),
+  }));
+  await seedGames();
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await page.evaluate(() => { location.hash = '#/games/g05'; });
+  await expect(page.getByTestId('game-score')).toBeVisible();
+  await page.evaluate(() => { window.__deleteGate = new Promise(resolve => { window.__openDelete = resolve; }); });
+  const del = page.getByTestId('delete-game');
+  await del.click();
+  await expect(del).toHaveText('Tap again to confirm');
+  // A confirming tap right after arming counts as a double tap and is ignored: retry until the arming has gone.
+  await expect(async () => {
+    if (await del.isVisible()) await del.click({ timeout: 1000 });
+    expect(await del.isVisible() && (await del.getAttribute('class') ?? '').includes('is-armed'), 'the confirming tap was ignored').toBe(false);
+  }).toPass({ timeout: SERVER_WAIT });
+  // Back on the list while the delete is still held: the game is still there.
+  await page.getByTestId('games-back').click();
+  await expect(rows(page)).toHaveCount(20);
+  await expect(rows(page).filter({ hasText: 'Rival 05' })).toHaveCount(1);
+  expect(await get('games/g05')).toBeDefined();
+
+  await page.evaluate(() => window.__openDelete());
+  await expect.poll(() => get('games/g05'), { timeout: SERVER_WAIT }).toBeUndefined();
+  // The list is read again: page one now ends with g03 instead of g04's neighbour g05.
+  await expect(rows(page).filter({ hasText: 'Rival 05' })).toHaveCount(0, { timeout: SERVER_WAIT });
+  await expect(rows(page)).toHaveCount(20);
+  await expect(rows(page).last()).toContainText('Rival 03');
+});
+
 test('an invalid game route shows the not-found state without an error', async ({ page }) => {
   await page.goto(HOME_URL);
   await unlockTracker(page);

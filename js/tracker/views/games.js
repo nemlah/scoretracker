@@ -162,13 +162,16 @@ export function mount(root, ctx) {
 
   // The answer of a re-read for the rows shown: cut after the last of the previously shown games that it holds
   // (a game that was edited can have moved), so everything shown stays and a game that arrived on top pushes
-  // nothing out of view. If none of them is in it, as many rows as were shown.
+  // nothing out of view. At least a page of rows stays, so a flood of new games between the shown ones cannot
+  // collapse the list to a row or two. If none of the shown games is in it, as many rows as were shown.
   function trimmed(result, shownCount, shownIds) {
     const games = result.games;
     const snapshots = result.snapshots ?? [];
     let at = -1;
     games.forEach((game, index) => { if (shownIds.has(game.id)) at = index; });
-    const count = at >= 0 ? at + 1 : Math.min(games.length, Math.max(PAGE, shownCount));
+    const count = at >= 0
+      ? Math.max(at + 1, Math.min(PAGE, games.length))
+      : Math.min(games.length, Math.max(PAGE, shownCount));
     if (count === games.length || snapshots[count - 1] === undefined) return result;
     return { ...result, games: games.slice(0, count), cursor: snapshots[count - 1], more: true };
   }
@@ -216,6 +219,14 @@ export function mount(root, ctx) {
     Promise.resolve(ctx.repo.listGamesPage({ after: cursor })).then(result => {
       if (unmounted || token !== listToken) return;
       pageLoading = false;
+      // A game shown already has moved past the cursor (edited elsewhere): the page would list it twice, and the
+      // list is no longer in step with the server. Read from page one again, which keeps every shown row.
+      const shownIds = new Set(loadedGames.map(game => game.id));
+      if (result.games.some(game => shownIds.has(game.id))) {
+        refreshPending = false;
+        refresh();
+        return;
+      }
       cursor = result.cursor;
       more = result.more;
       anyFromCache ||= result.fromCache === true;
@@ -617,7 +628,12 @@ export function mount(root, ctx) {
     try {
       // deleteGame reads from the server first, so it fails (and nothing changes) when offline.
       recountAfter(ctx, game.season, ctx.repo.deleteGame(game.id))
-        .then(() => { if (!unmounted) ctx.navigate('/games'); }, ctx.onWriteError);
+        .then(() => {
+          if (unmounted) return;
+          // The list may have been mounted again while the delete was in flight, and then still shows the game.
+          if (mode?.kind === 'list') loadList();
+          else ctx.navigate('/games');
+        }, ctx.onWriteError);
     } catch (err) {
       ctx.onWriteError(err);
     }
