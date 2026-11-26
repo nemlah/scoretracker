@@ -157,14 +157,15 @@ export function createRepo(db) {
   // or with a model that lacks newerThan, only a strictly later date counts.
   async function newerGameId(gameId, date) {
     try {
-      if (typeof date === 'string' && typeof model.newerThan === 'function') {
+      const newerThan = model.newerThan;
+      if (typeof date === 'string' && newerThan) {
         const [game, later] = await Promise.all([
           getDocFromServer(gameRef(gameId)),
           getDocsFromServer(query(gamesRef, where('date', '>=', date))),
         ]);
         if (!game.exists()) return null;
         const plain = snapshot => ({ ...snapshot.data(), id: snapshot.id });
-        return model.newerThan(plain(game), later.docs.map(plain));
+        return newerThan(plain(game), later.docs.map(plain));
       }
       const [game, newest] = await Promise.all([
         getDocFromServer(gameRef(gameId)),
@@ -365,10 +366,11 @@ export function createRepo(db) {
         // Two candidates suffice for the newest date because only the deleted game is excluded.
         const candidates = await getDocsFromServer(query(gamesRef, orderBy('date', 'desc'), limit(2)));
         let replacement = candidates.docs.find(game => game.id !== gameId);
-        if (replacement && typeof model.newestGame === 'function') {
+        const newestGame = model.newestGame;
+        if (replacement && newestGame) {
           // Several games can share that date: take the one the model orders last.
           const sameDate = await getDocsFromServer(query(gamesRef, where('date', '==', replacement.data().date)));
-          const newest = model.newestGame(sameDate.docs.map(game => ({ ...game.data(), id: game.id })), gameId);
+          const newest = newestGame(sameDate.docs.map(game => ({ ...game.data(), id: game.id })), gameId);
           replacement = newest ?? replacement;
         }
         batch.set(teamRef, updated({ currentGameId: replacement?.id ?? null }), { merge: true });

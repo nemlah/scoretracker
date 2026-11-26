@@ -161,21 +161,23 @@ async function seedSameDayGames(ids, current) {
 
 test('ending a reopened game re-points to the later-created game on the same date', async () => {
   const { db, repo } = await activeClient();
-  await seedSameDayGames(['g1', 'g2'], 'g2');
-  await repo.reopenGame('g1');
-  assert.equal((await read(db, 'team/main')).currentGameId, 'g1');
-  await repo.endGame('g1', SAME_DAY);
-  assert.equal((await read(db, 'games/g1')).status, 'final');
-  assert.equal((await read(db, 'team/main')).currentGameId, 'g2');
+  // The later-created game has the lower id, so an id-only tie-break would get this wrong.
+  await seedSameDayGames(['z-first', 'a-second'], 'a-second');
+  await repo.reopenGame('z-first');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'z-first');
+  await repo.endGame('z-first', SAME_DAY);
+  assert.equal((await read(db, 'games/z-first')).status, 'final');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'a-second');
 });
 
 test('ending the newest same-date game keeps the pointer', async () => {
   const { db, repo } = await activeClient();
-  await seedSameDayGames(['g1', 'g2'], 'g1');
-  await repo.reopenGame('g2');
-  await repo.endGame('g2', SAME_DAY);
-  assert.equal((await read(db, 'games/g2')).status, 'final');
-  assert.equal((await read(db, 'team/main')).currentGameId, 'g2');
+  // The newest game has the lower id, so an id-only tie-break would move the pointer.
+  await seedSameDayGames(['z-first', 'a-second'], 'z-first');
+  await repo.reopenGame('a-second');
+  await repo.endGame('a-second', SAME_DAY);
+  assert.equal((await read(db, 'games/a-second')).status, 'final');
+  assert.equal((await read(db, 'team/main')).currentGameId, 'a-second');
 });
 
 test('an old caller without a date still ends the game and keeps today\'s strict comparison', async () => {
@@ -189,11 +191,13 @@ test('an old caller without a date still ends the game and keeps today\'s strict
 
 test('deleting the current game picks the later-created game on the newest remaining date', async () => {
   const { db, repo } = await activeClient();
-  // Ids sort against creation order, so an id-ordered pick (Firestore's tie order) would be wrong.
-  await seedSameDayGames(['z-first', 'm-second', 'a-third'], 'a-third');
-  await repo.deleteGame('a-third');
-  assert.equal(await read(db, 'games/a-third'), undefined);
-  assert.equal((await read(db, 'team/main')).currentGameId, 'm-second');
+  // Firestore breaks date ties by id, descending: z-first, y-second, m-fourth, a-third. The
+  // two-row date query therefore never returns the expected game (a-third, the lowest id), so
+  // only the second read, of every game on that date, can find it.
+  await seedSameDayGames(['z-first', 'y-second', 'a-third', 'm-fourth'], 'm-fourth');
+  await repo.deleteGame('m-fourth');
+  assert.equal(await read(db, 'games/m-fourth'), undefined);
+  assert.equal((await read(db, 'team/main')).currentGameId, 'a-third');
 });
 
 test('endGame still ends the game when the server cannot be asked', async () => {
