@@ -318,7 +318,8 @@ test.describe('long Greek names at 360 px', () => {
 
 test.describe('a phone with the previous release in its cache', () => {
   test.use({ serviceWorkers: 'block' });
-  const previous = file => execFileSync('git', ['show', `main:${file}`], { encoding: 'utf8' });
+  // The release before the stats selector (main moved past it on 26/11).
+  const previous = file => execFileSync('git', ['show', `8ab4c7b:${file}`], { encoding: 'utf8' });
 
   test('strings.js without showingLabel: no selector, the stored totals and the friendlies note as before', async ({ page }) => {
     const body = previous('js/strings.js');
