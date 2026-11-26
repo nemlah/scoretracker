@@ -264,26 +264,34 @@ test('Remove stays off while offline and comes back with the connection', async 
   dropNetworkNoise(problems);
 });
 
-test('a check that failed while online is retried without remounting', async ({ page }) => {
+test('a check that failed while online is retried without remounting, for the failed entry only', async ({ page }) => {
   const repo = readFileSync('js/repo.js', 'utf8');
-  const head = 'async listGamesFromServer() {';
+  const head = 'async listEntryInUse(';
   expect(repo).toContain(head);
-  // The first server read of the games fails once, as a read error would; later ones are the real thing.
+  // The first server check of t1 fails once, as a read error would; every other check is the real thing.
+  // Calls are counted per entry id.
   await page.route('**/js/repo.js', route => route.fulfill({
     contentType: 'text/javascript',
-    body: repo.replace(head, `${head} if (!window.__listFailed) { window.__listFailed = true; throw new Error('read failed'); }`),
+    body: repo.replace(head, `async listEntryInUse(list, id) {
+      const calls = (window.__useCalls ??= {});
+      calls[id] = (calls[id] ?? 0) + 1;
+      if (id === 't1' && calls[id] === 1) throw new Error('read failed');
+      return this.__realListEntryInUse(list, id);
+    },
+    async __realListEntryInUse(`),
   }));
-  await seed('team/main', { roster: [], tournaments: { t1: { name: 'Free Cup' } } });
+  await seed('team/main', { roster: [], tournaments: { t1: { name: 'Free Cup' }, t2: { name: 'Other Cup' } } });
   await openCompetitions(page);
   const remove = entry(tournaments(page), 't1').getByTestId('list-remove');
   await expect(page.getByTestId('list-check-note')).toBeVisible();
   await expect(remove).toBeDisabled();
-  expect(await page.evaluate(() => window.__listFailed)).toBe(true);
   // No remount, no offline round trip: the next check succeeds on its own.
   await expect(remove).toBeEnabled({ timeout: SERVER_WAIT });
   await expect(page.getByTestId('list-check-note')).toBeHidden();
+  // The retry asked about t1 again and left t2 alone.
+  expect(await page.evaluate(() => window.__useCalls)).toEqual({ t1: 2, t2: 1 });
   await remove.click();
-  await expect.poll(async () => (await get('team/main')).tournaments).toEqual({});
+  await expect.poll(async () => (await get('team/main')).tournaments).toEqual({ t2: { name: 'Other Cup' } });
 });
 
 test('at 360 px a 40-character Greek name with Rename and Remove does not scroll sideways', async ({ page }) => {

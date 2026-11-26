@@ -14,6 +14,7 @@ import {
 // A namespace import: the previous strings.js (a phone can mix releases) lacks competitionTag.
 import * as strings from './strings.js';
 // A namespace import too: the previous model.js lacks the scope functions, so the Showing selector needs all of them.
+// (validDocId is read from it with this file's own copy as the fallback.)
 import * as model from './model.js';
 import { clear, h } from './ui/dom.js';
 
@@ -102,7 +103,7 @@ function parseRoute(hash) {
   if (!match) return { kind: 'home' };
   try {
     const id = decodeURIComponent(match[1]);
-    return validDocId(id) ? { kind: 'game', id } : { kind: 'invalid' };
+    return (model.validDocId ?? validDocId)(id) ? { kind: 'game', id } : { kind: 'invalid' };
   } catch {
     return { kind: 'invalid' };
   }

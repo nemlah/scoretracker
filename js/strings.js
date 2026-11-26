@@ -314,6 +314,7 @@ const STRINGS = {
   gamesLoading: 'Loading games…',
   gamesLoadFailed: 'Could not load the games. Check your connection and try again.',
   gamesEmpty: 'No games yet.',
+  gamesShowMore: 'Show more',
   gamesBack: '‹ Past games',
   gameLiveBadge: 'Live',
   gameScoreboard: 'Scoreboard',

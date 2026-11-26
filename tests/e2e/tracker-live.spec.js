@@ -423,13 +423,18 @@ test.describe('home list count lifecycle', () => {
 
   test('counts games once per mount and ignores pending, failed and stale reads', async ({ page }) => {
     const real = readFileSync('js/repo.js', 'utf8');
-    await page.addInitScript(() => { window.homeGamesRequests = []; });
+    await page.addInitScript(() => { window.homeGamesRequests = []; window.homeListCalls = 0; });
+    // Home counts with countGames; a listGames call would read every game, so it is recorded.
+    const head = 'async countGames() {';
+    const listHead = 'async listGames() {';
+    expect(real).toContain(head);
+    expect(real).toContain(listHead);
     await page.route('**/js/repo.js', route => route.fulfill({
       contentType: 'text/javascript',
-      body: real.replace('async listGames() {', `async listGames() {
+      body: real.replace(head, `${head}
         if (window.homeGamesRequests) {
           return new Promise((resolve, reject) => window.homeGamesRequests.push({ resolve, reject }));
-        }`),
+        }`).replace(listHead, `${listHead} window.homeListCalls += 1;`),
     }));
     await page.goto(HOME_URL);
     await unlockTracker(page);
@@ -442,13 +447,15 @@ test.describe('home list count lifecycle', () => {
     const oldCount = await count.elementHandle();
     await page.getByTestId('home-roster').click();
     await expect(page.getByTestId('nav-home')).toBeVisible();
-    await page.evaluate(() => window.homeGamesRequests[0].resolve([{}]));
+    await page.evaluate(() => window.homeGamesRequests[0].resolve(7));
     expect(await oldCount.evaluate(el => ({ hidden: el.hidden, text: el.textContent })))
       .toEqual({ hidden: true, text: '' });
     await page.getByTestId('nav-home').click();
     await page.waitForFunction(() => window.homeGamesRequests.length === 2);
     await page.evaluate(() => window.homeGamesRequests[1].reject(new Error('list unavailable')));
     await expect(count).toBeHidden();
+    // Home never read the whole list for its count.
+    expect(await page.evaluate(() => window.homeListCalls)).toBe(0);
   });
 });
 

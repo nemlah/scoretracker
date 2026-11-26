@@ -762,3 +762,64 @@ test('a removal queued behind a refused replacement still clears the committed v
     stop();
   }
 });
+
+// Past games are read a page at a time, newest date first and, within one date, highest id first.
+// Games g18..g23 share one date and the first page ends in the middle of that group (the 20th is g20).
+const PAGED_ORDER = [
+  'g25', 'g24', ...Array.from({ length: 14 }, (_, i) => `g${String(17 - i).padStart(2, '0')}`),
+  'g23', 'g22', 'g21', 'g20', 'g19', 'g18', 'g03', 'g02', 'g01',
+];
+
+async function seedPagedGames() {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore();
+    for (const [index, id] of PAGED_ORDER.entries()) {
+      let date = `2026-11-${String(30 - index).padStart(2, '0')}`;
+      if (index >= 16 && index <= 21) date = '2026-10-15';
+      else if (index > 21) date = `2026-09-${String(30 - index).padStart(2, '0')}`;
+      await setDoc(doc(firestore, `games/${id}`), {
+        ...gameInfo, date, status: 'final', lineup, roster, events: [], period: 4,
+      });
+    }
+  });
+}
+
+test('listGamesPage pages 25 games as 20 and 5, in date then id descending order, across a tied date', async () => {
+  const { repo } = await client();
+  await seedPagedGames();
+  const first = await repo.listGamesPage();
+  assert.deepEqual(first.games.map(game => game.id), PAGED_ORDER.slice(0, 20));
+  assert.equal(first.more, true);
+  assert.equal(first.fromCache, false);
+  assert.equal(first.cursor.id, 'g20');
+  const second = await repo.listGamesPage({ after: first.cursor });
+  assert.deepEqual(second.games.map(game => game.id), PAGED_ORDER.slice(20));
+  assert.equal(second.more, false);
+  const ids = [...first.games, ...second.games].map(game => game.id);
+  assert.equal(new Set(ids).size, 25);
+  assert.deepEqual(ids, PAGED_ORDER);
+  const small = await repo.listGamesPage({ pageSize: 25 });
+  assert.equal(small.games.length, 25);
+  assert.equal(small.more, false);
+});
+
+test('countGames counts the games on the server', async () => {
+  const { repo } = await client();
+  assert.equal(await repo.countGames(), 0);
+  await seedPagedGames();
+  assert.equal(await repo.countGames(), 25);
+});
+
+test('listEntryInUse is true only for an entry a game links', async () => {
+  const { repo } = await client();
+  await testEnv.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'games/linked'), {
+      ...gameInfo, status: 'final', lineup, roster, events: [], period: 4,
+      competition: 'tournament', competitionName: 'Cup', tournamentId: 't1', phaseId: 'p1',
+    });
+  });
+  assert.equal(await repo.listEntryInUse('tournaments', 't1'), true);
+  assert.equal(await repo.listEntryInUse('tournaments', 't2'), false);
+  assert.equal(await repo.listEntryInUse('phases', 'p1'), true);
+  assert.equal(await repo.listEntryInUse('phases', 'p2'), false);
+});

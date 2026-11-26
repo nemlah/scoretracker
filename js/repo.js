@@ -5,6 +5,7 @@ import {
   deleteField,
   doc,
   FirestoreError,
+  getCountFromServer,
   getDocFromServer,
   getDocs,
   getDocsFromServer,
@@ -14,6 +15,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  startAfter,
   updateDoc,
   waitForPendingWrites,
   where,
@@ -225,6 +227,33 @@ export function createRepo(db) {
     async listGames() {
       const snapshot = await getDocs(query(gamesRef, orderBy('date', 'desc')));
       return snapshot.docs.map(gameData);
+    },
+
+    /** One page of past games, newest date first and highest id first within a date. */
+    async listGamesPage({ after = null, pageSize = 20 } = {}) {
+      const snapshot = await getDocs(query(gamesRef, orderBy('date', 'desc'),
+        ...(after ? [startAfter(after)] : []), limit(pageSize + 1)));
+      const shown = snapshot.docs.slice(0, pageSize);
+      return {
+        games: shown.map(gameData),
+        cursor: shown.at(-1) ?? null,
+        more: snapshot.docs.length > pageSize,
+        fromCache: snapshot.metadata.fromCache,
+      };
+    },
+
+    /** The number of games, counted by the server. */
+    async countGames() {
+      return (await getCountFromServer(gamesRef)).data().count;
+    },
+
+    /** Whether a game links this tournament or phase, asked of the server after this client's pending writes. */
+    async listEntryInUse(list, id) {
+      requireOnline();
+      await waitForPendingWrites(db);
+      const snapshot = await getDocsFromServer(query(gamesRef,
+        where(list === 'tournaments' ? 'tournamentId' : 'phaseId', '==', id), limit(1)));
+      return !snapshot.empty;
     },
 
     /** All server games after this client's pending writes, for checking list entry use. */

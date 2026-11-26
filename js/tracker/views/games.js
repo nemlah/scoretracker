@@ -10,15 +10,21 @@ import { h } from '../../ui/dom.js';
 import { recountAfter } from '../recount.js';
 import { createEventsPanel } from './events.js';
 
-function parseRoute(route) {
-  const [, , id] = route.split('/');
-  if (id === undefined || id === '') return null;
-  try {
-    return decodeURIComponent(id);
-  } catch {
-    return id;
-  }
+// model.js may be the previous release's, without parseGamesRoute: this fallback returns the same tagged
+// shape with the same rules (one segment, decodable, a valid document id).
+function fallbackParse(route) {
+  const m = /^\/games(?:\/(.*))?$/.exec(route);
+  if (m === null || m[1] === undefined || m[1] === '') return { kind: m === null ? 'invalid' : 'list' };
+  if (m[1].includes('/')) return { kind: 'invalid' };
+  let id;
+  try { id = decodeURIComponent(m[1]); } catch { return { kind: 'invalid' }; }
+  const valid = id !== '' && !id.includes('/') && id !== '.' && id !== '..'
+    && !/^__.*__$/.test(id) && new TextEncoder().encode(id).length <= 1500;
+  return valid ? { kind: 'detail', id } : { kind: 'invalid' };
 }
+
+const parseRoute = route => model.parseGamesRoute?.(route) ?? fallbackParse(route);
+const sameMode = (a, b) => a !== null && a.kind === b.kind && a.id === b.id;
 
 function gameRow(game, lists) {
   const events = game.events ?? [];
@@ -46,7 +52,7 @@ function gameRow(game, lists) {
 
 export function mount(root, ctx) {
   let unmounted = false;
-  let mode = null; // 'list' | id of the game shown in the detail view
+  let mode = null; // { kind: 'list' | 'detail' | 'invalid', id? }, never a bare string: a game id can be 'list'
   let listToken = 0;
   let unwatch = null;
   let detailGame; // undefined until the first snapshot, null once known to be missing
@@ -72,24 +78,92 @@ export function mount(root, ctx) {
   const listStatus = h('p', { class: 'status-line', role: 'status' }, t('gamesLoading'));
   const listEmpty = h('p', { 'data-testid': 'games-empty', hidden: true }, t('gamesEmpty'));
   const listRows = h('ul', { class: 'game-list', 'data-testid': 'games-list' });
-  const listView = h('section', { class: 'games' }, h('h2', {}, t('gamesHeading')), listStatus, listEmpty, listRows);
+  // Only with a repo that pages; the previous repo.js lists everything at once and there is no button.
+  const showMore = h('button', {
+    type: 'button', class: 'btn btn--small', 'data-testid': 'games-more', hidden: true, onclick: () => loadMore(),
+  }, strings.hasString?.('gamesShowMore') === true ? t('gamesShowMore') : 'Show more');
+  const listView = h('section', { class: 'games' }, h('h2', {}, t('gamesHeading')), listStatus, listEmpty, listRows,
+    h('div', { class: 'games-more' }, showMore));
+  let cursor = null;
+  let more = false;
+  let pageLoading = false;
+  let anyFromCache = false;
+  let wasOnline = ctx.getState().online;
 
-  function loadList() {
+  function syncMore() {
+    showMore.hidden = !more;
+    showMore.disabled = pageLoading;
+  }
+
+  // A page read from the cache while the device says it is online (the connection has just returned and
+  // Firestore has not reconnected yet) is read again, quietly, a few times.
+  const CACHED_RETRY_MS = 2000;
+  const CACHED_RETRIES = 5;
+  let retryTimer = null;
+  let retries = 0;
+
+  function loadList({ quiet = false } = {}) {
     const token = listToken += 1;
-    listStatus.hidden = false;
-    listStatus.textContent = t('gamesLoading');
-    listEmpty.hidden = true;
-    listRows.replaceChildren();
-    loadedGames = null;
-    Promise.resolve(ctx.repo.listGames()).then(games => {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    if (!quiet) {
+      retries = 0;
+      listStatus.hidden = false;
+      listStatus.textContent = t('gamesLoading');
+      listEmpty.hidden = true;
+      listRows.replaceChildren();
+      loadedGames = null;
+      cursor = null;
+      more = false;
+      anyFromCache = false;
+      pageLoading = true;
+      syncMore();
+    }
+    const paged = typeof ctx.repo.listGamesPage === 'function';
+    Promise.resolve(paged ? ctx.repo.listGamesPage() : ctx.repo.listGames()).then(result => {
       if (unmounted || token !== listToken) return;
+      const games = paged ? result.games : result;
+      if (paged) {
+        cursor = result.cursor;
+        more = result.more;
+        anyFromCache = result.fromCache === true;
+      }
+      pageLoading = false;
       listStatus.hidden = true;
       listEmpty.hidden = games.length > 0;
       loadedGames = games;
       renderRowsFromGames();
+      syncMore();
+      if (anyFromCache && ctx.getState().online !== false && retries < CACHED_RETRIES) {
+        retries += 1;
+        retryTimer = setTimeout(() => { retryTimer = null; loadList({ quiet: true }); }, CACHED_RETRY_MS);
+      }
+    }, () => {
+      if (unmounted || token !== listToken || quiet) return; // a quiet read that fails keeps the rows shown
+      pageLoading = false;
+      listStatus.textContent = t('gamesLoadFailed');
+      syncMore();
+    });
+  }
+
+  function loadMore() {
+    if (pageLoading || !more || loadedGames === null) return;
+    const token = listToken;
+    pageLoading = true;
+    syncMore();
+    Promise.resolve(ctx.repo.listGamesPage({ after: cursor })).then(result => {
+      if (unmounted || token !== listToken) return;
+      pageLoading = false;
+      cursor = result.cursor;
+      more = result.more;
+      anyFromCache ||= result.fromCache === true;
+      loadedGames = [...loadedGames, ...result.games];
+      renderRowsFromGames();
+      syncMore();
     }, () => {
       if (unmounted || token !== listToken) return;
-      listStatus.textContent = t('gamesLoadFailed');
+      pageLoading = false;
+      syncMore();
     });
   }
 
@@ -289,17 +363,26 @@ export function mount(root, ctx) {
     else infoCompetitionNameField.hidden = infoCompetition.value !== 'tournament';
   }
 
+  const inDetail = id => mode?.kind === 'detail' && mode.id === id;
+
   function startDetail(id) {
     unwatch?.();
     detailGame = undefined;
     detailMeta = null;
     infoFor = null;
     unwatch = ctx.watchGame(id, (game, snapshotMeta) => {
-      if (unmounted || mode !== id) return;
+      if (unmounted || !inDetail(id)) return;
       detailGame = game;
       detailMeta = snapshotMeta;
       renderDetail(ctx.getState());
     });
+  }
+
+  // A route that could not name a game: nothing is subscribed, and the detail view says the game is unavailable.
+  function showInvalid() {
+    detailGame = null;
+    detailMeta = null;
+    infoFor = null;
   }
 
   function stopDetail() {
@@ -311,7 +394,7 @@ export function mount(root, ctx) {
   }
 
   function renderDetail(state) {
-    if (typeof mode !== 'string' || mode === 'list') return;
+    if (mode?.kind === 'list') return;
     const game = detailGame;
     // A missing document that only the cache has answered for is still on its way.
     const loading = game === undefined || (game === null && detailMeta?.fromCache && state.online);
@@ -375,7 +458,7 @@ export function mount(root, ctx) {
   // Once a competition edit is saved the form follows the stored game again, so a later remote re-tag shows up
   // and an opponent-only save cannot send the stale value back. Not when another game is open or a newer edit started.
   function releaseCompetition(id, edits) {
-    if (unmounted || mode !== id || infoFor !== id || competitionEdits !== edits) return;
+    if (unmounted || !inDetail(id) || infoFor !== id || competitionEdits !== edits) return;
     competitionTouched = false;
     autoRelink = false;
     renderDetail(ctx.getState());
@@ -462,19 +545,24 @@ export function mount(root, ctx) {
   }
 
   function update(state) {
-    const id = parseRoute(state.route);
-    const next = id ?? 'list';
-    if (next !== mode) {
-      if (mode !== null && mode !== 'list') stopDetail();
+    const next = parseRoute(state.route);
+    if (!sameMode(mode, next)) {
+      if (mode !== null && mode.kind !== 'list') stopDetail();
       mode = next;
-      if (next === 'list') loadList();
-      else startDetail(next);
+      if (next.kind === 'list') loadList();
+      else if (next.kind === 'detail') startDetail(next.id);
+      else showInvalid();
     }
-    listView.hidden = mode !== 'list';
-    detailView.hidden = mode === 'list';
-    if (mode === 'list') {
+    const online = state.online !== false;
+    // A list whose pages came from the cache while offline is read again from page one once back online.
+    const reload = mode.kind === 'list' && wasOnline === false && online && anyFromCache;
+    wasOnline = online ? true : false;
+    listView.hidden = mode.kind !== 'list';
+    detailView.hidden = mode.kind === 'list';
+    if (mode.kind === 'list') {
+      if (reload) loadList();
       // A rename or a new entry re-tags the loaded rows without reloading the games.
-      if (loadedGames !== null && listsKey() !== shownListsKey) renderRowsFromGames();
+      else if (loadedGames !== null && listsKey() !== shownListsKey) renderRowsFromGames();
       return;
     }
     // Once the reopened game is the team's current game, the live screen can show it.
@@ -491,6 +579,7 @@ export function mount(root, ctx) {
     update,
     unmount() {
       unmounted = true;
+      clearTimeout(retryTimer);
       unwatch?.();
       del.destroy();
       panel.destroy();

@@ -32,41 +32,66 @@ export function mount(root, ctx) {
   // Which entries a game uses, as the server last said. Remove stays off until it is known.
   let used = { tournaments: new Set(), phases: new Set() };
   let usedKnown = false;
-  let checkFailed = false;
+  const failed = new Set(); // 'list/id' of the entries whose last check could not be made
   let checking = false;
   let removing = false;
   let retryTimer = null;
 
+  const keyOf = (list, id) => `${list}/${id}`;
+  const entryRefs = () => LISTS.flatMap(({ list }) => model.listEntries(state.team?.[list]).map(entry => ({ list, id: entry.id })));
+  const checkFailed = () => failed.size > 0;
   const writable = () => state.active === true || state.writable === true;
-  const removable = (list, id) => writable() && state.online !== false && usedKnown && !checkFailed && !removing
-    && !used[list].has(id);
+  const removable = (list, id) => writable() && state.online !== false && usedKnown && !failed.has(keyOf(list, id))
+    && !removing && !used[list].has(id);
 
-  async function readUse() {
+  // Asks about the given entries ({ list, id }) and returns a Map of 'list/id' to true (a game links it), false,
+  // or null (the check could not be made). With this release's repo each entry is one query of its own, in
+  // parallel; with the previous repo.js the whole games list is read once.
+  async function readUse(refs) {
+    const results = new Map();
+    if (typeof ctx.repo.listEntryInUse === 'function') {
+      await Promise.all(refs.map(async ({ list, id }) => {
+        try {
+          results.set(keyOf(list, id), await ctx.repo.listEntryInUse(list, id) === true);
+        } catch {
+          results.set(keyOf(list, id), null); // offline or a read error: the answer is unknown
+        }
+      }));
+      return results;
+    }
     try {
       const games = await ctx.repo.listGamesFromServer();
-      const next = { tournaments: new Set(), phases: new Set() };
+      const linked = { tournaments: new Set(), phases: new Set() };
       for (const game of games) {
         const fields = model.competitionOf(game);
-        if (fields.tournamentId !== undefined) next.tournaments.add(fields.tournamentId);
-        if (fields.phaseId !== undefined) next.phases.add(fields.phaseId);
+        if (fields.tournamentId !== undefined) linked.tournaments.add(fields.tournamentId);
+        if (fields.phaseId !== undefined) linked.phases.add(fields.phaseId);
       }
-      return next;
+      for (const { list, id } of refs) results.set(keyOf(list, id), linked[list].has(id));
     } catch {
-      return null; // offline or a read error: the answer is unknown
+      for (const { list, id } of refs) results.set(keyOf(list, id), null);
     }
+    return results;
   }
 
-  // Takes the result of a check (null when it could not be made). A check that failed while online is
-  // tried again after RETRY_MS, one at a time; offline, update() asks again when the connection returns.
-  function applyUse(next) {
-    if (next) {
-      used = next;
+  // Takes the results of a check. An entry whose check failed while online is tried again after RETRY_MS, one
+  // round at a time and only for the failed entries; offline, update() asks again when the connection returns.
+  function applyUse(results) {
+    for (const [key, value] of results) {
+      const [list, ...rest] = key.split('/');
+      const id = rest.join('/');
+      if (value === null) {
+        failed.add(key);
+        continue;
+      }
+      failed.delete(key);
       usedKnown = true;
-      checkFailed = false;
-      return;
+      used[list][value ? 'add' : 'delete'](id);
     }
-    checkFailed = true;
-    if (state.online !== false && retryTimer === null) {
+    if (results.size === 0) usedKnown = true;
+    const present = new Set(entryRefs().map(({ list, id }) => keyOf(list, id)));
+    for (const key of failed) if (!present.has(key)) failed.delete(key);
+    if (checkFailed() && state.online !== false && retryTimer === null) {
       retryTimer = setTimeout(() => { retryTimer = null; refreshUse(); }, RETRY_MS);
     }
   }
@@ -74,23 +99,25 @@ export function mount(root, ctx) {
   async function refreshUse() {
     if (checking || removing || unmounted) return;
     checking = true;
-    const next = await readUse();
+    // The first round asks about every entry; later rounds only about those whose check failed.
+    const refs = usedKnown ? entryRefs().filter(({ list, id }) => failed.has(keyOf(list, id))) : entryRefs();
+    const results = await readUse(refs);
     checking = false;
     if (unmounted) return;
-    applyUse(next);
+    applyUse(results);
     sync();
   }
 
-  // Looks again at the moment of the click, then removes only an entry no game uses.
+  // Looks again at the moment of the click, at this entry only, then removes it if no game uses it.
   async function remove(list, id) {
     if (removing) return;
     removing = true;
     syncRemoves();
-    const next = await readUse();
+    const results = await readUse([{ list, id }]);
     removing = false;
     if (unmounted) return;
-    applyUse(next);
-    if (next && !next[list].has(id) && writable()) {
+    applyUse(results);
+    if (results.get(keyOf(list, id)) === false && writable()) {
       ctx.repo.removeListEntry(list, id).catch(err => ctx.onWriteError(err));
     }
     sync();
@@ -256,7 +283,7 @@ export function mount(root, ctx) {
 
   function sync() {
     for (const section of sections) section.render();
-    note.hidden = !(checkFailed || state.online === false);
+    note.hidden = !(checkFailed() || state.online === false);
     syncRemoves();
   }
 
@@ -268,7 +295,7 @@ export function mount(root, ctx) {
       state = next;
       sync();
       // A failed check is asked again once the device is online, unless a retry is already waiting.
-      if (checkFailed && next.online !== false && retryTimer === null) refreshUse();
+      if (checkFailed() && next.online !== false && retryTimer === null) refreshUse();
     },
     unmount() {
       unmounted = true;

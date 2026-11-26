@@ -64,9 +64,9 @@ export function mount(root, ctx) {
 
   async function loadGameCount() {
     try {
-      const games = await ctx.repo.listGames();
+      const count = ctx.repo.countGames ? await ctx.repo.countGames() : (await ctx.repo.listGames()).length;
       if (unmounted) return;
-      gamesCount.textContent = games.length;
+      gamesCount.textContent = count;
       gamesCount.hidden = false;
     } catch {
       // The optional count stays hidden if the list is unavailable.
