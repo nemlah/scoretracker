@@ -216,6 +216,48 @@ test('a slow foreground read does not put back a control document a listener has
   dropNetworkNoise(problems);
 });
 
+const teamServerSnaps = page => page.evaluate(() => window.__snaps.filter(snap => snap.path === 'team/main' && !snap.fromCache).length);
+
+// The pointer leaves the game and comes back while the foreground read (which saw the game missing) is held. The
+// reopened game watch has delivered nothing yet, so the read's answer says nothing about it.
+test('a game watch replaced during the foreground read is not confirmed by that read', async ({ page, baseURL }) => {
+  blocked.url = new URL('/js/watchRetry.js', baseURL).href;
+  await page.route('**/js/watchRetry.js', route => route.abort());
+  await seed('team/main', { roster, currentGameId: 'g1' }); // no games/g1: the pointer names a game that is not there
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await waitForTrackerControl();
+  await otherDeviceTakesControl();
+  // The second watch of games/g1 (the one opened when the pointer comes back) holds back everything it would deliver.
+  await instrumentRepo(page, { confirmFromServer: { hold: true }, 'games/g1': { holdAttempt: 2 } });
+  await reloadTracker(page, problems);
+  await page.waitForFunction(() => ['control/tracker', 'team/main', 'games/g1']
+    .every(path => window.__snaps?.some(snap => snap.path === path && snap.fromCache === false)));
+  await expect(page.getByTestId('home-new')).toBeVisible({ timeout: SERVER_WAIT });
+  // The server has said the game is absent, and nothing is live: no banner.
+  await expect(page.getByTestId('takeover-banner')).toBeHidden({ timeout: SERVER_WAIT });
+  await setVisibility(page, 'hidden');
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await setVisibility(page, 'visible');
+  await page.waitForFunction(() => window.__confirmReady === true);
+  // The pointer goes away and comes back, each move delivered by the team listener.
+  for (const pointer of [null, 'g1']) {
+    const before = await teamServerSnaps(page);
+    await update('team/main', { currentGameId: pointer });
+    await expect.poll(() => teamServerSnaps(page), { timeout: SERVER_WAIT }).toBeGreaterThan(before);
+  }
+  await expect.poll(() => counter(page, '__queued', 'games/g1'), { timeout: SERVER_WAIT }).toBeGreaterThanOrEqual(1);
+
+  await page.evaluate(() => window.__releaseConfirm());
+  await page.waitForFunction(() => window.__confirmed >= 1);
+  // isVisible() answers at once: the read's "game missing" must not stand for the new watch.
+  expect(await page.getByTestId('takeover-banner').isVisible()).toBe(true);
+  // The new watch's own answer then confirms the screen.
+  await page.evaluate(() => window.__releaseHeld('games/g1'));
+  await expect(page.getByTestId('takeover-banner')).toBeHidden({ timeout: SERVER_WAIT });
+  dropNetworkNoise(problems);
+});
+
 // A team snapshot with the same pointer arrives while the foreground read is held. The game listener has no retry here
 // and delivers nothing new, so only the read can confirm the game: the read's game part must still apply.
 test('a same-pointer team snapshot during the foreground read keeps the game confirmation', async ({ page, baseURL }) => {
@@ -239,10 +281,11 @@ test('a same-pointer team snapshot during the foreground read keeps the game con
   await expect(page.getByTestId('takeover-banner')).toBeVisible();
   await setVisibility(page, 'visible');
   await page.waitForFunction(() => window.__confirmReady === true);
-  // Same pointer, another field: the team listener delivers a server snapshot while the read is held.
+  // Same pointer, another field: the team listener delivers a server snapshot while the read is held. Only snapshots
+  // delivered after the write count.
+  const before = await teamServerSnaps(page);
   await update('team/main', { roster: [{ ...roster[0], name: 'Renamed' }, roster[1]] });
-  await page.waitForFunction(() => window.__snaps?.some(snap => snap.path === 'team/main' && snap.fromCache === false && snap.pointer === 'g1')
-    && window.__snaps.filter(snap => snap.path === 'team/main' && snap.fromCache === false).length >= 2);
+  await expect.poll(() => teamServerSnaps(page), { timeout: SERVER_WAIT }).toBeGreaterThan(before);
 
   await page.evaluate(() => window.__releaseConfirm());
   // The read confirms team, control and game: the screen can be trusted again.

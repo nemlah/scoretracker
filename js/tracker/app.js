@@ -581,6 +581,8 @@ function syncGameWatch() {
   gameConfirmed = false;
   state.game = null;
   state.gameLoaded = wanted === null;
+  // A new (or no) watch voids any foreground read still in flight: its answer was about the watch before.
+  gameRev += 1;
   state.gameOffline = false;
   gamePending = false;
   syncPending();

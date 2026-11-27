@@ -169,6 +169,8 @@ export const recordedHome = async page => ({
 // them), and every later snapshot of that listener is dropped, as with a listener the SDK has ended.
 // { fail: n, holdReopen: true } also holds the first server snapshot of the next call on that path (the reopen)
 // until window.__releaseHeld(path); a held callback stays tied to its own subscription.
+// { holdAttempt: n } holds the first snapshot of the n-th watch() call on that path (cached or server) until
+// window.__releaseHeld(path): the watch delivers nothing until then, and later snapshots of the path queue behind it.
 // Each window.__snaps entry carries `attempt`, the number of its watch() call on that path.
 // window.__infoCalls lists the arguments of every repo.updateGameInfo call.
 // window.__confirmed counts the repo.confirmFromServer reads that have completed (the tracker's check back from the
@@ -263,6 +265,9 @@ export async function instrumentRepo(page, slow = {}) {
         cb(rule.miss ? null : data, { fromCache: true, hasPendingWrites });
         if (rule.holdMs) setTimeout(() => window.__releaseHeld(ref.path), rule.holdMs);
       } else if (rule?.holdReopen && mine.n === (rule.fail ?? 0) + 1 && !fromCache && !mine.held) {
+        mine.held = true;
+        enqueue();
+      } else if (rule?.holdAttempt === mine.n && !mine.held) {
         mine.held = true;
         enqueue();
       } else {
