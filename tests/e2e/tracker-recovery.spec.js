@@ -216,6 +216,40 @@ test('a slow foreground read does not put back a control document a listener has
   dropNetworkNoise(problems);
 });
 
+// A team snapshot with the same pointer arrives while the foreground read is held. The game listener has no retry here
+// and delivers nothing new, so only the read can confirm the game: the read's game part must still apply.
+test('a same-pointer team snapshot during the foreground read keeps the game confirmation', async ({ page, baseURL }) => {
+  blocked.url = new URL('/js/watchRetry.js', baseURL).href;
+  await page.route('**/js/watchRetry.js', route => route.abort());
+  await seed('team/main', { roster, currentGameId: 'g1' });
+  await seed('games/g1', { ...liveGame([goal('e1', 1000)]), status: 'final', period: 4 });
+  await page.goto(HOME_URL);
+  await unlockTracker(page);
+  await waitForTrackerControl();
+  await otherDeviceTakesControl();
+  await instrumentRepo(page, { confirmFromServer: { hold: true } });
+  await reloadTracker(page, problems);
+  // The server has answered for all three documents (the cache first showed this device in control).
+  await page.waitForFunction(() => ['control/tracker', 'team/main', 'games/g1']
+    .every(path => window.__snaps?.some(snap => snap.path === path && snap.fromCache === false)));
+  // Everything on screen is confirmed and no game is live: the device may take control by itself, so no banner.
+  await expect(page.getByTestId('home-new')).toBeVisible({ timeout: SERVER_WAIT });
+  await expect(page.getByTestId('takeover-banner')).toBeHidden({ timeout: SERVER_WAIT });
+  await setVisibility(page, 'hidden');
+  await expect(page.getByTestId('takeover-banner')).toBeVisible();
+  await setVisibility(page, 'visible');
+  await page.waitForFunction(() => window.__confirmReady === true);
+  // Same pointer, another field: the team listener delivers a server snapshot while the read is held.
+  await update('team/main', { roster: [{ ...roster[0], name: 'Renamed' }, roster[1]] });
+  await page.waitForFunction(() => window.__snaps?.some(snap => snap.path === 'team/main' && snap.fromCache === false && snap.pointer === 'g1')
+    && window.__snaps.filter(snap => snap.path === 'team/main' && snap.fromCache === false).length >= 2);
+
+  await page.evaluate(() => window.__releaseConfirm());
+  // The read confirms team, control and game: the screen can be trusted again.
+  await expect(page.getByTestId('takeover-banner')).toBeHidden({ timeout: SERVER_WAIT });
+  dropNetworkNoise(problems);
+});
+
 // The editor listener is down: whether this device may take control cannot be judged from what it last showed.
 test('a failed editor listener keeps a non-active device from taking control by itself', async ({ page }) => {
   await page.goto(HOME_URL);
@@ -325,6 +359,33 @@ test.describe('mixed module cache', () => {
     await expect.poll(async () => (await get('games/g1')).events.length).toBe(1);
     await expect(page.getByTestId('score-us')).toHaveText('1');
     await expect.poll(() => journalOf(page)).toEqual([]);
+  });
+
+  // The module arrives after boot has stopped waiting for it and before sign-in answers: it must not be forgotten.
+  test('a watchRetry.js that arrives after the wait but before sign-in still keeps listeners alive', async ({ page }) => {
+    let moduleRoute = null;
+    let signIn = null;
+    await page.route('**/js/watchRetry.js', route => { moduleRoute = route; });
+    await page.route(/accounts:signUp/, route => { signIn = route; });
+    await seed('team/main', { roster });
+    await instrumentRepo(page, { 'team/main': { fail: 1 } });
+    await page.goto(HOME_URL, { waitUntil: 'commit' });
+    await expect.poll(() => moduleRoute !== null && signIn !== null, { timeout: SERVER_WAIT }).toBe(true);
+    // Nothing-happened check: boot stops waiting for the module 2 s after it asked, and nothing on the page says when;
+    // the wait is longer than that. The end condition is the module then arriving, below.
+    await page.waitForTimeout(3000);
+    const arrived = page.waitForResponse('**/js/watchRetry.js');
+    await moduleRoute.continue();
+    await arrived;
+    // Evaluated by now (the page's own import of it was asked for first).
+    await page.evaluate(() => import('/js/watchRetry.js'));
+    await signIn.continue();
+    await unlockTracker(page);
+    // The team listener ends after its first answer; reopening it needs the module.
+    await expect.poll(() => counter(page, '__attempts', 'team/main'), { timeout: SERVER_WAIT }).toBeGreaterThanOrEqual(2);
+    expect(await counter(page, '__failures', 'team/main')).toBe(1);
+    await expect(page.getByTestId('offline-banner')).toBeHidden({ timeout: SERVER_WAIT });
+    dropNetworkNoise(problems);
   });
 
   test('the tracker starts and records a goal when watchRetry.js fails to load', async ({ page, baseURL }) => {

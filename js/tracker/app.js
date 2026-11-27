@@ -780,8 +780,11 @@ async function boot() {
       retryModule,
       new Promise(resolve => { giveUp = setTimeout(resolve, WATCH_RETRY_WAIT_MS, null); }),
     ]);
-    [state.uid, watchRetry] = await Promise.all([signIn(auth), bounded]);
+    const [uid, early] = await Promise.all([signIn(auth), bounded]);
     clearTimeout(giveUp);
+    state.uid = uid;
+    // A module that arrived after the wait but before sign-in is already stored: never assign over it.
+    watchRetry ??= early;
   } catch (err) {
     console.warn('Tracker failed to start', err);
     bootFailed = true;
@@ -890,7 +893,10 @@ async function reconfirm() {
   }
   // The game follows the team's pointer; a pointer that moved is picked up by the next render,
   // and the new game's own snapshot then confirms it. A game that changed is left to its listener.
-  const pointerHolds = teamHolds && gameRev === seen.game && watchedGameId === (fresh.team?.currentGameId ?? null);
+  // A team snapshot that moved the pointer has re-synced watchedGameId already (its callback renders, and render
+  // calls syncGameWatch, before any await), so the comparison below still catches a moved pointer. One that kept the
+  // pointer leaves the game part valid.
+  const pointerHolds = gameRev === seen.game && watchedGameId === (fresh.team?.currentGameId ?? null);
   if (pointerHolds && watchedGameId !== null && fresh.game === null) {
     // The server read says the pointed-at game does not exist, which a cached null could not. This
     // comes before any status comparison: a game stored without a status would match null's.
