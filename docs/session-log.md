@@ -1,5 +1,34 @@
 # Session log
 
+## 27/11/2026 - Fix release deployed (main edb81b1)
+- **Shipped:** review findings A1–A5, M1–M3, M9 and cleanup C1–C2 (12 tasks + 5b), subagent-driven (sonnet implements, Codex reviews read-only). 39 commits ff-merged and pushed; Pages built edb81b1; SW cache `wp-shell-v7`.
+- **Key changes:**
+  - one version per event id (repo raw-event memory);
+  - same-day pointer and End/Delete guards;
+  - tracker and viewer listeners recover via `js/watchRetry.js` (`keepWatching`, backoff 2/5/15/30/60 s);
+  - Past games paging and a count;
+  - a cached null no longer opens New Game over a live game;
+  - the foreground reconfirm is fenced per listener;
+  - release-2 compatibility code and unused strings removed.
+- **Final review (Codex high):** 1 Critical (a late foreground read could re-point the tracker to an old game; pre-existing), 5 Important and 2 Minor, all fixed. Two residuals were fixed after the owner said "fix first". Parked (M2): Detail → Home → Past games during a slow delete can keep the deleted row until the next list load.
+- **Tests:** unit 418, emulator 60, e2e 1144 passed, plus 2 WebKit load flakes that pass alone. WebKit tracker-access run 5 times fails 1/120 on both edb81b1 and 67cd574.
+- **Live check:** the viewer shows results on v7, the tracker reaches unlock, no console errors.
+- **Owner action:** open the tracker and viewer once on Wi-Fi on every phone before the next game.
+- **Where we left off:** back to the multi-club design. Open question: each club runs its own copy vs one shared site. Recommendation: Option C (club-aware code, one club per Firebase project).
+
+## 26/11/2026 - Whole-codebase review (Claude + Codex high); multi-team planning started (main 67cd574)
+- **Done:** read-only review by Claude Opus and Codex gpt-6.2-sol (high) in parallel, merged into `docs/code-review-2026-11-26.md` (uncommitted). No code changed. Unit 356/356.
+- **Top findings:** A1 duplicate event ids double-count (two writers); A2 New Game over a live game the cache lacks; A3 same-day pointer (R8); A4 dead listeners never re-subscribe (R6); A5 SW `caches.open` outside try (R7); A6/A7 ownership and recount races (a design project).
+- **Prior review:** R1 fixed, R6 partly; R2–R5 and R7–R11 still open.
+- **Cleanup:** release-2 compat code removable now; 44 mixed-release shims (root cause: unversioned module URLs); CSS clean except `.small`.
+- **Fix release first (owner: "lets do the fixes and then revert to multiclub changes"):**
+  - Design `docs/superpowers/specs/2026-11-26-fix-release-design.md` (approved), plan `docs/superpowers/plans/2026-11-26-fix-release.md` (12 tasks). Both uncommitted.
+  - **Routing reverted (owner):** back to the 11/11 setup. Sonnet implements and Codex reviews read-only (medium per task, high for plan and final). Global CLAUDE.md edited; memory `routing-sonnet-implements`.
+  - Reviews: builder check; Codex design review high + re-check; Codex plan review high + re-check. Rulings are in the spec's table.
+  - Out of scope: two writers with one uid (two tabs, A7(1)), offline re-point, SW install changes, and a cache-only feed during listener backoff (accepted limitation).
+  - Production checked: 4 games, no duplicate event ids, all have `createdAt`.
+- **Where we left off:** the plan was executed on 26–27/11 and deployed; see the 27/11 entry.
+
 ## 24/11/2026 - Competition lists + viewer "Showing" selector deployed (main ff491f9)
 - **Built:**
   - Tournaments and league phases are managed lists in `team/main` (`tournaments`, `phases`; random ids). The game forms pick from them, and "Add new…" writes the entry in the same batch as the game.
